@@ -1,0 +1,8 @@
+interface:
+  display_name: Browser Switch Tab
+  short_description: Switch to a specific browser tab by index
+  default_prompt: Use $browser-switch-tab
+i18n:
+  zh:
+    name: 切换标签页
+    description: 按索引切换到指定浏览器标签页，用于在不同页面间切换。

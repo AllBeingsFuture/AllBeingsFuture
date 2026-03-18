@@ -1,0 +1,8 @@
+interface:
+  display_name: Get Memory Stats
+  short_description: Get memory system statistics including total count and breakd...
+  default_prompt: Use $get-memory-stats
+i18n:
+  zh:
+    name: 记忆统计
+    description: 获取记忆系统统计信息，包括记忆总数和按类型的分布。

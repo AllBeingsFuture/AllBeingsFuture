@@ -1,0 +1,9 @@
+interface:
+  display_name: Load Skill
+  short_description: Load a newly created skill from skills/ directory to make it
+    ...
+  default_prompt: Use $load-skill
+i18n:
+  zh:
+    name: 加载技能
+    description: 从 skills/ 目录加载新创建的技能，使其立即可用。

@@ -1,0 +1,8 @@
+interface:
+  display_name: Skip Profile Question
+  short_description: Skip profile question when user explicitly refuses to answer
+  default_prompt: Use $skip-profile-question
+i18n:
+  zh:
+    name: 跳过画像问题
+    description: 当用户明确拒绝回答画像问题时，跳过当前问题。

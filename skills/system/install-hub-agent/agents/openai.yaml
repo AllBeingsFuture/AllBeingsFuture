@@ -1,0 +1,8 @@
+interface:
+  display_name: Install Hub Agent
+  short_description: Download and install an Agent from the AllBeingsFuture Platform Age...
+  default_prompt: Use $install-hub-agent
+i18n:
+  zh:
+    name: 安装商店 Agent
+    description: 从 AllBeingsFuture 平台 Agent 商店下载并安装 Agent。

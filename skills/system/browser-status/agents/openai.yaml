@@ -1,0 +1,8 @@
+interface:
+  display_name: Browser Status
+  short_description: Check browser current state including open status, current UR...
+  default_prompt: Use $browser-status
+i18n:
+  zh:
+    name: 浏览器状态
+    description: 检查浏览器当前状态，包括打开状态、当前 URL、页面标题和标签数量。

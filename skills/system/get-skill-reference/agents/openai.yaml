@@ -1,0 +1,8 @@
+interface:
+  display_name: Get Skill Reference
+  short_description: Get skill reference documentation for additional guidance
+  default_prompt: Use $get-skill-reference
+i18n:
+  zh:
+    name: 技能参考文档
+    description: 获取技能的参考文档，提供详细技术文档、示例和高级用法说明。

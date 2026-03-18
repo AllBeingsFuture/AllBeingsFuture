@@ -1,0 +1,117 @@
+/**
+ * 应用主布局 - 三栏分栏布局（对齐 claudeops）
+ */
+
+import { Allotment } from 'allotment'
+import 'allotment/dist/style.css'
+import { ChevronLeft, ChevronRight, Users, X } from 'lucide-react'
+import Sidebar from './Sidebar'
+import MainPanel from './MainPanel'
+
+import StatusBar from './StatusBar'
+import SearchPanel from './SearchPanel'
+import HistoryPanel from './HistoryPanel'
+import PanelErrorBoundary from '../common/PanelErrorBoundary'
+import ActivityBar from './ActivityBar'
+import TitleBar from './TitleBar'
+import { useUIStore } from '../../stores/uiStore'
+import { useTeamStore } from '../../stores/teamStore'
+import SettingsModal from '../settings/SettingsModal'
+import SessionCreator from '../sessions/SessionCreator'
+import QuickOpenDialog from '../file-manager/QuickOpenDialog'
+
+export default function AppLayout() {
+  const sidebarCollapsed = useUIStore(s => s.sidebarCollapsed)
+
+  const toggleSidebar = useUIStore(s => s.toggleSidebar)
+
+  const showSearchPanel = useUIStore(s => s.showSearchPanel)
+  const showHistoryPanel = useUIStore(s => s.showHistoryPanel)
+  const showQuickOpen = useUIStore(s => s.showQuickOpen)
+  const teamsMode = useUIStore(s => s.teamsMode)
+  const setTeamsMode = useUIStore(s => s.setTeamsMode)
+  const activePanelLeft = useUIStore(s => s.activePanelLeft)
+
+  const primaryPane = useUIStore(s => s.primaryPane)
+  const secondaryPane = useUIStore(s => s.secondaryPane)
+  const showSettings = useUIStore(s => s.showSettings)
+  const setShowSettings = useUIStore(s => s.setShowSettings)
+  const showNewSessionDialog = useUIStore(s => s.showNewSessionDialog)
+  const setShowNewSessionDialog = useUIStore(s => s.setShowNewSessionDialog)
+
+  const mainPanelResetKey = `${primaryPane}:${secondaryPane}`
+
+  return (
+    <div className="flex flex-col h-screen bg-bg-primary">
+      <TitleBar />
+      <div className="flex-1 overflow-hidden flex">
+        <ActivityBar onOpenSettings={() => setShowSettings(true)} />
+
+        {teamsMode ? (
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 border-b border-indigo-500/20 shrink-0">
+              <Users className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-xs font-medium text-indigo-400">Agent Teams 模式</span>
+              <div className="flex-1" />
+              <button
+                onClick={() => setTeamsMode(false)}
+                className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                <X className="w-3 h-3" />
+                返回普通模式
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {/* TeamsLayout placeholder */}
+              <div className="flex items-center justify-center h-full text-text-muted">Teams 模式</div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-hidden relative group">
+            <Allotment>
+              {!sidebarCollapsed && (
+                <Allotment.Pane preferredSize={280} minSize={200} maxSize={400}>
+                  <PanelErrorBoundary title="侧边栏" key={activePanelLeft}>
+                    <Sidebar />
+                  </PanelErrorBoundary>
+                </Allotment.Pane>
+              )}
+
+              <Allotment.Pane>
+                <div className="relative h-full">
+                  <PanelErrorBoundary title="主内容区" key={mainPanelResetKey}>
+                    <MainPanel />
+                  </PanelErrorBoundary>
+
+                  <button
+                    onClick={toggleSidebar}
+                    className="panel-toggle-btn left-0 rounded-r-md"
+                    title={sidebarCollapsed ? '展开左侧面板' : '收起左侧面板'}
+                  >
+                    {sidebarCollapsed ? (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                </div>
+              </Allotment.Pane>
+
+            </Allotment>
+          </div>
+        )}
+      </div>
+
+      <StatusBar />
+      {showSearchPanel && <SearchPanel />}
+      {showHistoryPanel && <HistoryPanel />}
+      {showQuickOpen && <QuickOpenDialog />}
+      {showNewSessionDialog && <SessionCreator onClose={() => setShowNewSessionDialog(false)} />}
+
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
+    </div>
+  )
+}

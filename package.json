@@ -1,0 +1,81 @@
+{
+  "name": "allbeingsfuture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AllBeingsFuture - AI Workbench (Electron + React)",
+  "main": "electron/dist/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:electron\" \"npm run dev:renderer\"",
+    "dev:renderer": "cd frontend && vite",
+    "dev:electron": "tsc -p electron/tsconfig.json && electron .",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "cd frontend && npm run build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "pack": "npm run build && electron-builder --win",
+    "postinstall": "cd frontend && npm install"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.62",
+    "better-sqlite3": "^11.7.0",
+    "claude": "^0.1.1",
+    "electron-store": "^10.0.0",
+    "recharts": "^3.8.0",
+    "uuid": "^11.1.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/uuid": "^10.0.0",
+    "concurrently": "^9.1.0",
+    "electron": "^33.3.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "com.allbeingsfuture.app",
+    "productName": "AllBeingsFuture",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/dist/**/*",
+      "electron/preload.cjs",
+      "frontend/dist/**/*",
+      "bridge/**/*",
+      "mcps/**/*",
+      "skills/**/*",
+      "resources/**/*",
+      "appicon.ico"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "appicon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/node-pty/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "mcps",
+        "to": "mcps"
+      },
+      {
+        "from": "skills",
+        "to": "skills"
+      },
+      {
+        "from": "resources",
+        "to": "resources"
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+interface:
+  display_name: Browser New Tab
+  short_description: Open new browser tab and navigate to URL (keeps current page
+    ...
+  default_prompt: Use $browser-new-tab
+i18n:
+  zh:
+    name: 新建标签页
+    description: 在新标签页中打开 URL，保持当前页面不变，支持多任务并行。

@@ -1,0 +1,8 @@
+interface:
+  display_name: Search Hub Agents
+  short_description: Search for Agents on the AllBeingsFuture Platform Agent Store
+  default_prompt: Use $search-hub-agents
+i18n:
+  zh:
+    name: 搜索 Agent 商店
+    description: 在 AllBeingsFuture 平台 Agent 商店中搜索 Agent。

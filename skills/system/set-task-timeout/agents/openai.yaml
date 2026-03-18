@@ -1,0 +1,8 @@
+interface:
+  display_name: Set Task Timeout
+  short_description: Adjust current task timeout policy
+  default_prompt: Use $set-task-timeout
+i18n:
+  zh:
+    name: 设置任务超时
+    description: 调整当前任务的超时策略，适用于预期耗时较长的任务。
