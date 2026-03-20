@@ -1,0 +1,44 @@
+# AllBeingsFuture worktree isolation
+.allbeingsfuture-worktrees/
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+bridge/node_modules/
+
+# Build output
+bin/
+frontend/dist/
+electron/dist/
+release/
+*.exe
+installer_output/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Task runner cache
+.task/
+
+# Claude
+.claude/
+
+# ABF worktree isolation
+.abf-worktrees/

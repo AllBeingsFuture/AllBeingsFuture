@@ -1,0 +1,11 @@
+{
+  "name": "allbeingsfuture-mcp-server",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "AllBeingsFuture Agent MCP Server - bridges AI CLI tools to Go backend",
+  "main": "AgentMCPServer.js",
+  "scripts": {
+    "start": "node AgentMCPServer.js"
+  }
+}

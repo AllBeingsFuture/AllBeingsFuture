@@ -1,0 +1,8 @@
+interface:
+  display_name: Get Image File
+  short_description: Get local file path of image sent by user
+  default_prompt: Use $get-image-file
+i18n:
+  zh:
+    name: 获取图片文件
+    description: 获取用户发送的图片的本地文件路径，用于处理或分析图片内容。

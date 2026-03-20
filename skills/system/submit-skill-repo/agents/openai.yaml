@@ -1,0 +1,8 @@
+interface:
+  display_name: Submit Skill Repo
+  short_description: Submit Skill Repo
+  default_prompt: Use $submit-skill-repo
+i18n:
+  zh:
+    name: 提交技能仓库
+    description: 将 GitHub 仓库提交到 AllBeingsFuture Skill Store 索引。

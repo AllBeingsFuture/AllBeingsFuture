@@ -1,0 +1,8 @@
+interface:
+  display_name: Get Session Logs
+  short_description: Get current session system logs
+  default_prompt: Use $get-session-logs
+i18n:
+  zh:
+    name: 会话日志
+    description: 获取当前会话的系统日志，用于排查命令执行失败、错误或理解操作结果。
