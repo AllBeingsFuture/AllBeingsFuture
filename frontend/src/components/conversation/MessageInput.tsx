@@ -328,7 +328,7 @@ function MessageInput({
       onDrop={handleDrop}
     >
       {dragging && (
-        <div className="absolute inset-2 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-400/40 bg-blue-500/[0.06] backdrop-blur-sm">
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-400/40 bg-blue-500/[0.06] backdrop-blur-sm">
           <div className="flex flex-col items-center gap-2 text-blue-400">
             <Upload size={24} className="animate-bounce" />
             <span className="text-sm font-medium">拖放文件到这里</span>

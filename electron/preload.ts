@@ -57,10 +57,21 @@ const electronAPI = {
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
 // ---- Native File/Folder Drop Handler ----
-// In contextIsolation mode, the renderer's File objects may lose the Electron-specific
+// In contextIsolation mode, the renderer's File objects lose the Electron-specific
 // `.path` property. The preload world has reliable access to File.path, so we capture
 // dropped paths here and relay them via IPC → main → renderer ('files-dropped').
+
+// Global dragover prevention — required for the browser to allow drop events.
+// Without this, the default behavior is to deny drops (and navigate to the file).
+document.addEventListener('dragover', (event) => {
+  event.preventDefault()
+})
+
+// Use capture phase so this fires BEFORE React's synthetic event handler,
+// ensuring we extract File.path before any other handler might clear dataTransfer.
 document.addEventListener('drop', (event) => {
+  event.preventDefault()
+
   const paths: string[] = []
   const seen = new Set<string>()
 
@@ -93,7 +104,7 @@ document.addEventListener('drop', (event) => {
   if (paths.length > 0) {
     ipcRenderer.send('native-files-dropped', paths)
   }
-})
+}, true)
 
 // Type declaration for renderer
 export type ElectronAPI = typeof electronAPI

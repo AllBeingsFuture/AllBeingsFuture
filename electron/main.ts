@@ -105,6 +105,21 @@ function createWindow() {
 
   mainWindow.loadURL(getRendererUrl())
 
+  // Safety net: intercept file:// navigations caused by unhandled file drops.
+  // If a drop event's preventDefault() somehow fails, the browser will try to
+  // navigate to the dropped file. Catch that here and relay as files-dropped.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('file://')) {
+      event.preventDefault()
+      try {
+        const filePath = decodeURIComponent(url.replace(/^file:\/\/\//, ''))
+        if (filePath) {
+          mainWindow?.webContents.send('files-dropped', [filePath])
+        }
+      } catch { /* ignore malformed URLs */ }
+    }
+  })
+
   if (isDev) {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
