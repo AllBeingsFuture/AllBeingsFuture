@@ -76,6 +76,30 @@ export function detectGitBashPath(preferredPath?: string): string | undefined {
   return undefined
 }
 
+export function detectGitCmdPath(): string | undefined {
+  // Check well-known Git installation directories on Windows
+  for (const candidate of [
+    'C:\\Program Files\\Git\\cmd',
+    'D:\\Git\\cmd',
+    'C:\\Program Files (x86)\\Git\\cmd',
+    'D:\\Program Files\\Git\\cmd',
+  ]) {
+    if (existsSync(path.join(candidate, 'git.exe'))) {
+      return candidate
+    }
+  }
+
+  // Derive from findCommandInPath results
+  for (const gitExe of findCommandInPath('git')) {
+    const dir = path.dirname(gitExe)
+    if (existsSync(path.join(dir, 'git.exe'))) {
+      return dir
+    }
+  }
+
+  return undefined
+}
+
 export function detectNodeExecutablePath(preferredPath?: string): string | undefined {
   const candidates = new Set<string>()
 
@@ -120,6 +144,14 @@ export function buildChildProcessEnv(envOverrides?: Record<string, string>): Nod
   const npmGlobalBin = path.join(os.homedir(), 'AppData', 'Roaming', 'npm')
   if (existsSync(npmGlobalBin)) {
     prependPathEntry(pathEntries, npmGlobalBin)
+  }
+
+  // Ensure Git is on PATH — Electron may inherit a PATH without Git
+  if (process.platform === 'win32') {
+    const gitPath = detectGitCmdPath()
+    if (gitPath) {
+      prependPathEntry(pathEntries, gitPath)
+    }
   }
 
   env.PATH = pathEntries.join(path.delimiter)

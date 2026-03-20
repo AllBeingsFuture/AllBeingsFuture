@@ -5,14 +5,33 @@
  */
 
 import { execFile } from 'node:child_process'
+import path from 'node:path'
 import { promisify } from 'node:util'
+import { detectGitCmdPath } from '../bridge/runtime.js'
 
 const execFileAsync = promisify(execFile)
+
+let resolvedGitPath = ''
+
+function getGitExecutable(): string {
+  if (resolvedGitPath) return resolvedGitPath
+
+  if (process.platform === 'win32') {
+    const cmdDir = detectGitCmdPath()
+    if (cmdDir) {
+      resolvedGitPath = path.join(cmdDir, 'git.exe')
+      return resolvedGitPath
+    }
+  }
+
+  resolvedGitPath = 'git'
+  return resolvedGitPath
+}
 
 export class GitService {
   private async git(args: string[], cwd: string): Promise<string> {
     try {
-      const { stdout } = await execFileAsync('git', args, {
+      const { stdout } = await execFileAsync(getGitExecutable(), args, {
         cwd,
         maxBuffer: 10 * 1024 * 1024,
         windowsHide: true,
