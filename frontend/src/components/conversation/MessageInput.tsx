@@ -277,6 +277,7 @@ function MessageInput({
         const filePath = (file as any).path as string | undefined
 
         if (filePath) {
+          void addFileByPath(filePath)
           continue
         }
 
@@ -285,7 +286,7 @@ function MessageInput({
         }
       }
     }
-  }, [addImageFile])
+  }, [addFileByPath, addImageFile])
 
   useIpcEvent<string[]>('files-dropped', useCallback((paths: string[]) => {
     if (!paths || paths.length === 0) return
