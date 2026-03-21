@@ -442,7 +442,7 @@ function MessageInput({
               if (file.type.startsWith('image/')) {
                 addImageFile(file)
               } else {
-                const path = (file as any).path || file.name
+                const path = window.electronAPI?.getPathForFile?.(file) || (file as any).path || file.name
                 if (path) void addFileByPath(path)
               }
             }

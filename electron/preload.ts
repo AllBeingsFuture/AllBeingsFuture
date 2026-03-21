@@ -9,7 +9,7 @@
  * Also provides event listening for push events from main → renderer.
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 // ---- IPC Bridge ----
 
@@ -51,15 +51,39 @@ const electronAPI = {
   send: (channel: string, ...args: any[]) => {
     ipcRenderer.send(channel, ...args)
   },
+
+  /**
+   * Get the file system path for a File object (Electron 29+).
+   * Returns empty string if the File has no backing path.
+   */
+  getPathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return (file as any).path || ''
+    }
+  },
 }
 
 // Expose to renderer
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
+// ---- Utility: get file path from a File object ----
+// Electron 29+ recommends webUtils.getPathForFile() over the deprecated File.path.
+// webUtils.getPathForFile() works reliably with contextIsolation.
+function getFilePath(file: File): string {
+  try {
+    return webUtils.getPathForFile(file)
+  } catch {
+    // Fallback for older Electron or edge cases
+    return (file as any).path || ''
+  }
+}
+
 // ---- Native File/Folder Drop Handler ----
 // In contextIsolation mode, the renderer's File objects lose the Electron-specific
-// `.path` property. The preload world has reliable access to File.path, so we capture
-// dropped paths here and relay them via IPC → main → renderer ('files-dropped').
+// `.path` property. We use webUtils.getPathForFile() (Electron 29+) to reliably
+// extract file paths and relay them via IPC → main → renderer ('files-dropped').
 
 // Global dragover prevention — required for the browser to allow drop events.
 // Without this, the default behavior is to deny drops (and navigate to the file).
@@ -68,7 +92,7 @@ document.addEventListener('dragover', (event) => {
 })
 
 // Use capture phase so this fires BEFORE React's synthetic event handler,
-// ensuring we extract File.path before any other handler might clear dataTransfer.
+// ensuring we extract file paths before any other handler might clear dataTransfer.
 document.addEventListener('drop', (event) => {
   event.preventDefault()
 
@@ -86,7 +110,7 @@ document.addEventListener('drop', (event) => {
   const files = event.dataTransfer?.files
   if (files) {
     for (let i = 0; i < files.length; i++) {
-      addPath((files[i] as any).path)
+      addPath(getFilePath(files[i]))
     }
   }
 
@@ -97,7 +121,7 @@ document.addEventListener('drop', (event) => {
       const item = event.dataTransfer.items[i]
       if (item.kind !== 'file') continue
       const file = item.getAsFile()
-      if (file) addPath((file as any).path)
+      if (file) addPath(getFilePath(file))
     }
   }
 
