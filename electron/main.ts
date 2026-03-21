@@ -77,7 +77,7 @@ function getRendererUrl() {
 }
 
 function getIconPath() {
-  return path.join(__dirname, '..', 'appicon.ico')
+  return path.join(__dirname, '..', '..', 'appicon.ico')
 }
 
 function createWindow() {
