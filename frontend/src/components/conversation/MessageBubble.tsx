@@ -93,12 +93,12 @@ export default function MessageBubble({ message, isStreaming }: Props) {
         {thinkingText && (
           <button
             onClick={() => setThinkingExpanded(!thinkingExpanded)}
-            className="flex items-center gap-1.5 text-xs text-purple-400/60 hover:text-purple-300 transition-colors self-start"
+            className="group flex items-center gap-1.5 text-xs text-purple-400/50 hover:text-purple-300 transition-colors self-start py-0.5"
           >
             {thinkingExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <Sparkles size={11} />
-            <span>思考过程</span>
-            <span className="text-gray-600">({thinkingText.length} 字符)</span>
+            <Sparkles size={11} className="opacity-70 group-hover:opacity-100" />
+            <span className="font-medium">思考过程</span>
+            <span className="text-gray-600 text-[10px]">({formatNumber(thinkingText.length)} 字符)</span>
           </button>
         )}
         <AnimatePresence>
@@ -108,9 +108,22 @@ export default function MessageBubble({ message, isStreaming }: Props) {
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="rounded-lg border-l-2 border-purple-500/25 bg-purple-500/[0.04] px-3 py-2 text-xs text-text-muted/60 font-mono whitespace-pre-wrap max-h-[150px] overflow-y-auto"
+              className="rounded-xl border border-purple-500/10 bg-gradient-to-br from-purple-500/[0.04] to-blue-500/[0.02] px-3.5 py-2.5 text-xs text-text-muted/70 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500/10"
             >
-              {thinkingText}
+              <div className="prose prose-invert prose-xs max-w-none
+                prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-text-muted/70
+                prose-headings:text-purple-300/80 prose-headings:mt-2 prose-headings:mb-0.5 prose-headings:text-xs
+                prose-strong:text-purple-200/80
+                prose-em:text-gray-400
+                prose-code:text-purple-300/70 prose-code:bg-purple-500/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[10px] prose-code:before:content-none prose-code:after:content-none
+                prose-li:my-0 prose-li:text-text-muted/70
+                prose-ol:my-0.5 prose-ul:my-0.5
+                prose-a:text-purple-300/60 prose-a:no-underline
+              ">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {thinkingText}
+                </ReactMarkdown>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
