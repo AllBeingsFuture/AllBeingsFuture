@@ -79,6 +79,32 @@ describe('MessageInput', () => {
     expect(textarea).toHaveValue('')
   })
 
+  it('adds file attachment when dropping a native file directly', async () => {
+    mocks.prepareFile.mockResolvedValue({
+      filename: '新建 文本文档.txt',
+      sizeBytes: 128,
+      mimeType: 'text/plain',
+      isImage: false,
+    })
+
+    const onSend = vi.fn().mockResolvedValue(undefined)
+
+    // Expose getPathForFile so the React handler resolves the path directly
+    ;(window as any).electronAPI.getPathForFile = vi.fn(() => 'C:/Users/test/新建 文本文档.txt')
+
+    renderWithProviders(<MessageInput sessionId="test-session" onSend={onSend} />)
+
+    const dropTarget = document.querySelector('[data-file-drop-target="message-input"]')!
+    const file = new File(['hello'], '新建 文本文档.txt', { type: 'text/plain' })
+    const dataTransfer = { files: [file], items: [], types: ['Files'] }
+
+    fireEvent.drop(dropTarget, { dataTransfer })
+
+    await waitFor(() => {
+      expect(screen.getByText('1 个文件')).toBeInTheDocument()
+    })
+  })
+
   it('keeps file reference sending after native file drop events', async () => {
     mocks.prepareFile.mockResolvedValue({
       filename: 'App.tsx',

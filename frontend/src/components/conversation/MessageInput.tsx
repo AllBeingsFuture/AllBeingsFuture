@@ -277,18 +277,23 @@ function MessageInput({
     setDragging(false)
     dragCounterRef.current = 0
 
-    // In contextIsolation mode, file.path is unavailable in the renderer.
-    // The preload script captures native file paths and relays them via IPC
-    // ('native-files-dropped' → 'files-dropped'), so we only handle non-file
-    // drag sources here (e.g. dragging an image from another browser tab).
     const droppedFiles = event.dataTransfer?.files
     if (droppedFiles) {
       for (let index = 0; index < droppedFiles.length; index += 1) {
         const file = droppedFiles[index]
-        const filePath = (file as any).path as string | undefined
 
-        // If file.path exists, the preload IPC path already handles it — skip
-        if (filePath) continue
+        // Try to resolve the native file path directly via the preload bridge.
+        // This is more reliable than the IPC roundtrip (which can fail silently
+        // when webUtils.getPathForFile() doesn't work with context-bridge proxies).
+        // addFileByPath deduplicates by path, so no double-add if the IPC also fires.
+        const resolvedPath =
+          window.electronAPI.getPathForFile?.(file) ||
+          (file as any).path as string | undefined
+
+        if (resolvedPath) {
+          void addFileByPath(resolvedPath)
+          continue
+        }
 
         // Non-native image drop (e.g. from browser): handle directly
         if (file.type.startsWith('image/')) {
@@ -296,7 +301,7 @@ function MessageInput({
         }
       }
     }
-  }, [addImageFile])
+  }, [addFileByPath, addImageFile])
 
   useIpcEvent<string[]>('files-dropped', useCallback((paths: string[]) => {
     if (!paths || paths.length === 0) return
