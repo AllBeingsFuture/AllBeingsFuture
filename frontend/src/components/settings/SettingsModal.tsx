@@ -12,7 +12,6 @@ import {
   MessageSquareHeart,
   ScrollText,
   ChevronRight,
-  Sticker,
   Shield,
   ListTodo,
   Server,
@@ -28,7 +27,6 @@ import SkillsTab from './SkillsTab'
 import FeedbackTab from './FeedbackTab'
 import LogsTab from './LogsTab'
 import BotManagementTab from './BotManagementTab'
-import StickerTab from '../sticker/StickerTab'
 import PolicyTab from './PolicyTab'
 import QueueTab from './QueueTab'
 import SystemSettingsTab from './SystemSettingsTab'
@@ -43,7 +41,6 @@ type TabId =
   | 'workspace'
   | 'mcp'
   | 'skills'
-  | 'sticker'
   | 'queue'
   | 'system'
   | 'policy'
@@ -122,13 +119,6 @@ const TABS: TabDefinition[] = [
     icon: <Wrench size={16} />,
   },
   {
-    id: 'sticker',
-    label: '贴纸',
-    description: '5700+ 款表情包，情绪感知匹配',
-    group: 'integrations',
-    icon: <Sticker size={16} />,
-  },
-  {
     id: 'queue',
     label: '任务队列',
     description: '后台任务管理、重试和状态监控',
@@ -179,7 +169,7 @@ const GROUP_META: Record<TabDefinition['group'], { label: string; description: s
   },
   integrations: {
     label: '能力接入',
-    description: 'Provider、MCP、贴纸和工作区能力',
+    description: 'Provider、MCP 和工作区能力',
   },
   security: {
     label: '安全与治理',
@@ -327,8 +317,6 @@ function renderTab(activeTab: TabId) {
       return <McpTab />
     case 'skills':
       return <SkillsTab />
-    case 'sticker':
-      return <StickerTab />
     case 'queue':
       return <QueueTab />
     case 'system':
