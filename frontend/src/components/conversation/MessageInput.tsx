@@ -270,23 +270,26 @@ function MessageInput({
     setDragging(false)
     dragCounterRef.current = 0
 
+    // In contextIsolation mode, file.path is unavailable in the renderer.
+    // The preload script captures native file paths and relays them via IPC
+    // ('native-files-dropped' → 'files-dropped'), so we only handle non-file
+    // drag sources here (e.g. dragging an image from another browser tab).
     const droppedFiles = event.dataTransfer?.files
     if (droppedFiles) {
       for (let index = 0; index < droppedFiles.length; index += 1) {
         const file = droppedFiles[index]
         const filePath = (file as any).path as string | undefined
 
-        if (filePath) {
-          void addFileByPath(filePath)
-          continue
-        }
+        // If file.path exists, the preload IPC path already handles it — skip
+        if (filePath) continue
 
+        // Non-native image drop (e.g. from browser): handle directly
         if (file.type.startsWith('image/')) {
           addImageFile(file)
         }
       }
     }
-  }, [addFileByPath, addImageFile])
+  }, [addImageFile])
 
   useIpcEvent<string[]>('files-dropped', useCallback((paths: string[]) => {
     if (!paths || paths.length === 0) return
@@ -373,55 +376,50 @@ function MessageInput({
         </div>
       )}
 
-      {images.length > 0 && (
+      {(images.length > 0 || files.length > 0) && (
         <div className="mb-2">
-          <div className="flex flex-wrap gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2">
+          <div className="flex flex-wrap gap-2">
             {images.map((image, index) => (
-              <div key={`${image.preview}-${index}`} className="group relative">
+              <div
+                key={`img-${index}`}
+                className="group relative flex h-[72px] items-center overflow-hidden rounded-xl border border-white/[0.1] bg-white/[0.04]"
+              >
                 <img
                   src={image.preview}
                   alt={`图片 ${index + 1}`}
-                  className="h-14 w-14 rounded-xl border border-white/[0.08] object-cover shadow-sm"
+                  className="h-full w-[100px] object-cover"
                 />
                 <button
                   type="button"
                   onClick={() => removeImage(index)}
-                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500/90 opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 hover:bg-red-500"
+                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-black/80"
                   aria-label={`移除图片 ${index + 1}`}
                 >
                   <X size={10} className="text-white" />
                 </button>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {files.length > 0 && (
-        <div className="mb-2">
-          <div className="flex flex-wrap gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2">
             {files.map((file, index) => (
               <div
-                key={`${file.path}-${index}`}
-                className="group relative flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1.5"
+                key={`file-${file.path}-${index}`}
+                className="group relative flex h-[72px] items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-4"
               >
                 {file.isDirectory ? (
-                  <FolderIcon size={14} className="shrink-0 text-yellow-400" />
+                  <FolderIcon size={28} className="shrink-0 text-yellow-400/80" />
                 ) : (
-                  <FileIcon size={14} className="shrink-0 text-blue-400" />
+                  <FileIcon size={28} className="shrink-0 text-blue-400/80" />
                 )}
-                <div className="min-w-0">
-                  <p className="max-w-[150px] truncate text-xs text-gray-200">{file.name}</p>
-                  <p className="max-w-[300px] truncate text-[10px] text-gray-500" title={file.path}>{file.path}</p>
-                  <p className="text-[10px] text-gray-500">{file.size}</p>
+                <div className="min-w-0 pr-2">
+                  <p className="max-w-[180px] truncate text-sm text-gray-200">{file.name}</p>
+                  <p className="text-[11px] text-gray-500">{file.size}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => removeFile(index)}
-                  className="flex h-4 w-4 items-center justify-center rounded-full bg-red-500/80 opacity-0 transition-opacity group-hover:opacity-100"
+                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-black/80"
                   aria-label={`移除文件 ${file.name}`}
                 >
-                  <X size={8} className="text-white" />
+                  <X size={10} className="text-white" />
                 </button>
               </div>
             ))}
