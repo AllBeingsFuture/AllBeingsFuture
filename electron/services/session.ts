@@ -127,6 +127,12 @@ export class SessionService {
     ).run('completed', now, id)
   }
 
+  reopen(id: string): void {
+    this.db.raw.prepare(
+      'UPDATE sessions SET status = ?, ended_at = NULL WHERE id = ?'
+    ).run('running', id)
+  }
+
   updateStatus(id: string, status: string): void {
     this.db.raw.prepare('UPDATE sessions SET status = ? WHERE id = ?').run(status, id)
   }
