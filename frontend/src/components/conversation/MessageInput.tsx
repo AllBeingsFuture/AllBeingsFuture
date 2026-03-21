@@ -283,12 +283,15 @@ function MessageInput({
         const file = droppedFiles[index]
 
         // Try to resolve the native file path directly via the preload bridge.
-        // This is more reliable than the IPC roundtrip (which can fail silently
-        // when webUtils.getPathForFile() doesn't work with context-bridge proxies).
         // addFileByPath deduplicates by path, so no double-add if the IPC also fires.
-        const resolvedPath =
-          window.electronAPI.getPathForFile?.(file) ||
-          (file as any).path as string | undefined
+        let resolvedPath: string | undefined
+        try {
+          resolvedPath =
+            window.electronAPI.getPathForFile?.(file) ||
+            (file as any).path as string | undefined
+        } catch {
+          // contextBridge may fail to serialize File objects across worlds
+        }
 
         if (resolvedPath) {
           void addFileByPath(resolvedPath)
@@ -299,6 +302,8 @@ function MessageInput({
         if (file.type.startsWith('image/')) {
           addImageFile(file)
         }
+        // For non-image files without a resolved path, the preload capture-phase
+        // handler sends paths via IPC ('files-dropped') as a fallback.
       }
     }
   }, [addFileByPath, addImageFile])

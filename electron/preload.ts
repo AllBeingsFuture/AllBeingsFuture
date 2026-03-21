@@ -58,10 +58,10 @@ const electronAPI = {
    */
   getPathForFile: (file: File): string => {
     try {
-      return webUtils.getPathForFile(file)
-    } catch {
-      return (file as any).path || ''
-    }
+      const p = webUtils.getPathForFile(file)
+      if (p) return p
+    } catch { /* ignore */ }
+    return (file as any).path || ''
   },
 }
 
@@ -73,11 +73,11 @@ contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 // webUtils.getPathForFile() works reliably with contextIsolation.
 function getFilePath(file: File): string {
   try {
-    return webUtils.getPathForFile(file)
-  } catch {
-    // Fallback for older Electron or edge cases
-    return (file as any).path || ''
-  }
+    const p = webUtils.getPathForFile(file)
+    if (p) return p
+  } catch { /* ignore */ }
+  // Fallback for older Electron or edge cases
+  return (file as any).path || ''
 }
 
 // ---- Native File/Folder Drop Handler ----
