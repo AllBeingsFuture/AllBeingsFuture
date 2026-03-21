@@ -727,37 +727,23 @@ export class ProcessService {
 
   async resumeSession(oldSessionId: string): Promise<{success: boolean; sessionId?: string; error?: string}> {
     try {
-      const oldSession = this.sessionService.getById(oldSessionId)
-      if (!oldSession) return { success: false, error: 'Session not found' }
+      const session = this.sessionService.getById(oldSessionId)
+      if (!session) return { success: false, error: 'Session not found' }
 
-      // Create new session based on old one
-      const newSession = this.sessionService.create({
-        name: oldSession.name + ' (resumed)',
-        providerId: oldSession.providerId,
-        workingDirectory: oldSession.workingDirectory,
-        autoAccept: oldSession.autoAccept,
-        permissionMode: oldSession.permissionMode,
-        customInstructions: oldSession.customInstructions,
-        appendSystemPrompt: oldSession.appendSystemPrompt,
-      })
+      // Reopen the original session instead of creating a new one
+      this.sessionService.reopen(oldSessionId)
 
-      // Copy conversation ID for resume
-      if (oldSession.conversationId) {
-        this.sessionService.updateConversationId(newSession.id, oldSession.conversationId)
-      }
-
-      // Copy messages
-      const oldState = this.sessionStates.get(oldSessionId)
-      if (oldState) {
-        this.sessionStates.set(newSession.id, {
-          messages: [...oldState.messages],
+      // Ensure in-memory state exists (may have been cleared after completion)
+      if (!this.sessionStates.has(oldSessionId)) {
+        this.sessionStates.set(oldSessionId, {
+          messages: [],
           streaming: false,
           error: '',
-          conversationId: oldSession.conversationId,
+          conversationId: session.conversationId,
         })
       }
 
-      return { success: true, sessionId: newSession.id }
+      return { success: true, sessionId: oldSessionId }
     } catch (err: any) {
       return { success: false, error: err.message }
     }
