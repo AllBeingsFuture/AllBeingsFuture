@@ -77,7 +77,11 @@ function getRendererUrl() {
 }
 
 function getIconPath() {
-  return path.join(__dirname, '..', '..', 'appicon.ico')
+  const isDev = !app.isPackaged
+  if (isDev) {
+    return path.join(__dirname, '..', '..', 'appicon.ico')
+  }
+  return path.join(process.resourcesPath, 'appicon.ico')
 }
 
 function createWindow() {
