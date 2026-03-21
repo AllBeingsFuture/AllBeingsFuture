@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
+import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
 import { useSessionStore, type ChatUpdateEvent, type AgentUpdateEvent } from '../../stores/sessionStore'
@@ -36,10 +36,14 @@ function toConversationMessage(msg: ChatMessage, index: number, sessionId: strin
 }
 
 interface MessageGroup {
-  type: 'message' | 'tool_group' | 'thinking'
+  type: 'message' | 'tool_group' | 'thinking' | 'child_agent'
   messages: ChatMessage[]
   convMessages?: ConversationMessage[]
   index: number
+  /** For child_agent groups: the child session ID */
+  childSessionId?: string
+  /** For child_agent groups: the display name */
+  childAgentName?: string
 }
 
 function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup[] {
@@ -47,6 +51,10 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
   let currentToolGroup: ChatMessage[] | null = null
   let currentToolConvMsgs: ConversationMessage[] | null = null
   let toolGroupStartIndex = 0
+  let currentChildGroup: ChatMessage[] | null = null
+  let currentChildId: string | null = null
+  let currentChildName: string | null = null
+  let childGroupStartIndex = 0
 
   /** Flush any accumulated tool group into the groups array */
   const flushToolGroup = () => {
@@ -59,6 +67,22 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
       })
       currentToolGroup = null
       currentToolConvMsgs = null
+    }
+  }
+
+  /** Flush any accumulated child agent group */
+  const flushChildGroup = () => {
+    if (currentChildGroup) {
+      groups.push({
+        type: 'child_agent',
+        messages: currentChildGroup,
+        index: childGroupStartIndex,
+        childSessionId: currentChildId!,
+        childAgentName: currentChildName || undefined,
+      })
+      currentChildGroup = null
+      currentChildId = null
+      currentChildName = null
     }
   }
 
@@ -75,6 +99,26 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
+    const msgAny = msg as any
+    const childSid = msgAny.childSessionId as string | undefined
+
+    // If this message belongs to a child agent, fold it into a child_agent group
+    if (childSid) {
+      flushToolGroup()
+      if (currentChildId === childSid) {
+        currentChildGroup!.push(msg)
+      } else {
+        flushChildGroup()
+        currentChildGroup = [msg]
+        currentChildId = childSid
+        currentChildName = msgAny.childAgentName || null
+        childGroupStartIndex = i
+      }
+      continue
+    }
+
+    // Not a child message — flush any open child group
+    flushChildGroup()
 
     // New format: explicit tool_use role messages
     if (msg.role === 'tool_use') {
@@ -83,7 +127,6 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
     }
 
     // Old format: assistant message with toolUse array — flatten into virtual tool_use messages
-    const msgAny = msg as any
     if (msg.role === 'assistant' && msgAny.toolUse && msgAny.toolUse.length > 0) {
       for (let t = 0; t < msgAny.toolUse.length; t++) {
         const tool = msgAny.toolUse[t]
@@ -120,6 +163,7 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
   }
 
   flushToolGroup()
+  flushChildGroup()
   return groups
 }
 
@@ -203,6 +247,107 @@ function ThinkingBlock({ content }: { content: string }) {
             className="border-t border-purple-500/10 px-3 py-2 max-h-[200px] overflow-y-auto whitespace-pre-wrap font-mono text-xs text-text-muted/60"
           >
             {content}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/** Collapsible block for child agent activity — defaults to collapsed */
+function ChildAgentBlock({ name, messages, childSessionId, isActive }: {
+  name?: string
+  messages: ChatMessage[]
+  childSessionId: string
+  isActive: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const selectSession = useSessionStore((state) => state.select)
+
+  // Count operations by type
+  const toolCount = messages.filter(m => m.role === 'tool_use').length
+  const thinkingCount = messages.filter(m => m.role === 'thinking' || (m as any).isThinking).length
+  const textMsgs = messages.filter(m => m.role === 'assistant' && m.content?.trim())
+
+  const displayName = name || '子Agent'
+  const summary = [
+    toolCount > 0 ? `${toolCount} 个操作` : null,
+    thinkingCount > 0 ? `${thinkingCount} 次思考` : null,
+  ].filter(Boolean).join('，')
+
+  // Get the last meaningful text output from the child
+  const lastText = textMsgs.length > 0 ? textMsgs[textMsgs.length - 1].content : ''
+  const previewText = lastText.length > 120 ? lastText.slice(0, 120) + '...' : lastText
+
+  return (
+    <div className="my-1 mx-2 rounded-xl border border-dashed border-blue-500/20 bg-blue-500/[0.03] overflow-hidden">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex flex-1 items-center gap-1.5 px-3 py-2 text-xs text-blue-400/70 hover:text-blue-300 transition-colors"
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <Users size={11} />
+          <span className="font-medium">{displayName}</span>
+          {summary && <span className="text-gray-600">({summary})</span>}
+          {isActive && (
+            <span className="flex gap-0.5 ml-1">
+              <span className="h-1 w-1 animate-bounce rounded-full bg-blue-400" style={{ animationDelay: '0ms' }} />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-blue-400" style={{ animationDelay: '150ms' }} />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-blue-400" style={{ animationDelay: '300ms' }} />
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => selectSession(childSessionId)}
+          className="px-3 py-2 text-[10px] text-blue-400/50 hover:text-blue-300 transition-colors"
+          title="查看子Agent完整会话"
+        >
+          查看详情 →
+        </button>
+      </div>
+      {!expanded && previewText && (
+        <div className="border-t border-blue-500/10 px-3 py-1.5 text-[11px] text-text-muted/50 truncate">
+          {previewText}
+        </div>
+      )}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="border-t border-blue-500/10 px-3 py-2 max-h-[300px] overflow-y-auto space-y-1"
+          >
+            {messages.map((msg, idx) => {
+              if (msg.role === 'thinking' || (msg as any).isThinking) {
+                return (
+                  <div key={idx} className="text-[10px] text-purple-400/40 font-mono truncate">
+                    💭 {msg.content.slice(0, 200)}
+                  </div>
+                )
+              }
+              if (msg.role === 'tool_use') {
+                const icon = TOOL_ICONS[(msg as any).toolName] || '🧰'
+                return (
+                  <div key={idx} className="text-[10px] text-gray-500 font-mono truncate">
+                    {icon} {(msg as any).toolName}
+                    {(msg as any).toolInput?.command && ` → ${(msg as any).toolInput.command.slice(0, 80)}`}
+                    {(msg as any).toolInput?.file_path && ` → ${(msg as any).toolInput.file_path}`}
+                    {(msg as any).toolInput?.pattern && ` → ${(msg as any).toolInput.pattern}`}
+                  </div>
+                )
+              }
+              if (msg.role === 'assistant' && msg.content?.trim()) {
+                return (
+                  <div key={idx} className="text-[11px] text-gray-400 whitespace-pre-wrap line-clamp-3">
+                    {msg.content}
+                  </div>
+                )
+              }
+              return null
+            })}
           </motion.div>
         )}
       </AnimatePresence>
@@ -425,6 +570,19 @@ export default function ConversationView({ session }: Props) {
                       />
                     ))}
                   </React.Fragment>
+                )
+              }
+
+              if (group.type === 'child_agent' && group.childSessionId) {
+                const isLastGroup = group.index + group.messages.length >= messages.length
+                return (
+                  <ChildAgentBlock
+                    key={`child-${group.childSessionId}-${group.index}`}
+                    name={group.childAgentName}
+                    messages={group.messages}
+                    childSessionId={group.childSessionId}
+                    isActive={streaming && isLastGroup}
+                  />
                 )
               }
 

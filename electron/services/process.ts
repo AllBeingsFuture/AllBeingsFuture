@@ -44,6 +44,10 @@ export interface ChatMessage {
   }
   /** True when assistant is still streaming (partial) */
   partial?: boolean
+  /** When set, this message belongs to a child agent's activity in the parent session */
+  childSessionId?: string
+  /** Display name of the child agent (only set together with childSessionId) */
+  childAgentName?: string
 }
 
 export interface ChatState {
@@ -94,6 +98,8 @@ export class ProcessService {
    * to the child session so it has full conversation records.
    */
   private activeChildStack = new Map<string, string[]>()
+  /** Reverse lookup: childSessionId → agent display name (for tagging parent messages) */
+  private childSessionNames = new Map<string, string>()
 
   constructor(
     private db: Database,
@@ -346,6 +352,13 @@ export class ProcessService {
     return stack && stack.length > 0 ? stack[stack.length - 1] : undefined
   }
 
+  /** Get active child info (id + name) for tagging parent messages */
+  private getActiveChildInfo(parentSessionId: string): { id: string; name: string } | undefined {
+    const id = this.getActiveChild(parentSessionId)
+    if (!id) return undefined
+    return { id, name: this.childSessionNames.get(id) || '' }
+  }
+
   /**
    * Mirror a message to the active child session's in-memory state and persist to DB.
    * This ensures child agent sessions have the same detailed conversation records
@@ -378,16 +391,22 @@ export class ProcessService {
     switch (event.event) {
       case 'delta': {
         state.streaming = true
+        const childInfo = this.getActiveChildInfo(sessionId)
         // Append to last assistant message or create new one
         const lastMsg = state.messages[state.messages.length - 1]
-        if (lastMsg?.role === 'assistant') {
+        if (lastMsg?.role === 'assistant' && lastMsg.childSessionId === childInfo?.id) {
           lastMsg.content += event.text || ''
         } else {
-          state.messages.push({
+          const msg: ChatMessage = {
             role: 'assistant',
             content: event.text || '',
             timestamp: new Date().toISOString(),
-          })
+          }
+          if (childInfo) {
+            msg.childSessionId = childInfo.id
+            msg.childAgentName = childInfo.name
+          }
+          state.messages.push(msg)
         }
         // Feed text to output parser for activity detection
         if (event.text) {
@@ -398,9 +417,8 @@ export class ProcessService {
         this.emitChatUpdate(sessionId)
 
         // Mirror delta to active child session
-        const activeChild = this.getActiveChild(sessionId)
-        if (activeChild && event.text) {
-          this.mirrorToChildSession(activeChild, {
+        if (childInfo && event.text) {
+          this.mirrorToChildSession(childInfo.id, {
             role: 'assistant',
             content: event.text,
             timestamp: new Date().toISOString(),
@@ -506,6 +524,7 @@ export class ProcessService {
 
       case 'tool': {
         state.streaming = true
+        const childInfoTool = this.getActiveChildInfo(sessionId)
         // Create a separate tool_use message for each tool invocation
         const toolMsg: ChatMessage = {
           role: 'tool_use',
@@ -513,6 +532,10 @@ export class ProcessService {
           timestamp: new Date().toISOString(),
           toolName: event.name || 'unknown',
           toolInput: event.input || {},
+        }
+        if (childInfoTool) {
+          toolMsg.childSessionId = childInfoTool.id
+          toolMsg.childAgentName = childInfoTool.name
         }
         state.messages.push(toolMsg)
 
@@ -526,9 +549,8 @@ export class ProcessService {
         this.emitChatUpdate(sessionId)
 
         // Mirror tool event to active child session
-        const activeChildTool = this.getActiveChild(sessionId)
-        if (activeChildTool) {
-          this.mirrorToChildSession(activeChildTool, { ...toolMsg })
+        if (childInfoTool) {
+          this.mirrorToChildSession(childInfoTool.id, { ...toolMsg, childSessionId: undefined, childAgentName: undefined })
         }
         break
       }
@@ -536,31 +558,36 @@ export class ProcessService {
       case 'thinking': {
         state.streaming = true
         const chunk = event.text || ''
+        const childInfoThink = this.getActiveChildInfo(sessionId)
 
-        // Merge into the last thinking message if it exists, otherwise create new
+        // Merge into the last thinking message if it exists and belongs to the same child
         const lastMsg = state.messages[state.messages.length - 1]
-        if (lastMsg?.role === 'thinking') {
+        if (lastMsg?.role === 'thinking' && lastMsg.childSessionId === childInfoThink?.id) {
           lastMsg.content += chunk
         } else {
-          state.messages.push({
+          const thinkMsg: ChatMessage = {
             role: 'thinking',
             content: chunk,
             timestamp: new Date().toISOString(),
             isThinking: true,
-          })
+          }
+          if (childInfoThink) {
+            thinkMsg.childSessionId = childInfoThink.id
+            thinkMsg.childAgentName = childInfoThink.name
+          }
+          state.messages.push(thinkMsg)
         }
         this.emitChatUpdate(sessionId)
 
         // Mirror thinking event to active child session
-        const activeChildThink = this.getActiveChild(sessionId)
-        if (activeChildThink) {
-          const childState = this.getOrCreateState(activeChildThink)
+        if (childInfoThink) {
+          const childState = this.getOrCreateState(childInfoThink.id)
           const childLast = childState.messages[childState.messages.length - 1]
           if (childLast?.role === 'thinking') {
             childLast.content += chunk
-            this.emitChatUpdate(activeChildThink)
+            this.emitChatUpdate(childInfoThink.id)
           } else {
-            this.mirrorToChildSession(activeChildThink, {
+            this.mirrorToChildSession(childInfoThink.id, {
               role: 'thinking',
               content: chunk,
               timestamp: new Date().toISOString(),
@@ -1041,6 +1068,7 @@ export class ProcessService {
         // Push child session onto active stack so delta/tool/thinking events
         // are mirrored to this child session
         if (agent) {
+          this.childSessionNames.set(agent.childSessionId, agent.name)
           let stack = this.activeChildStack.get(parentSessionId)
           if (!stack) {
             stack = []
