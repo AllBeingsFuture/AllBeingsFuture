@@ -18,6 +18,17 @@ export interface AIProvider {
   nodeVersion: string
   autoAcceptFlag: string
   resumeFlag: string
+  defaultArgs: string
+  autoAcceptArg: string
+  resumeArg: string
+  sessionIdDetection: string
+  resumeFormat: string
+  sessionIdPattern: string
+  gitBashPath: string
+  defaultModel: string
+  maxOutputTokens: number
+  reasoningEffort: string
+  preferResponsesApi: boolean
   sortOrder: number
   isEnabled: boolean
   createdAt: string
