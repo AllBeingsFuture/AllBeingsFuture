@@ -173,15 +173,15 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
       title="设置"
       subtitle="AllBeingsFuture"
       icon={<Settings2 size={14} />}
-      widthClass="w-full max-w-4xl"
-      heightClass="h-[min(78vh,720px)]"
+      widthClass="w-full max-w-5xl"
+      heightClass="h-[min(85vh,800px)]"
       onClose={onClose}
       testId="settings-modal"
     >
       <div className="flex min-h-0 flex-1 h-full overflow-hidden">
         {/* Compact sidebar */}
-        <aside className="flex w-[180px] shrink-0 flex-col border-r border-white/10 bg-slate-950/70">
-          <div className="flex-1 overflow-y-auto px-2 py-2">
+        <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/10 bg-slate-950/70">
+          <div className="flex-1 overflow-y-auto px-2 py-3">
             {(['core', 'integrations', 'security', 'support', 'botmanagement'] as const).map((group) => {
               const groupTabs = TABS.filter((tab) => tab.group === group)
 
@@ -199,7 +199,7 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
                           key={tab.id}
                           aria-label={tab.label}
                           className={[
-                            'flex w-full items-center gap-2 rounded-md px-2 py-[5px] text-left transition duration-100',
+                            'flex w-full items-center gap-2 rounded-md px-2.5 py-[6px] text-left transition duration-100',
                             selected
                               ? 'bg-blue-500/15 text-white'
                               : 'text-slate-300 hover:bg-white/5 hover:text-white',

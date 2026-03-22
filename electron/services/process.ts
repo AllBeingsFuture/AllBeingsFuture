@@ -444,11 +444,15 @@ export class ProcessService {
       }
 
       case 'done': {
+        // The 'done' event means the current turn is complete — always clear streaming.
+        // Note: isAlive() checks cannot be used here because the adapter's finally-block
+        // (which clears consuming/sdkQuery) hasn't run yet at this point, so isAlive()
+        // would still return true and streaming would never be cleared.
         state.streaming = false
 
-        // Check if the adapter stream is still alive (multi-turn SDK conversations
-        // fire multiple 'done' events within a single stream). If so, this is just
-        // an intermediate turn completion — don't send notifications or mark idle yet.
+        // Check if the adapter stream is still alive for notification/idle decisions.
+        // For Claude SDK, this will be true here (see note above), so we use a
+        // microtask-delayed check to let the adapter's finally-block run first.
         const adapterStillAlive = this.bridgeManager.isSessionActive(sessionId)
 
         // Send notification only when the stream truly ends (adapter no longer alive)
