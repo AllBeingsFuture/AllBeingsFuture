@@ -493,9 +493,13 @@ export default function ConversationView({ session }: Props) {
     const previousCount = prevMsgCountRef.current
     prevMsgCountRef.current = messages.length
     const isSessionSwitch = sessionSwitchRef.current
-    if (isSessionSwitch) sessionSwitchRef.current = false
 
     if (isSessionSwitch && messages.length > 0) {
+      // Only consume the flag once messages are actually loaded.
+      // Previously the flag was consumed even when messages were empty
+      // (before pollChat returns), so the subsequent load never
+      // triggered a scroll-to-bottom.
+      sessionSwitchRef.current = false
       // Session switch: always scroll to the very bottom regardless of
       // previous scroll position. Use double-rAF to ensure React has
       // flushed all message DOM nodes before we measure scrollHeight.
