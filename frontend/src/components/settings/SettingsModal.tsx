@@ -10,7 +10,6 @@ import {
   Wrench,
   MessageSquareHeart,
   ScrollText,
-  ChevronRight,
   Shield,
   ListTodo,
   Server,
@@ -64,115 +63,100 @@ const TABS: TabDefinition[] = [
     label: '通用',
     description: '代理、语言和启动行为',
     group: 'core',
-    icon: <Settings2 size={16} />,
+    icon: <Settings2 size={15} />,
   },
   {
     id: 'account',
     label: '账号',
     description: '身份、授权与连接状态',
     group: 'core',
-    icon: <UserCircle2 size={16} />,
+    icon: <UserCircle2 size={15} />,
   },
   {
     id: 'theme',
     label: '主题',
     description: '色板、密度和界面氛围',
     group: 'core',
-    icon: <Palette size={16} />,
+    icon: <Palette size={15} />,
   },
   {
     id: 'appearance',
     label: '外观',
     description: '布局细节和显示选项',
     group: 'core',
-    icon: <Sparkles size={16} />,
+    icon: <Sparkles size={15} />,
   },
   {
     id: 'providers',
     label: 'AI Provider',
     description: '管理 CLI 和 API 适配器',
     group: 'integrations',
-    icon: <Bot size={16} />,
+    icon: <Bot size={15} />,
   },
   {
     id: 'workspace',
     label: '工作区',
     description: '仓库、目录和工作空间',
     group: 'integrations',
-    icon: <FolderKanban size={16} />,
+    icon: <FolderKanban size={15} />,
   },
   {
     id: 'skills',
-    label: '技能',
-    description: '启用、安装与调度能力',
+    label: '扩展',
+    description: 'MCP 服务器与技能管理',
     group: 'integrations',
-    icon: <Wrench size={16} />,
+    icon: <Wrench size={15} />,
   },
   {
     id: 'queue',
     label: '任务队列',
-    description: '后台任务管理、重试和状态监控',
+    description: '后台任务管理与状态监控',
     group: 'support',
-    icon: <ListTodo size={16} />,
+    icon: <ListTodo size={15} />,
   },
   {
     id: 'system',
     label: '系统配置',
-    description: '日志、队列、遥测等底层参数',
+    description: '底层参数与遥测',
     group: 'support',
-    icon: <Server size={16} />,
+    icon: <Server size={15} />,
   },
   {
     id: 'policy',
     label: '安全与治理',
-    description: '策略引擎、危险操作确认、审计日志',
+    description: '策略引擎与审计日志',
     group: 'security',
-    icon: <Shield size={16} />,
+    icon: <Shield size={15} />,
   },
   {
     id: 'feedback',
     label: '反馈',
     description: '问题回报与体验收集',
     group: 'support',
-    icon: <MessageSquareHeart size={16} />,
+    icon: <MessageSquareHeart size={15} />,
   },
   {
     id: 'logs',
     label: '日志',
     description: '运行状态与调试输出',
     group: 'support',
-    icon: <ScrollText size={16} />,
+    icon: <ScrollText size={15} />,
   },
   {
     id: 'botmanagement',
     label: 'Bot 管理',
     description: '统一管理所有 IM 机器人',
     group: 'botmanagement',
-    icon: <Bot size={16} />,
+    icon: <Bot size={15} />,
   },
 ]
 
-const GROUP_META: Record<TabDefinition['group'], { label: string; description: string }> = {
-  core: {
-    label: '核心设置',
-    description: '应用行为和界面体验',
-  },
-  integrations: {
-    label: '能力接入',
-    description: 'Provider、技能和工作区能力',
-  },
-  security: {
-    label: '安全与治理',
-    description: 'POLICIES.yaml 策略、操作审计',
-  },
-  support: {
-    label: '支持与诊断',
-    description: '反馈、排障与运行信息',
-  },
-  botmanagement: {
-    label: 'Bot 管理',
-    description: '统一管理所有平台 IM 机器人',
-  },
+const GROUP_LABELS: Record<TabDefinition['group'], string> = {
+  core: '基本',
+  integrations: '能力',
+  security: '安全',
+  support: '诊断',
+  botmanagement: 'Bot',
 }
 
 export default function SettingsModal({ onClose, initialTab = 'general' }: Props) {
@@ -186,28 +170,27 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
 
   return (
     <DraggableDialog
-      title="设置中心"
+      title="设置"
       subtitle="AllBeingsFuture"
-      icon={<Settings2 size={16} />}
-      widthClass="w-full max-w-7xl"
-      heightClass="h-[min(92vh,calc(100vh-2rem))]"
+      icon={<Settings2 size={14} />}
+      widthClass="w-full max-w-4xl"
+      heightClass="h-[min(78vh,720px)]"
       onClose={onClose}
       testId="settings-modal"
     >
       <div className="flex min-h-0 flex-1 h-full overflow-hidden">
-        <aside className="flex w-[320px] shrink-0 flex-col border-r border-white/10 bg-slate-950/70">
-          <div className="flex-1 overflow-y-auto px-4 py-5">
+        {/* Compact sidebar */}
+        <aside className="flex w-[180px] shrink-0 flex-col border-r border-white/10 bg-slate-950/70">
+          <div className="flex-1 overflow-y-auto px-2 py-2">
             {(['core', 'integrations', 'security', 'support', 'botmanagement'] as const).map((group) => {
               const groupTabs = TABS.filter((tab) => tab.group === group)
-              const meta = GROUP_META[group]
 
               return (
-                <section key={group} className="mb-6 last:mb-0">
-                  <div className="mb-3 px-2">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">{meta.label}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">{meta.description}</p>
-                  </div>
-                  <div className="space-y-1.5">
+                <section key={group} className="mb-2 last:mb-0">
+                  <p className="mb-0.5 px-2 pt-1 text-[10px] uppercase tracking-[0.18em] text-slate-500 font-medium">
+                    {GROUP_LABELS[group]}
+                  </p>
+                  <div>
                     {groupTabs.map((tab) => {
                       const selected = tab.id === activeTab
 
@@ -216,29 +199,18 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
                           key={tab.id}
                           aria-label={tab.label}
                           className={[
-                            'flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition duration-150',
+                            'flex w-full items-center gap-2 rounded-md px-2 py-[5px] text-left transition duration-100',
                             selected
-                              ? 'border-blue-400/40 bg-blue-500/10 text-white shadow-[0_12px_30px_rgba(59,130,246,0.12)]'
-                              : 'border-transparent bg-transparent text-slate-300 hover:border-white/10 hover:bg-white/5 hover:text-white',
+                              ? 'bg-blue-500/15 text-white'
+                              : 'text-slate-300 hover:bg-white/5 hover:text-white',
                           ].join(' ')}
                           onClick={() => setActiveTab(tab.id)}
                           type="button"
                         >
-                          <span
-                            className={[
-                              'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
-                              selected
-                                ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
-                                : 'border-white/10 bg-white/5 text-slate-400',
-                            ].join(' ')}
-                          >
+                          <span className={selected ? 'text-blue-300' : 'text-slate-500'}>
                             {tab.icon}
                           </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-medium">{tab.label}</span>
-                            <span className="mt-1 block text-xs leading-5 text-slate-400">{tab.description}</span>
-                          </span>
-                          <ChevronRight size={16} className={selected ? 'text-blue-200' : 'text-slate-500'} />
+                          <span className="text-[13px] truncate">{tab.label}</span>
                         </button>
                       )
                     })}
@@ -249,39 +221,26 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.92),rgba(2,6,23,0.96))]">
-          <div className="border-b border-white/10 px-7 py-6">
-            <div className="flex items-start justify-between gap-6">
-              <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-slate-500">{GROUP_META[activeDefinition.group].label}</p>
-                <div className="mt-3 flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-blue-200">
-                    {activeDefinition.icon}
-                  </span>
-                  <div>
-                    <h3 className="text-xl font-semibold text-white">{activeDefinition.label}</h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-400">{activeDefinition.description}</p>
-                  </div>
-                </div>
-              </div>
-
-            </div>
+        {/* Content area */}
+        <section className="flex min-w-0 flex-1 flex-col">
+          <div className="border-b border-white/10 px-5 py-2.5 flex items-center gap-2">
+            <span className="text-blue-300">{activeDefinition.icon}</span>
+            <h3 className="text-sm font-medium text-white">{activeDefinition.label}</h3>
+            <span className="text-xs text-slate-500">{activeDefinition.description}</span>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
-            <div className="surface-card min-h-full rounded-[28px] border-white/10 bg-slate-950/45 p-6">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeTab}
-                  initial={{ opacity: 0, x: 12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -12 }}
-                  transition={{ duration: 0.15, ease: 'easeInOut' }}
-                >
-                  {renderTab(activeTab)}
-                </motion.div>
-              </AnimatePresence>
-            </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.12, ease: 'easeOut' }}
+              >
+                {renderTab(activeTab)}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </section>
       </div>
