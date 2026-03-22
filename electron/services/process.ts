@@ -444,8 +444,13 @@ export class ProcessService {
           const doneSession = this.sessionService.getById(sessionId)
           if (!doneSession?.parentSessionId && this.notificationManager) {
             const sessionName = doneSession?.name || sessionId
+            // Extract last assistant message content as summary for bot push
+            const lastAssistantMsg = [...state.messages].reverse().find(
+              m => m.role === 'assistant' && m.content && !m.toolName && !m.toolUse
+            )
+            const summary = lastAssistantMsg?.content || undefined
             appLog('info', `Sending turn-complete notification for "${sessionName}" (${sessionId})`, 'process')
-            this.notificationManager.notify('taskComplete', sessionId, sessionName)
+            this.notificationManager.notify('taskComplete', sessionId, sessionName, summary)
           }
         } catch (notifErr: any) {
           appLog('error', `Failed to send turn-complete notification: ${notifErr?.message}`, 'process')

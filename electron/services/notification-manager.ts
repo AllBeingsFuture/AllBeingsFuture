@@ -282,7 +282,9 @@ export class NotificationManager extends EventEmitter {
       case 'taskComplete':
         return {
           title: '任务已完成',
-          body: `会话 "${sessionName}" 已完成任务`,
+          body: detail
+            ? `会话 "${sessionName}" 已完成任务\n\n${detail}`
+            : `会话 "${sessionName}" 已完成任务`,
         }
       case 'error':
         return {

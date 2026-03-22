@@ -80,7 +80,12 @@ export class BotPushService {
     const chatId = credentials.chat_id?.trim()
     if (!token || !chatId) return   // not configured — skip silently
 
-    const text = `<b>${esc(title)}</b>\n\n${esc(body)}`
+    // Telegram message limit is 4096 chars; truncate body to fit
+    const MAX_BODY_LEN = 3800
+    const truncatedBody = body.length > MAX_BODY_LEN
+      ? body.slice(0, MAX_BODY_LEN) + '\n\n…(内容已截断)'
+      : body
+    const text = `<b>${esc(title)}</b>\n\n${esc(truncatedBody)}`
     const apiUrl = `https://api.telegram.org/bot${token}/sendMessage`
 
     const ctrl = new AbortController()
