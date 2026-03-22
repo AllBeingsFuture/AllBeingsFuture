@@ -7,7 +7,6 @@ import {
   Sparkles,
   Bot,
   FolderKanban,
-  Plug2,
   Wrench,
   MessageSquareHeart,
   ScrollText,
@@ -22,8 +21,7 @@ import AccountTab from './AccountTab'
 import ThemeTab from './ThemeTab'
 import AppearanceTab from './AppearanceTab'
 import WorkspaceTab from './WorkspaceTab'
-import McpTab from './McpTab'
-import SkillsTab from './SkillsTab'
+import ExtensionsTab from './ExtensionsTab'
 import FeedbackTab from './FeedbackTab'
 import LogsTab from './LogsTab'
 import BotManagementTab from './BotManagementTab'
@@ -39,7 +37,6 @@ type TabId =
   | 'appearance'
   | 'providers'
   | 'workspace'
-  | 'mcp'
   | 'skills'
   | 'queue'
   | 'system'
@@ -105,13 +102,6 @@ const TABS: TabDefinition[] = [
     icon: <FolderKanban size={16} />,
   },
   {
-    id: 'mcp',
-    label: 'MCP',
-    description: '工具服务器和连接配置',
-    group: 'integrations',
-    icon: <Plug2 size={16} />,
-  },
-  {
     id: 'skills',
     label: '技能',
     description: '启用、安装与调度能力',
@@ -169,7 +159,7 @@ const GROUP_META: Record<TabDefinition['group'], { label: string; description: s
   },
   integrations: {
     label: '能力接入',
-    description: 'Provider、MCP 和工作区能力',
+    description: 'Provider、技能和工作区能力',
   },
   security: {
     label: '安全与治理',
@@ -313,10 +303,8 @@ function renderTab(activeTab: TabId) {
       return <ProviderManager />
     case 'workspace':
       return <WorkspaceTab />
-    case 'mcp':
-      return <McpTab />
     case 'skills':
-      return <SkillsTab />
+      return <ExtensionsTab />
     case 'queue':
       return <QueueTab />
     case 'system':
