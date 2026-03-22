@@ -396,9 +396,17 @@ export class ProcessService {
   private handleBridgeEvent(sessionId: string, event: any) {
     const state = this.getOrCreateState(sessionId)
 
+    // When new work arrives after a 'done' event (multi-turn SDK streams),
+    // transition status back to 'running' so the UI reflects the actual state.
+    const wasStreaming = state.streaming
+
     switch (event.event) {
       case 'delta': {
         state.streaming = true
+        if (!wasStreaming) {
+          this.sessionService.updateStatus(sessionId, 'running')
+          this.stateInference.markWorkStarted(sessionId)
+        }
         const childInfo = this.getActiveChildInfo(sessionId)
         // Append to last assistant message or create new one
         const lastMsg = state.messages[state.messages.length - 1]
@@ -438,22 +446,28 @@ export class ProcessService {
       case 'done': {
         state.streaming = false
 
-        // Send notification FIRST (before any operation that might throw)
-        // so bot push is never skipped by downstream exceptions
-        try {
-          const doneSession = this.sessionService.getById(sessionId)
-          if (!doneSession?.parentSessionId && this.notificationManager) {
-            const sessionName = doneSession?.name || sessionId
-            // Extract last assistant message content as summary for bot push
-            const lastAssistantMsg = [...state.messages].reverse().find(
-              m => m.role === 'assistant' && m.content && !m.toolName && !m.toolUse
-            )
-            const summary = lastAssistantMsg?.content || undefined
-            appLog('info', `Sending turn-complete notification for "${sessionName}" (${sessionId})`, 'process')
-            this.notificationManager.notify('taskComplete', sessionId, sessionName, summary)
+        // Check if the adapter stream is still alive (multi-turn SDK conversations
+        // fire multiple 'done' events within a single stream). If so, this is just
+        // an intermediate turn completion — don't send notifications or mark idle yet.
+        const adapterStillAlive = this.bridgeManager.isSessionActive(sessionId)
+
+        // Send notification only when the stream truly ends (adapter no longer alive)
+        if (!adapterStillAlive) {
+          try {
+            const doneSession = this.sessionService.getById(sessionId)
+            if (!doneSession?.parentSessionId && this.notificationManager) {
+              const sessionName = doneSession?.name || sessionId
+              // Extract last assistant message content as summary for bot push
+              const lastAssistantMsg = [...state.messages].reverse().find(
+                m => m.role === 'assistant' && m.content && !m.toolName && !m.toolUse
+              )
+              const summary = lastAssistantMsg?.content || undefined
+              appLog('info', `Sending turn-complete notification for "${sessionName}" (${sessionId})`, 'process')
+              this.notificationManager.notify('taskComplete', sessionId, sessionName, summary)
+            }
+          } catch (notifErr: any) {
+            appLog('error', `Failed to send turn-complete notification: ${notifErr?.message}`, 'process')
           }
-        } catch (notifErr: any) {
-          appLog('error', `Failed to send turn-complete notification: ${notifErr?.message}`, 'process')
         }
 
         // Finalize the last assistant message
@@ -475,12 +489,16 @@ export class ProcessService {
           state.conversationId = event.conversationId
           this.sessionService.updateConversationId(sessionId, event.conversationId)
         }
-        this.sessionService.updateStatus(sessionId, 'idle')
+        // Only mark idle when the adapter stream has truly ended.
+        // For multi-turn SDK streams, intermediate 'done' events should not
+        // flip the status to idle — the next turn will start momentarily.
+        if (!adapterStillAlive) {
+          this.sessionService.updateStatus(sessionId, 'idle')
+          this.outputParser.markSessionEnded(sessionId)
+          this.stateInference.markAwaitingUserInput(sessionId)
+        }
         this.persistMessages(sessionId)
         this.emitChatUpdate(sessionId)
-        // Notify parser that session turn is done
-        this.outputParser.markSessionEnded(sessionId)
-        this.stateInference.markAwaitingUserInput(sessionId)
 
         // Persist mirrored messages for any remaining active children
         const remainingStack = this.activeChildStack.get(sessionId)
@@ -565,6 +583,10 @@ export class ProcessService {
 
       case 'tool': {
         state.streaming = true
+        if (!wasStreaming) {
+          this.sessionService.updateStatus(sessionId, 'running')
+          this.stateInference.markWorkStarted(sessionId)
+        }
         const childInfoTool = this.getActiveChildInfo(sessionId)
         // Create a separate tool_use message for each tool invocation
         const toolMsg: ChatMessage = {
@@ -598,6 +620,10 @@ export class ProcessService {
 
       case 'thinking': {
         state.streaming = true
+        if (!wasStreaming) {
+          this.sessionService.updateStatus(sessionId, 'running')
+          this.stateInference.markWorkStarted(sessionId)
+        }
         const chunk = event.text || ''
         const childInfoThink = this.getActiveChildInfo(sessionId)
 
@@ -640,6 +666,11 @@ export class ProcessService {
       }
 
       case 'agent_task': {
+        if (!wasStreaming) {
+          state.streaming = true
+          this.sessionService.updateStatus(sessionId, 'running')
+          this.stateInference.markWorkStarted(sessionId)
+        }
         this.handleAgentTaskEvent(sessionId, event)
         break
       }
