@@ -437,6 +437,7 @@ export default function ConversationView({ session }: Props) {
   const isNearBottomRef = useRef(true)
   const prevMsgCountRef = useRef(0)
   const lastEventTimeRef = useRef(0)
+  const sessionSwitchRef = useRef(false)
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -457,6 +458,7 @@ export default function ConversationView({ session }: Props) {
   useEffect(() => {
     prevMsgCountRef.current = 0
     isNearBottomRef.current = true
+    sessionSwitchRef.current = true
   }, [session.id])
 
   // Initialize session on first mount / session switch.
@@ -490,17 +492,25 @@ export default function ConversationView({ session }: Props) {
   useEffect(() => {
     const previousCount = prevMsgCountRef.current
     prevMsgCountRef.current = messages.length
+    const isSessionSwitch = sessionSwitchRef.current
+    if (isSessionSwitch) sessionSwitchRef.current = false
+
+    if (isSessionSwitch && messages.length > 0) {
+      // Session switch: always scroll to the very bottom regardless of
+      // previous scroll position. Use double-rAF to ensure React has
+      // flushed all message DOM nodes before we measure scrollHeight.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = scrollContainerRef.current
+          if (el) el.scrollTop = el.scrollHeight
+        })
+      })
+      return
+    }
 
     if (!isNearBottomRef.current) return
 
-    if (previousCount === 0 && messages.length > 0) {
-      // Session switch: defer scroll until DOM layout is complete,
-      // otherwise scrollIntoView fires before all messages are rendered.
-      requestAnimationFrame(() => {
-        const el = scrollContainerRef.current
-        if (el) el.scrollTop = el.scrollHeight
-      })
-    } else if (messages.length > previousCount) {
+    if (messages.length > previousCount) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, streaming])
