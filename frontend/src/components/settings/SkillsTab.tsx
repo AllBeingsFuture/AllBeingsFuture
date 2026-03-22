@@ -117,28 +117,36 @@ export default function SkillsTab() {
               <div className="flex items-start gap-3">
                 <BookOpen size={16} className="mt-0.5 shrink-0 text-blue-400" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h5 className="text-sm font-medium text-white">{skill.name}</h5>
-                    <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
-                      {typeLabels[skill.type] ?? skill.type}
-                    </span>
-                    <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
-                      {skill.source}
-                    </span>
-                    {skill.system ? (
-                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
-                        system
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h5 className="text-sm font-medium text-white">{skill.name}</h5>
+                      <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
+                        {typeLabels[skill.type] ?? skill.type}
                       </span>
-                    ) : null}
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] ${
-                        skill.enabled
-                          ? 'bg-emerald-500/15 text-emerald-300'
-                          : 'bg-gray-500/15 text-gray-300'
+                      <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
+                        {skill.source}
+                      </span>
+                      {skill.system ? (
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
+                          system
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      role="switch"
+                      aria-checked={skill.enabled}
+                      title={skill.enabled ? '点击禁用' : '点击启用'}
+                      onClick={() => void toggleEnabled(skill.id, !skill.enabled)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                        skill.enabled ? 'bg-emerald-500' : 'bg-gray-600'
                       }`}
                     >
-                      {skill.enabled ? '已启用' : '已禁用'}
-                    </span>
+                      <span
+                        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          skill.enabled ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
                   </div>
 
                   <p className="mt-1 text-xs leading-5 text-gray-400">{skill.description || '暂无描述'}</p>
@@ -176,17 +184,7 @@ export default function SkillsTab() {
                     </div>
                   ) : null}
 
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      onClick={() => void toggleEnabled(skill.id, !skill.enabled)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                        skill.enabled
-                          ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-                          : 'bg-gray-500/15 text-gray-300 hover:bg-gray-500/25'
-                      }`}
-                    >
-                      {skill.enabled ? '禁用技能' : '启用技能'}
-                    </button>
+                  <div className="mt-4">
                     <button
                       onClick={() => void toggleDetails(skill.id)}
                       className="inline-flex items-center gap-1 rounded-lg border border-dark-border px-3 py-1.5 text-xs text-gray-300 transition hover:border-blue-500 hover:text-white"

@@ -155,14 +155,19 @@ export default function McpTab() {
                 </div>
 
                 <button
+                  role="switch"
+                  aria-checked={server.enabled}
+                  title={server.enabled ? '点击禁用' : '点击启用'}
                   onClick={() => void toggleEnabled(server.id, !server.enabled)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                    server.enabled
-                      ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-                      : 'bg-gray-500/15 text-gray-300 hover:bg-gray-500/25'
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                    server.enabled ? 'bg-emerald-500' : 'bg-gray-600'
                   }`}
                 >
-                  {server.enabled ? '已启用' : '已禁用'}
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      server.enabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
                 </button>
               </div>
 
