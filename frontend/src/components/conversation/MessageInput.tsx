@@ -302,10 +302,15 @@ function MessageInput({
       if (file.type.startsWith('image/')) {
         addImageFile(file)
       } else {
-        void saveAndAddFile(file)
+        const localPath = window.electronAPI?.getPathForFile?.(file) || (file as any).path
+        if (localPath) {
+          void addFileByPath(localPath)
+        } else {
+          void saveAndAddFile(file)
+        }
       }
     }
-  }, [addImageFile, saveAndAddFile])
+  }, [addImageFile, addFileByPath, saveAndAddFile])
 
   const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = event.clipboardData?.items
