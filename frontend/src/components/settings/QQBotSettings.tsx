@@ -5,20 +5,29 @@
 
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, RefreshCw, Loader2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useQQBotStore } from '../../stores/qqbotStore'
 
 type TabId = 'bot' | 'users' | 'groups'
 
 export default function QQBotSettings() {
   const [activeTab, setActiveTab] = useState<TabId>('bot')
-  const store = useQQBotStore()
+  const { botStatus, fetchConfig, fetchStatus, fetchAllowedUsers, fetchAllowedGroups } = useQQBotStore(
+    useShallow((state) => ({
+      botStatus: state.botStatus,
+      fetchConfig: state.fetchConfig,
+      fetchStatus: state.fetchStatus,
+      fetchAllowedUsers: state.fetchAllowedUsers,
+      fetchAllowedGroups: state.fetchAllowedGroups,
+    })),
+  )
 
   useEffect(() => {
-    store.fetchConfig()
-    store.fetchStatus()
-    store.fetchAllowedUsers()
-    store.fetchAllowedGroups()
-  }, [])
+    void fetchConfig()
+    void fetchStatus()
+    void fetchAllowedUsers()
+    void fetchAllowedGroups()
+  }, [fetchAllowedGroups, fetchAllowedUsers, fetchConfig, fetchStatus])
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'bot', label: 'Bot 配置' },
@@ -30,7 +39,7 @@ export default function QQBotSettings() {
     <div className="space-y-4">
       <div className="flex items-center gap-3 mb-2">
         <span className="text-sm font-medium text-text-primary">QQ Bot 远程控制</span>
-        <StatusBadge status={store.botStatus} />
+        <StatusBadge status={botStatus} />
       </div>
 
       <div className="flex border-b border-white/10">
@@ -81,7 +90,15 @@ function StatusBadge({ status }: { status: string }) {
 const inputCls = 'w-full px-3 py-2 bg-slate-900 border border-white/10 rounded text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm'
 
 function BotTab() {
-  const { config, updateConfig, botStatus, restartBot, fetchStatus } = useQQBotStore()
+  const { config, updateConfig, botStatus, restartBot, fetchStatus } = useQQBotStore(
+    useShallow((state) => ({
+      config: state.config,
+      updateConfig: state.updateConfig,
+      botStatus: state.botStatus,
+      restartBot: state.restartBot,
+      fetchStatus: state.fetchStatus,
+    })),
+  )
   const [httpEndpoint, setHttpEndpoint] = useState('')
   const [wsEndpoint, setWsEndpoint] = useState('')
   const [accessToken, setAccessToken] = useState('')
@@ -112,7 +129,7 @@ function BotTab() {
   const handleRestart = async () => {
     setRestarting(true)
     await restartBot()
-    setTimeout(() => { fetchStatus(); setRestarting(false) }, 2000)
+    setTimeout(() => { void fetchStatus(); setRestarting(false) }, 2000)
   }
 
   return (
@@ -184,7 +201,11 @@ function BotTab() {
 }
 
 function UsersTab() {
-  const { allowedUsers, addAllowedUser, removeAllowedUser } = useQQBotStore()
+  const { allowedUsers, addAllowedUser, removeAllowedUser } = useQQBotStore(useShallow((state) => ({
+    allowedUsers: state.allowedUsers,
+    addAllowedUser: state.addAllowedUser,
+    removeAllowedUser: state.removeAllowedUser,
+  })))
   const [showAdd, setShowAdd] = useState(false)
   const [userId, setUserId] = useState('')
   const [nickname, setNickname] = useState('')
@@ -232,7 +253,11 @@ function UsersTab() {
 }
 
 function GroupsTab() {
-  const { allowedGroups, addAllowedGroup, removeAllowedGroup } = useQQBotStore()
+  const { allowedGroups, addAllowedGroup, removeAllowedGroup } = useQQBotStore(useShallow((state) => ({
+    allowedGroups: state.allowedGroups,
+    addAllowedGroup: state.addAllowedGroup,
+    removeAllowedGroup: state.removeAllowedGroup,
+  })))
   const [showAdd, setShowAdd] = useState(false)
   const [groupId, setGroupId] = useState('')
   const [groupName, setGroupName] = useState('')

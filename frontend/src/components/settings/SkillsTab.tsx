@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Loader2, RefreshCw, Sparkles } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { SkillService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useSkillStore } from '../../stores/skillStore'
 
@@ -19,7 +20,12 @@ const typeLabels: Record<string, string> = {
 }
 
 export default function SkillsTab() {
-  const { skills, loading, load, toggleEnabled } = useSkillStore()
+  const { skills, loading, load, toggleEnabled } = useSkillStore(useShallow((state) => ({
+    skills: state.skills,
+    loading: state.loading,
+    load: state.load,
+    toggleEnabled: state.toggleEnabled,
+  })))
   const [selectedType, setSelectedType] = useState('all')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [runtime, setRuntime] = useState<Record<string, SkillRuntimeInfo>>({})

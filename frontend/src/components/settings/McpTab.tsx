@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, Loader2, RefreshCw, Server, Wrench } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { MCPService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useMcpStore } from '../../stores/mcpStore'
 
@@ -35,7 +36,12 @@ const formatProviders = (providers: string[] | 'all' | undefined) => {
 }
 
 export default function McpTab() {
-  const { servers, loading, load, toggleEnabled } = useMcpStore()
+  const { servers, loading, load, toggleEnabled } = useMcpStore(useShallow((state) => ({
+    servers: state.servers,
+    loading: state.loading,
+    load: state.load,
+    toggleEnabled: state.toggleEnabled,
+  })))
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [runtime, setRuntime] = useState<Record<string, McpRuntimeInfo>>({})

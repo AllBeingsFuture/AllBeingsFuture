@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bot, ChevronDown, Edit3, Eye, EyeOff, Loader2, Plus, RefreshCw, Send, Trash2, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useBotStore, type IMBot } from '../../stores/botStore'
 import { BotService } from '../../../bindings/allbeingsfuture/internal/services'
 import QQBotSettings from './QQBotSettings'
@@ -86,7 +87,17 @@ const PLATFORM_SETTINGS: Record<string, { component: React.ComponentType; label:
 // ─── Component ───────────────────────────────────────────────────────────
 
 export default function BotManagementTab() {
-  const { bots, loading, load, create, update, remove, toggle } = useBotStore()
+  const { bots, loading, load, create, update, remove, toggle } = useBotStore(
+    useShallow((state) => ({
+      bots: state.bots,
+      loading: state.loading,
+      load: state.load,
+      create: state.create,
+      update: state.update,
+      remove: state.remove,
+      toggle: state.toggle,
+    })),
+  )
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingBot, setEditingBot] = useState<IMBot>({ ...EMPTY_BOT })
   const [isCreating, setIsCreating] = useState(false)
@@ -117,7 +128,10 @@ export default function BotManagementTab() {
     setShowPlatformSettings(false)
   }
 
-  const closeEditor = () => setEditorOpen(false)
+  const closeEditor = () => {
+    setEditorOpen(false)
+    setShowPlatformSettings(false)
+  }
 
   const handleSave = async () => {
     if (!editingBot.id.trim()) return
