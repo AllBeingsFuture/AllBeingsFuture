@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ClipboardList, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useSessionStore } from '../../../stores/sessionStore'
 import { useTaskStore } from '../../../stores/taskStore'
 import { useUIStore } from '../../../stores/uiStore'
@@ -10,8 +11,10 @@ interface NewTaskDialogProps {
 
 export default function NewTaskDialog({ onClose }: NewTaskDialogProps) {
   const createTask = useTaskStore((state) => state.create)
-  const sessions = useSessionStore((state) => state.sessions)
-  const selectedId = useSessionStore((state) => state.selectedId)
+  const { sessions, selectedId } = useSessionStore(useShallow((state) => ({
+    sessions: state.sessions,
+    selectedId: state.selectedId,
+  })))
   const setActiveView = useUIStore((state) => state.setActiveView)
 
   const selectedSession = useMemo(

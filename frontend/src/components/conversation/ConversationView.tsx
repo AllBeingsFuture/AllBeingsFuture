@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
 import { useSessionStore, type ChatUpdateEvent, type AgentUpdateEvent } from '../../stores/sessionStore'
@@ -417,16 +418,29 @@ function StreamingIndicator({ messages }: { messages: ChatMessage[] }) {
 }
 
 export default function ConversationView({ session }: Props) {
-  const messages = useSessionStore((state) => state.messages)
-  const streaming = useSessionStore((state) => state.streaming)
-  const chatError = useSessionStore((state) => state.chatError)
-  const sendMessage = useSessionStore((state) => state.sendMessage)
-  const pollChat = useSessionStore((state) => state.pollChat)
-  const initProcess = useSessionStore((state) => state.initProcess)
-  const handleChatUpdate = useSessionStore((state) => state.handleChatUpdate)
-  const handleAgentUpdate = useSessionStore((state) => state.handleAgentUpdate)
-  const stopProcess = useSessionStore((state) => state.stopProcess)
-  const childToParent = useSessionStore((state) => state.childToParent)
+  const {
+    messages,
+    streaming,
+    chatError,
+    sendMessage,
+    pollChat,
+    initProcess,
+    handleChatUpdate,
+    handleAgentUpdate,
+    stopProcess,
+    childToParent,
+  } = useSessionStore(useShallow((state) => ({
+    messages: state.messages,
+    streaming: state.streaming,
+    chatError: state.chatError,
+    sendMessage: state.sendMessage,
+    pollChat: state.pollChat,
+    initProcess: state.initProcess,
+    handleChatUpdate: state.handleChatUpdate,
+    handleAgentUpdate: state.handleAgentUpdate,
+    stopProcess: state.stopProcess,
+    childToParent: state.childToParent,
+  })))
 
   // Child agent sessions are managed by the parent — don't auto-init a bridge adapter for them
   const isChildSession = !!(childToParent?.[session.id] || (session as any).parentSessionId)
