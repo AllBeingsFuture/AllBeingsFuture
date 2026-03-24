@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from 'react'
 import { Bot, FolderTree, GitBranch, Settings, Users, TerminalSquare, Wrench } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import type { PanelId, PanelSide } from '../../stores/uiStore'
 import { useUIStore } from '../../stores/uiStore'
 
@@ -59,16 +60,29 @@ interface ActivityBarProps {
 }
 
 export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
-  const panelSides          = useUIStore(s => s.panelSides)
-  const activePanelLeft     = useUIStore(s => s.activePanelLeft)
-  const activePanelRight    = useUIStore(s => s.activePanelRight)
-  const setPanelSide        = useUIStore(s => s.setPanelSide)
-  const setActivePanelLeft  = useUIStore(s => s.setActivePanelLeft)
-  const setActivePanelRight = useUIStore(s => s.setActivePanelRight)
-  const teamsMode           = useUIStore(s => s.teamsMode)
-  const setTeamsMode        = useUIStore(s => s.setTeamsMode)
-  const shellPanelVisible   = useUIStore(s => s.shellPanelVisible)
-  const toggleShellPanel    = useUIStore(s => s.toggleShellPanel)
+  const {
+    panelSides,
+    activePanelLeft,
+    activePanelRight,
+    setPanelSide,
+    setActivePanelLeft,
+    setActivePanelRight,
+    teamsMode,
+    setTeamsMode,
+    shellPanelVisible,
+    toggleShellPanel,
+  } = useUIStore(useShallow((state) => ({
+    panelSides: state.panelSides,
+    activePanelLeft: state.activePanelLeft,
+    activePanelRight: state.activePanelRight,
+    setPanelSide: state.setPanelSide,
+    setActivePanelLeft: state.setActivePanelLeft,
+    setActivePanelRight: state.setActivePanelRight,
+    teamsMode: state.teamsMode,
+    setTeamsMode: state.setTeamsMode,
+    shellPanelVisible: state.shellPanelVisible,
+    toggleShellPanel: state.toggleShellPanel,
+  })))
 
   const [draggingId, setDraggingId] = useState<PanelId | null>(null)
   const [dropZone, setDropZone]     = useState<PanelSide | null>(null)

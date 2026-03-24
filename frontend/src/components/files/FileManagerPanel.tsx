@@ -3,6 +3,7 @@ import {
   File, FileText, Plus, Minus, Edit3, RefreshCw,
   Search, AlertTriangle, FolderOpen, ChevronDown, ChevronRight,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTrackerStore } from '../../stores/trackerStore'
 import { useSessionStore } from '../../stores/sessionStore'
 
@@ -32,8 +33,13 @@ function getFileName(filePath: string): string {
 }
 
 export default function FileManagerPanel() {
-  const { sessions, loading: sessionsLoading } = useSessionStore()
-  const { sessionChanges, loadSessionChanges } = useTrackerStore()
+  const sessions = useSessionStore((state) => state.sessions)
+  const { sessionChanges, loadSessionChanges } = useTrackerStore(
+    useShallow((state) => ({
+      sessionChanges: state.sessionChanges,
+      loadSessionChanges: state.loadSessionChanges,
+    })),
+  )
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -44,9 +50,9 @@ export default function FileManagerPanel() {
 
   useEffect(() => {
     if (selectedSessionId) {
-      loadSessionChanges(selectedSessionId)
+      void loadSessionChanges(selectedSessionId)
     }
-  }, [selectedSessionId])
+  }, [selectedSessionId, loadSessionChanges])
 
   const changes: FileChange[] = useMemo(() => {
     if (!selectedSessionId) return []
