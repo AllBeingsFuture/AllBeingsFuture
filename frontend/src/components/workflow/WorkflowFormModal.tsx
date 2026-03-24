@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Loader2, AlertTriangle } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { DEFAULT_DEFINITION } from './workflowConstants'
 
@@ -10,7 +11,11 @@ export default function WorkflowFormModal({
   workflow: any | null
   onClose: () => void
 }) {
-  const { create, update, load } = useWorkflowStore()
+  const { create, update, load } = useWorkflowStore(useShallow((state) => ({
+    create: state.create,
+    update: state.update,
+    load: state.load,
+  })))
 
   const isEditing = !!workflow
   const [name, setName] = useState(workflow?.name ?? '')

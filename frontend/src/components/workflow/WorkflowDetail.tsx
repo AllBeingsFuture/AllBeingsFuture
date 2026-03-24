@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Play,
   Trash2,
@@ -10,22 +10,37 @@ import {
   History,
   Loader2,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { statusColors, statusLabels, stepTypeLabels, stepTypeBadgeColors } from './workflowConstants'
 import ActiveExecutionCard from './ActiveExecutionCard'
 import StartWorkflowDialog from './StartWorkflowDialog'
 
 export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; onEdit: () => void }) {
-  const { remove, start, stop, approveStep, getStatus, activeWorkflows, executions, loadExecutionHistory } =
-    useWorkflowStore()
+  const { remove, stop, approveStep, getStatus, activeWorkflows, executions, loadExecutionHistory } =
+    useWorkflowStore(useShallow((state) => ({
+      remove: state.remove,
+      stop: state.stop,
+      approveStep: state.approveStep,
+      getStatus: state.getStatus,
+      activeWorkflows: state.activeWorkflows,
+      executions: state.executions,
+      loadExecutionHistory: state.loadExecutionHistory,
+    })))
 
   const [tab, setTab] = useState<'overview' | 'active' | 'history'>('overview')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [showStartDialog, setShowStartDialog] = useState(false)
   const [executionStatuses, setExecutionStatuses] = useState<Record<string, any>>({})
 
-  const relatedActive = activeWorkflows.filter((e: any) => e.workflowId === workflow.id)
-  const relatedHistory = executions.filter((e: any) => e.workflowId === workflow.id)
+  const relatedActive = useMemo(
+    () => activeWorkflows.filter((execution: any) => execution.workflowId === workflow.id),
+    [activeWorkflows, workflow.id],
+  )
+  const relatedHistory = useMemo(
+    () => executions.filter((execution: any) => execution.workflowId === workflow.id),
+    [executions, workflow.id],
+  )
 
   // 轮询活跃执行状态
   useEffect(() => {
@@ -39,22 +54,25 @@ export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; on
       }
       setExecutionStatuses(statuses)
     }
-    poll()
-    const timer = setInterval(poll, 3000)
+    void poll()
+    const timer = setInterval(() => void poll(), 3000)
     return () => clearInterval(timer)
-  }, [relatedActive.length, workflow.id])
+  }, [getStatus, relatedActive])
 
   const handleDelete = async () => {
     await remove(workflow.id)
     setConfirmDelete(false)
   }
 
-  let definition: any = null
-  try {
-    definition = typeof workflow.definition === 'string'
-      ? JSON.parse(workflow.definition)
-      : workflow.definition
-  } catch { /* invalid json */ }
+  const definition = useMemo(() => {
+    try {
+      return typeof workflow.definition === 'string'
+        ? JSON.parse(workflow.definition)
+        : workflow.definition
+    } catch {
+      return null
+    }
+  }, [workflow.definition])
 
   const steps = definition?.steps ?? []
 
@@ -121,7 +139,7 @@ export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; on
               key={key}
               onClick={() => {
                 setTab(key)
-                if (key === 'history') loadExecutionHistory()
+                if (key === 'history') void loadExecutionHistory()
               }}
               className={`py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5 ${
                 tab === key

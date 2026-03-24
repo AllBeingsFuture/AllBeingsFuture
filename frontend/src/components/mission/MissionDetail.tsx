@@ -7,6 +7,7 @@ import {
   SkipForward,
   Target,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useMissionStore } from '../../stores/missionStore'
 import { statusColors, statusBg, statusLabels, phaseIcons, type MissionStatus } from './missionConstants'
 import PlanningView from './PlanningView'
@@ -26,7 +27,16 @@ export default function MissionDetail({ mission, onDelete }: { mission: any; onD
     abortMission,
     skipPhase,
     getMission,
-  } = useMissionStore()
+  } = useMissionStore(useShallow((state) => ({
+    confirmBrainstorm: state.confirmBrainstorm,
+    confirmTeamDesign: state.confirmTeamDesign,
+    startMission: state.startMission,
+    pauseMission: state.pauseMission,
+    resumeMission: state.resumeMission,
+    abortMission: state.abortMission,
+    skipPhase: state.skipPhase,
+    getMission: state.getMission,
+  })))
 
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)

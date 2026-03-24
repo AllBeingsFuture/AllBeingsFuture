@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 const presets = [
@@ -9,8 +10,15 @@ const presets = [
 ]
 
 export default function AppearanceTab() {
-  const { settings, update } = useSettingsStore()
-  const [fontSize, setFontSize] = useState(settings.fontSize || 14)
+  const { savedFontSize, update } = useSettingsStore(useShallow((state) => ({
+    savedFontSize: state.settings.fontSize,
+    update: state.update,
+  })))
+  const [fontSize, setFontSize] = useState(savedFontSize || 14)
+
+  useEffect(() => {
+    setFontSize(savedFontSize || 14)
+  }, [savedFontSize])
 
   const applySize = (size: number) => {
     setFontSize(size)

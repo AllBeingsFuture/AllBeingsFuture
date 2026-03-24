@@ -1,9 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Globe, Mic, GitBranch, MessageSquare, Monitor, Bell, RefreshCw, Save, Info } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 export default function GeneralSettings() {
-  const { settings, setProxy, setAutoWorktree, setAutoLaunch, setNotification, setLanguage, setVoice } = useSettingsStore()
+  const { settings, setProxy, setAutoWorktree, setAutoLaunch, setNotification, setLanguage, setVoice } =
+    useSettingsStore(useShallow((state) => ({
+      settings: state.settings,
+      setProxy: state.setProxy,
+      setAutoWorktree: state.setAutoWorktree,
+      setAutoLaunch: state.setAutoLaunch,
+      setNotification: state.setNotification,
+      setLanguage: state.setLanguage,
+      setVoice: state.setVoice,
+    })))
 
   // Local proxy state (only saved on button click)
   const [proxyType, setProxyType] = useState(settings.proxyType || 'none')
@@ -12,6 +22,14 @@ export default function GeneralSettings() {
   const [proxyUsername, setProxyUsername] = useState(settings.proxyUsername || '')
   const [proxyPassword, setProxyPassword] = useState(settings.proxyPassword || '')
   const [proxySaved, setProxySaved] = useState(false)
+
+  useEffect(() => {
+    setProxyType(settings.proxyType || 'none')
+    setProxyHost(settings.proxyHost || '')
+    setProxyPort(settings.proxyPort || '')
+    setProxyUsername(settings.proxyUsername || '')
+    setProxyPassword(settings.proxyPassword || '')
+  }, [settings.proxyHost, settings.proxyPassword, settings.proxyPort, settings.proxyType, settings.proxyUsername])
 
   const handleSaveProxy = async () => {
     await setProxy(proxyType as any, proxyHost, proxyPort, proxyUsername, proxyPassword)

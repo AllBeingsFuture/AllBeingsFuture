@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Play, Loader2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 
 export default function StartWorkflowDialog({
@@ -9,7 +10,10 @@ export default function StartWorkflowDialog({
   workflow: any
   onClose: () => void
 }) {
-  const { start, load } = useWorkflowStore()
+  const { start, load } = useWorkflowStore(useShallow((state) => ({
+    start: state.start,
+    load: state.load,
+  })))
   const [variables, setVariables] = useState('{}')
   const [jsonError, setJsonError] = useState('')
   const [starting, setStarting] = useState(false)

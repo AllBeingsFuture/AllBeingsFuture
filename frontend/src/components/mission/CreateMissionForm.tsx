@@ -6,10 +6,15 @@ import {
   Loader2,
   Rocket,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useMissionStore } from '../../stores/missionStore'
 
 export default function CreateMissionForm({ onCreated }: { onCreated: (id: string) => void }) {
-  const { createMission, roleTemplates, loadRoleTemplates } = useMissionStore()
+  const { createMission, roleTemplates, loadRoleTemplates } = useMissionStore(useShallow((state) => ({
+    createMission: state.createMission,
+    roleTemplates: state.roleTemplates,
+    loadRoleTemplates: state.loadRoleTemplates,
+  })))
 
   const [objective, setObjective] = useState('')
   const [context, setContext] = useState('')
@@ -19,8 +24,8 @@ export default function CreateMissionForm({ onCreated }: { onCreated: (id: strin
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (roleTemplates.length === 0) loadRoleTemplates()
-  }, [])
+    if (roleTemplates.length === 0) void loadRoleTemplates()
+  }, [loadRoleTemplates, roleTemplates.length])
 
   const handleCreate = async () => {
     if (!objective.trim()) return

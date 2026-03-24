@@ -1,45 +1,50 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Plus,
   Circle,
   Workflow,
   Loader2,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { statusColors, statusLabels } from './workflowConstants'
 import WorkflowDetail from './WorkflowDetail'
 import WorkflowFormModal from './WorkflowFormModal'
 
 export default function WorkflowPanel() {
-  const {
-    workflows,
-    activeWorkflows,
-    selectedId,
-    loading,
-    load,
-    loadExecutionHistory,
-    select,
-  } = useWorkflowStore()
+  const { workflows, activeWorkflows, selectedId, loading, load, loadExecutionHistory, select } =
+    useWorkflowStore(useShallow((state) => ({
+      workflows: state.workflows,
+      activeWorkflows: state.activeWorkflows,
+      selectedId: state.selectedId,
+      loading: state.loading,
+      load: state.load,
+      loadExecutionHistory: state.loadExecutionHistory,
+      select: state.select,
+    })))
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingWorkflow, setEditingWorkflow] = useState<any | null>(null)
+  const refreshWorkflows = useCallback(() => {
+    void load()
+    void loadExecutionHistory()
+  }, [load, loadExecutionHistory])
 
   // 初始化加载
   useEffect(() => {
-    load()
-    loadExecutionHistory()
-  }, [])
+    refreshWorkflows()
+  }, [refreshWorkflows])
 
   // 定时刷新活跃工作流
   useEffect(() => {
-    const timer = setInterval(() => {
-      load()
-      loadExecutionHistory()
-    }, 5000)
+    const timer = setInterval(refreshWorkflows, 5000)
     return () => clearInterval(timer)
-  }, [])
+  }, [refreshWorkflows])
 
-  const selectedWorkflow = workflows.find((w: any) => w.id === selectedId)
+  const selectedWorkflow = useMemo(
+    () => workflows.find((workflow: any) => workflow.id === selectedId),
+    [selectedId, workflows],
+  )
 
   return (
     <div className="flex h-full">

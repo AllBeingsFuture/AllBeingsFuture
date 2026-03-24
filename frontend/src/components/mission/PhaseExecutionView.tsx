@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ListChecks, Edit3, CheckCircle2, Loader2, ChevronRight } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useMissionStore } from '../../stores/missionStore'
 import type { MissionStatus } from './missionConstants'
 
@@ -35,7 +36,9 @@ function OverallProgress({
 }
 
 export default function PhaseExecutionView({ mission }: { mission: any }) {
-  const { confirmPhases } = useMissionStore()
+  const { confirmPhases } = useMissionStore(useShallow((state) => ({
+    confirmPhases: state.confirmPhases,
+  })))
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState('')
   const [confirming, setConfirming] = useState(false)

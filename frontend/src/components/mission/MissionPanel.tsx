@@ -1,50 +1,57 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, Circle, Trash2, Loader2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useMissionStore } from '../../stores/missionStore'
 import { statusColors, statusBg, statusLabels, type MissionStatus } from './missionConstants'
 import MissionDetail from './MissionDetail'
 import CreateMissionForm from './CreateMissionForm'
 
 export default function MissionPanel() {
-  const {
-    missions,
-    currentMission,
-    loading,
-    load,
-    loadRoleTemplates,
-    getMission,
-    deleteMission,
-  } = useMissionStore()
+  const { missions, currentMission, loading, load, loadRoleTemplates, getMission, deleteMission } =
+    useMissionStore(useShallow((state) => ({
+      missions: state.missions,
+      currentMission: state.currentMission,
+      loading: state.loading,
+      load: state.load,
+      loadRoleTemplates: state.loadRoleTemplates,
+      getMission: state.getMission,
+      deleteMission: state.deleteMission,
+    })))
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
-    load()
-    loadRoleTemplates()
-  }, [])
+    void load()
+    void loadRoleTemplates()
+  }, [load, loadRoleTemplates])
+
+  const hasActiveMissions = useMemo(
+    () => missions.some(
+      (mission: any) =>
+        mission.status === 'running' || mission.status === 'brainstorming' || mission.status === 'team_design',
+    ),
+    [missions],
+  )
 
   // 定时刷新执行中的任务
   useEffect(() => {
-    const hasActive = missions.some(
-      (m: any) => m.status === 'running' || m.status === 'brainstorming' || m.status === 'team_design',
-    )
-    if (!hasActive) return
+    if (!hasActiveMissions) return
     const timer = setInterval(() => {
-      load()
-      if (selectedId) getMission(selectedId)
+      void load()
+      if (selectedId) void getMission(selectedId)
     }, 4000)
     return () => clearInterval(timer)
-  }, [missions, selectedId])
+  }, [getMission, hasActiveMissions, load, selectedId])
 
-  const handleSelect = async (id: string) => {
+  const handleSelect = useCallback(async (id: string) => {
     setSelectedId(id)
     await getMission(id)
-  }
+  }, [getMission])
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     await deleteMission(id)
     if (selectedId === id) setSelectedId(null)
-  }
+  }, [deleteMission, selectedId])
 
   return (
     <div className="flex h-full">

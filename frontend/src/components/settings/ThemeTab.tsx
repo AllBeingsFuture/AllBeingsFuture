@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 const themes = [
@@ -100,7 +101,10 @@ const themes = [
 ]
 
 export default function ThemeTab() {
-  const { settings, update } = useSettingsStore()
+  const { activeTheme, update } = useSettingsStore(useShallow((state) => ({
+    activeTheme: state.settings.theme,
+    update: state.update,
+  })))
 
   const handleThemeChange = (themeId: string) => {
     const theme = themes.find(t => t.id === themeId)
@@ -125,7 +129,7 @@ export default function ThemeTab() {
 
       <div className="grid grid-cols-2 gap-3">
         {themes.map(theme => {
-          const isActive = settings.theme === theme.id
+          const isActive = activeTheme === theme.id
           return (
             <button
               key={theme.id}
