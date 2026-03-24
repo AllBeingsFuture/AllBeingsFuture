@@ -5,6 +5,7 @@
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { ChevronLeft, ChevronRight, Users, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import Sidebar from './Sidebar'
 import MainPanel from './MainPanel'
 import RightPanel from './RightPanel'
@@ -22,25 +23,41 @@ import SessionCreator from '../sessions/SessionCreator'
 import QuickOpenDialog from '../file-manager/QuickOpenDialog'
 
 export default function AppLayout() {
-  const sidebarCollapsed = useUIStore(s => s.sidebarCollapsed)
-  const detailPanelCollapsed = useUIStore(s => s.detailPanelCollapsed)
-
-  const toggleSidebar = useUIStore(s => s.toggleSidebar)
-  const toggleDetailPanel = useUIStore(s => s.toggleDetailPanel)
-
-  const showSearchPanel = useUIStore(s => s.showSearchPanel)
-  const showHistoryPanel = useUIStore(s => s.showHistoryPanel)
-  const showQuickOpen = useUIStore(s => s.showQuickOpen)
-  const teamsMode = useUIStore(s => s.teamsMode)
-  const setTeamsMode = useUIStore(s => s.setTeamsMode)
-  const activePanelLeft = useUIStore(s => s.activePanelLeft)
-
-  const primaryPane = useUIStore(s => s.primaryPane)
-  const secondaryPane = useUIStore(s => s.secondaryPane)
-  const showSettings = useUIStore(s => s.showSettings)
-  const setShowSettings = useUIStore(s => s.setShowSettings)
-  const showNewSessionDialog = useUIStore(s => s.showNewSessionDialog)
-  const setShowNewSessionDialog = useUIStore(s => s.setShowNewSessionDialog)
+  const {
+    sidebarCollapsed,
+    detailPanelCollapsed,
+    toggleSidebar,
+    toggleDetailPanel,
+    showSearchPanel,
+    showHistoryPanel,
+    showQuickOpen,
+    teamsMode,
+    setTeamsMode,
+    activePanelLeft,
+    primaryPane,
+    secondaryPane,
+    showSettings,
+    setShowSettings,
+    showNewSessionDialog,
+    setShowNewSessionDialog,
+  } = useUIStore(useShallow((state) => ({
+    sidebarCollapsed: state.sidebarCollapsed,
+    detailPanelCollapsed: state.detailPanelCollapsed,
+    toggleSidebar: state.toggleSidebar,
+    toggleDetailPanel: state.toggleDetailPanel,
+    showSearchPanel: state.showSearchPanel,
+    showHistoryPanel: state.showHistoryPanel,
+    showQuickOpen: state.showQuickOpen,
+    teamsMode: state.teamsMode,
+    setTeamsMode: state.setTeamsMode,
+    activePanelLeft: state.activePanelLeft,
+    primaryPane: state.primaryPane,
+    secondaryPane: state.secondaryPane,
+    showSettings: state.showSettings,
+    setShowSettings: state.setShowSettings,
+    showNewSessionDialog: state.showNewSessionDialog,
+    setShowNewSessionDialog: state.setShowNewSessionDialog,
+  })))
 
   const mainPanelResetKey = `${primaryPane}:${secondaryPane}`
 

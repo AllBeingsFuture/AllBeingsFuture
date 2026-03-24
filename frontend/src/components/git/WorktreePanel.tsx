@@ -1,14 +1,35 @@
 import { useState, useEffect } from 'react'
 import { GitBranch, FolderOpen, Trash2, GitMerge, Check, AlertTriangle, RefreshCw, Plus } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useGitStore } from '../../stores/gitStore'
 import type { WorktreeInfo, MergeResult } from '../../../bindings/allbeingsfuture/internal/models/models'
 
 export default function WorktreePanel() {
   const {
-    worktrees, status, currentRepo, loading,
-    setRepo, loadStatus, loadWorktrees, isGitRepo,
-    createWorktree, removeWorktree, mergeWorktree, checkMerge,
-  } = useGitStore()
+    worktrees,
+    status,
+    currentRepo,
+    loading,
+    setRepo,
+    loadStatus,
+    loadWorktrees,
+    isGitRepo,
+    removeWorktree,
+    mergeWorktree,
+    checkMerge,
+  } = useGitStore(useShallow((state) => ({
+    worktrees: state.worktrees,
+    status: state.status,
+    currentRepo: state.currentRepo,
+    loading: state.loading,
+    setRepo: state.setRepo,
+    loadStatus: state.loadStatus,
+    loadWorktrees: state.loadWorktrees,
+    isGitRepo: state.isGitRepo,
+    removeWorktree: state.removeWorktree,
+    mergeWorktree: state.mergeWorktree,
+    checkMerge: state.checkMerge,
+  })))
 
   const [repoInput, setRepoInput] = useState(currentRepo)
   const [isValid, setIsValid] = useState(false)

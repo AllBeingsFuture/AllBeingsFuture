@@ -3,7 +3,7 @@
  * 统计卡片 + 会话列表 + 新建会话
  */
 
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useMemo } from 'react'
 import {
   MessageSquare,
   Circle,
@@ -17,6 +17,7 @@ import {
   AlertCircle,
   CheckCircle,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { STATUS_COLORS } from '../../constants/statusColors'
@@ -56,7 +57,13 @@ function shortPath(p: string | undefined): string {
 }
 
 export default function DashboardView() {
-  const { sessions, load: loadSessions, select: selectSession } = useSessionStore()
+  const { sessions, load: loadSessions, select: selectSession } = useSessionStore(
+    useShallow((state) => ({
+      sessions: state.sessions,
+      load: state.load,
+      select: state.select,
+    })),
+  )
   const setShowCreator = useUIStore(s => s.setShowNewSessionDialog)
 
   const refresh = useCallback(async () => {
@@ -69,12 +76,35 @@ export default function DashboardView() {
     return () => clearInterval(timer)
   }, [refresh])
 
-  const totalSessions = sessions.length
-  const runningSessions = sessions.filter(s => s.status === 'running' || s.status === 'starting').length
-  const waitingSessions = sessions.filter(s => s.status === 'waiting_input').length
-  const errorSessions = sessions.filter(s => s.status === 'error').length
-  const completedSessions = sessions.filter(s => s.status === 'completed').length
-  const recentSessions = sessions.slice(0, 20)
+  const {
+    totalSessions,
+    runningSessions,
+    waitingSessions,
+    errorSessions,
+    completedSessions,
+    recentSessions,
+  } = useMemo(() => {
+    let runningSessions = 0
+    let waitingSessions = 0
+    let errorSessions = 0
+    let completedSessions = 0
+
+    for (const session of sessions) {
+      if (session.status === 'running' || session.status === 'starting') runningSessions++
+      if (session.status === 'waiting_input') waitingSessions++
+      if (session.status === 'error') errorSessions++
+      if (session.status === 'completed') completedSessions++
+    }
+
+    return {
+      totalSessions: sessions.length,
+      runningSessions,
+      waitingSessions,
+      errorSessions,
+      completedSessions,
+      recentSessions: sessions.slice(0, 20),
+    }
+  }, [sessions])
 
   return (
     <div className="h-full overflow-y-auto p-6 space-y-5 bg-bg-primary">

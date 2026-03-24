@@ -1,12 +1,22 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, X, Loader2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTaskStore } from '../../stores/taskStore'
 import { COLUMNS } from './kanbanConstants'
 import type { NewTaskFormProps } from './NewTaskForm'
 import KanbanColumn from './KanbanColumn'
 
 export default function KanbanBoard() {
-  const { tasks, loading, load, create, moveTask, remove } = useTaskStore()
+  const { tasks, loading, load, create, moveTask, remove } = useTaskStore(
+    useShallow((state) => ({
+      tasks: state.tasks,
+      loading: state.loading,
+      load: state.load,
+      create: state.create,
+      moveTask: state.moveTask,
+      remove: state.remove,
+    })),
+  )
   const [showNewForm, setShowNewForm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
