@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import { Bot, GitBranch, RotateCcw, Square, Trash2, ArrowUpLeft } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import type { SessionItemProps } from './types'
 import { ACTIVE_STATUSES, STATUS_LABELS } from './types'
 import { formatSessionTime, getShortPath } from './utils'
@@ -13,10 +15,15 @@ const modeLabels: Record<string, string> = {
 
 export default function SessionItem({ session, selected, onSelect, onResume, onEnd, onRemove, agents }: SessionItemProps) {
   const isActive = ACTIVE_STATUSES.has(session.status)
-  const childToParent = useSessionStore((s) => s.childToParent)
-  const sessions = useSessionStore((s) => s.sessions)
+  const { childToParent, sessions } = useSessionStore(useShallow((state) => ({
+    childToParent: state.childToParent,
+    sessions: state.sessions,
+  })))
   const parentBinding = childToParent[session.id]
-  const parentSession = parentBinding ? sessions.find((s) => s.id === parentBinding.parentSessionId) : undefined
+  const parentSession = useMemo(
+    () => (parentBinding ? sessions.find((item) => item.id === parentBinding.parentSessionId) : undefined),
+    [parentBinding, sessions],
+  )
 
   return (
     <div

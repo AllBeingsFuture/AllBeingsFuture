@@ -12,8 +12,9 @@
  * 6. Results sorted by time descending
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useDeferredValue, useRef, useMemo } from 'react'
 import { Search, X, ArrowRight, Copy, MessageSquare, Clock, ChevronDown, Layers, AlignLeft } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useSessionStore } from '../../stores/sessionStore'
 import { UsageService } from '../../../bindings/allbeingsfuture/internal/services'
 import type { ConversationMessage } from '../../types/conversationTypes'
@@ -110,10 +111,13 @@ const CrossSessionSearch: React.FC<CrossSessionSearchProps> = ({
   const filterRef = useRef<HTMLDivElement>(null)
   // Track in-flight loads via ref to avoid stale-closure issues in useCallback
   const loadingRef = useRef<Set<string>>(new Set())
+  const deferredQuery = useDeferredValue(query)
 
   // Get sessions from the global store
-  const allSessions = useSessionStore(state => state.sessions)
-  const currentMessages = useSessionStore(state => state.messages)
+  const { allSessions, currentMessages } = useSessionStore(useShallow((state) => ({
+    allSessions: state.sessions,
+    currentMessages: state.messages,
+  })))
 
   // Cross-session mode: exclude current session, sort by time desc
   const targetSessions = useMemo(() => {
@@ -126,6 +130,11 @@ const CrossSessionSearch: React.FC<CrossSessionSearchProps> = ({
       })
   }, [allSessions, currentSessionId])
 
+  const currentSession = useMemo(
+    () => allSessions.find((session) => session.id === currentSessionId),
+    [allSessions, currentSessionId],
+  )
+
   // Current session messages mapped to ConversationMessage shape
   const currentConvMessages = useMemo((): ConversationMessage[] => {
     return currentMessages
@@ -135,9 +144,9 @@ const CrossSessionSearch: React.FC<CrossSessionSearchProps> = ({
         sessionId: currentSessionId,
         role: m.role as ConversationMessage['role'],
         content: m.content,
-        timestamp: new Date().toISOString(),
+        timestamp: String((m as { timestamp?: string }).timestamp || currentSession?.startedAt || ''),
       }))
-  }, [currentMessages, currentSessionId])
+  }, [currentMessages, currentSession?.startedAt, currentSessionId])
 
   // Auto-focus search input
   useEffect(() => {
@@ -226,10 +235,9 @@ const CrossSessionSearch: React.FC<CrossSessionSearchProps> = ({
 
   /** Execute search and return matching messages */
   const searchResults = useMemo((): SearchResultItem[] => {
-    const q = query.trim().toLowerCase()
+    const q = deferredQuery.trim().toLowerCase()
 
     if (mode === 'current') {
-      const currentSession = allSessions.find(s => s.id === currentSessionId)
       const sessionName = currentSession?.name || `当前会话 #${currentSessionId.slice(0, 6)}`
       const sessionTimestamp = currentSession?.startedAt ? String(currentSession.startedAt) : ''
 
@@ -279,7 +287,7 @@ const CrossSessionSearch: React.FC<CrossSessionSearchProps> = ({
     return results
       .sort((a, b) => new Date(b.message.timestamp).getTime() - new Date(a.message.timestamp).getTime())
       .slice(0, 50)
-  }, [mode, query, selectedSessionId, targetSessions, loadedConversations, currentConvMessages, currentSessionId, allSessions])
+  }, [mode, deferredQuery, selectedSessionId, targetSessions, loadedConversations, currentConvMessages, currentSession, currentSessionId])
 
   const isAllLoaded = mode === 'current'
     ? true
@@ -308,7 +316,10 @@ const CrossSessionSearch: React.FC<CrossSessionSearchProps> = ({
     setTimeout(() => setCopiedId(null), 2000)
   }, [])
 
-  const selectedSession = targetSessions.find(s => s.id === selectedSessionId)
+  const selectedSession = useMemo(
+    () => targetSessions.find((session) => session.id === selectedSessionId),
+    [selectedSessionId, targetSessions],
+  )
 
   const panelTitle = mode === 'current' ? '搜索当前会话' : '搜索其他会话内容'
   const placeholderText = mode === 'current' ? '搜索当前会话消息...' : '搜索对话内容...'

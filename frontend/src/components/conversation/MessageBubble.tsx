@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, User, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
 import { useSessionStore } from '../../stores/sessionStore'
 import ReactMarkdown from 'react-markdown'
@@ -42,30 +43,31 @@ export default function MessageBubble({ message, isStreaming }: Props) {
   const isPartial = message.partial
   const [thinkingExpanded, setThinkingExpanded] = useState(true)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
-  const sentImagesList = useSessionStore((s) => s.sentImages)
-  const messages = useSessionStore((s) => s.messages)
+  const { sentImagesList, messages } = useSessionStore(useShallow((state) => ({
+    sentImagesList: state.sentImages,
+    messages: state.messages,
+  })))
 
-  // Look up locally cached images for this user message by matching content + occurrence order
-  let userImages: string[] | undefined
-  if (isUser) {
-    // Count how many user messages before this one have the same content
+  const userImages = useMemo(() => {
+    if (!isUser) return undefined
+
     let sameContentBefore = 0
-    for (const m of messages) {
-      if (m === message) break
-      if (m.role === 'user' && m.content === message.content) sameContentBefore++
-    }
-    // Find the matching entry in sentImages by content and occurrence index
-    let found = 0
-    for (const entry of sentImagesList) {
-      if (entry.content === message.content) {
-        if (found === sameContentBefore) {
-          userImages = entry.images
-          break
-        }
-        found++
+    for (const currentMessage of messages) {
+      if (currentMessage === message) break
+      if (currentMessage.role === 'user' && currentMessage.content === message.content) {
+        sameContentBefore += 1
       }
     }
-  }
+
+    let found = 0
+    for (const entry of sentImagesList) {
+      if (entry.content !== message.content) continue
+      if (found === sameContentBefore) return entry.images
+      found += 1
+    }
+
+    return undefined
+  }, [isUser, message, messages, sentImagesList])
 
   // Extract thinking text if embedded in content (format: <thinking>...</thinking>)
   const thinkingMatch = !isUser ? message.content?.match(THINKING_RE) : null
