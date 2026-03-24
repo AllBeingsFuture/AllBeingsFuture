@@ -3,22 +3,31 @@
  * 4 个 Tab: Bot 配置 / AI 模型 / 授权用户 / 推送设置
  */
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Trash2, TestTube, RefreshCw, Check, AlertCircle, Loader2, Pencil } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTelegramStore } from '../../stores/telegramStore'
 
 type TabId = 'bot' | 'ai' | 'users' | 'push'
 
 export default function TelegramSettings() {
   const [activeTab, setActiveTab] = useState<TabId>('bot')
-  const store = useTelegramStore()
+  const { botStatus, fetchConfig, fetchStatus, fetchAIProviders, fetchAllowedUsers } = useTelegramStore(
+    useShallow((state) => ({
+      botStatus: state.botStatus,
+      fetchConfig: state.fetchConfig,
+      fetchStatus: state.fetchStatus,
+      fetchAIProviders: state.fetchAIProviders,
+      fetchAllowedUsers: state.fetchAllowedUsers,
+    })),
+  )
 
   useEffect(() => {
-    store.fetchConfig()
-    store.fetchStatus()
-    store.fetchAIProviders()
-    store.fetchAllowedUsers()
-  }, [])
+    void fetchConfig()
+    void fetchStatus()
+    void fetchAIProviders()
+    void fetchAllowedUsers()
+  }, [fetchAIProviders, fetchAllowedUsers, fetchConfig, fetchStatus])
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'bot', label: 'Bot 配置' },
@@ -32,7 +41,7 @@ export default function TelegramSettings() {
       {/* Status + Tabs */}
       <div className="flex items-center gap-3 mb-2">
         <span className="text-sm font-medium text-text-primary">Telegram 远程控制</span>
-        <StatusBadge status={store.botStatus} />
+        <StatusBadge status={botStatus} />
       </div>
 
       <div className="flex border-b border-white/10">
@@ -84,7 +93,15 @@ function StatusBadge({ status }: { status: string }) {
 const inputCls = 'w-full px-3 py-2 bg-slate-900 border border-white/10 rounded text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm'
 
 function BotTab() {
-  const { config, updateConfig, botStatus, restartBot, fetchStatus } = useTelegramStore()
+  const { config, updateConfig, botStatus, restartBot, fetchStatus } = useTelegramStore(
+    useShallow((state) => ({
+      config: state.config,
+      updateConfig: state.updateConfig,
+      botStatus: state.botStatus,
+      restartBot: state.restartBot,
+      fetchStatus: state.fetchStatus,
+    })),
+  )
   const [token, setToken] = useState('')
   const [restarting, setRestarting] = useState(false)
   const [proxyType, setProxyType] = useState('none')
@@ -116,7 +133,7 @@ function BotTab() {
   const handleRestart = async () => {
     setRestarting(true)
     await restartBot()
-    setTimeout(() => { fetchStatus(); setRestarting(false) }, 2000)
+    setTimeout(() => { void fetchStatus(); setRestarting(false) }, 2000)
   }
 
   return (
@@ -183,7 +200,15 @@ function BotTab() {
 }
 
 function AITab() {
-  const { aiProviders, addAIProvider, updateAIProvider, deleteAIProvider, testAIProvider } = useTelegramStore()
+  const { aiProviders, addAIProvider, updateAIProvider, deleteAIProvider, testAIProvider } = useTelegramStore(
+    useShallow((state) => ({
+      aiProviders: state.aiProviders,
+      addAIProvider: state.addAIProvider,
+      updateAIProvider: state.updateAIProvider,
+      deleteAIProvider: state.deleteAIProvider,
+      testAIProvider: state.testAIProvider,
+    })),
+  )
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', apiEndpoint: '', apiKey: '', model: '', maxTokens: 4096, priority: 0 })
@@ -257,7 +282,13 @@ function AITab() {
 }
 
 function UsersTab() {
-  const { allowedUsers, addAllowedUser, removeAllowedUser } = useTelegramStore()
+  const { allowedUsers, addAllowedUser, removeAllowedUser } = useTelegramStore(
+    useShallow((state) => ({
+      allowedUsers: state.allowedUsers,
+      addAllowedUser: state.addAllowedUser,
+      removeAllowedUser: state.removeAllowedUser,
+    })),
+  )
   const [showAdd, setShowAdd] = useState(false)
   const [userId, setUserId] = useState('')
   const [username, setUsername] = useState('')
@@ -305,7 +336,10 @@ function UsersTab() {
 }
 
 function PushTab() {
-  const { config, updateConfig } = useTelegramStore()
+  const { config, updateConfig } = useTelegramStore(useShallow((state) => ({
+    config: state.config,
+    updateConfig: state.updateConfig,
+  })))
   const toggles = [
     { key: 'pushEnabled', label: '启用事件推送', desc: '总开关，关闭后不推送任何事件' },
     { key: 'pushConfirmation', label: '确认请求通知', desc: 'CLI 需要确认操作时推送' },

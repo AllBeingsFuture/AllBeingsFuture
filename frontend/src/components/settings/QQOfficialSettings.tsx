@@ -5,21 +5,26 @@
 
 import { useState, useEffect } from 'react'
 import { RefreshCw, Loader2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useQQOfficialStore } from '../../stores/qqofficialStore'
 
 export default function QQOfficialSettings() {
-  const store = useQQOfficialStore()
+  const { botStatus, fetchConfig, fetchStatus } = useQQOfficialStore(useShallow((state) => ({
+    botStatus: state.botStatus,
+    fetchConfig: state.fetchConfig,
+    fetchStatus: state.fetchStatus,
+  })))
 
   useEffect(() => {
-    store.fetchConfig()
-    store.fetchStatus()
-  }, [])
+    void fetchConfig()
+    void fetchStatus()
+  }, [fetchConfig, fetchStatus])
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 mb-2">
         <span className="text-sm font-medium text-text-primary">QQ 官方机器人</span>
-        <StatusBadge status={store.botStatus} />
+        <StatusBadge status={botStatus} />
       </div>
       <p className="text-xs text-slate-500">
         通过 QQ 开放平台官方 Bot API 接入，需要先在{' '}
@@ -56,7 +61,15 @@ function StatusBadge({ status }: { status: string }) {
 const inputCls = 'w-full px-3 py-2 bg-slate-900 border border-white/10 rounded text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm'
 
 function BotConfigTab() {
-  const { config, updateConfig, botStatus, restartBot, fetchStatus } = useQQOfficialStore()
+  const { config, updateConfig, botStatus, restartBot, fetchStatus } = useQQOfficialStore(
+    useShallow((state) => ({
+      config: state.config,
+      updateConfig: state.updateConfig,
+      botStatus: state.botStatus,
+      restartBot: state.restartBot,
+      fetchStatus: state.fetchStatus,
+    })),
+  )
   const [appId, setAppId] = useState('')
   const [appSecret, setAppSecret] = useState('')
   const [commandPrefix, setCommandPrefix] = useState('')
@@ -84,7 +97,7 @@ function BotConfigTab() {
   const handleRestart = async () => {
     setRestarting(true)
     await restartBot()
-    setTimeout(() => { fetchStatus(); setRestarting(false) }, 2000)
+    setTimeout(() => { void fetchStatus(); setRestarting(false) }, 2000)
   }
 
   return (
