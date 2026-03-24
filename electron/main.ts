@@ -86,8 +86,8 @@ function getIconPath() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: 1900,
+    height: 1200,
     minWidth: 800,
     minHeight: 600,
     icon: getIconPath(),
