@@ -3,8 +3,9 @@
  * 根据活跃会话数量自动调整网格布局，支持最大化和新建会话
  */
 
-import React from 'react'
+import React, { useMemo } from 'react'
 import { Plus, Maximize2, Terminal } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 
@@ -77,17 +78,25 @@ const SessionCard = React.memo(function SessionCard({
 })
 
 const TerminalGrid: React.FC = () => {
-  const sessions = useSessionStore(s => s.sessions)
-  const select = useSessionStore(s => s.select)
-  const setViewMode = useUIStore(s => s.setViewMode)
-  const toggleNewTaskDialog = useUIStore(s => s.toggleNewTaskDialog)
+  const { sessions, select } = useSessionStore(useShallow((state) => ({
+    sessions: state.sessions,
+    select: state.select,
+  })))
+  const { setViewMode, toggleNewTaskDialog } = useUIStore(useShallow((state) => ({
+    setViewMode: state.setViewMode,
+    toggleNewTaskDialog: state.toggleNewTaskDialog,
+  })))
 
-  // 过滤出活跃会话（状态不是 completed 或 terminated）
-  const activeSessions = sessions.filter(
-    (session) => session.status !== 'completed' && session.status !== 'terminated'
-  )
-
-  const [cols, rows] = calculateGridLayout(activeSessions.length)
+  const { activeSessions, cols, rows, placeholderCount } = useMemo(() => {
+    const active = sessions.filter((session) => session.status !== 'completed' && session.status !== 'terminated')
+    const [cols, rows] = calculateGridLayout(active.length)
+    return {
+      activeSessions: active,
+      cols,
+      rows,
+      placeholderCount: cols * rows - active.length,
+    }
+  }, [sessions])
 
   // 最大化：选中会话并切换到标签页视图
   const handleMaximize = (sessionId: string) => {
@@ -132,7 +141,7 @@ const TerminalGrid: React.FC = () => {
       ))}
 
       {/* 空格子占位 */}
-      {Array.from({ length: cols * rows - activeSessions.length }).map((_, index) => (
+      {Array.from({ length: placeholderCount }).map((_, index) => (
         <div
           key={`placeholder-${index}`}
           className="border-2 border-dashed border-gray-700 rounded-lg flex items-center justify-center cursor-pointer hover:border-gray-600 hover:bg-bg-secondary transition-colors group"

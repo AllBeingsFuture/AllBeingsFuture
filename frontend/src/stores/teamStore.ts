@@ -104,11 +104,8 @@ export const useTeamStore = create<TeamState>((set, get) => ({
   },
 
   selectInstance: (id) => {
+    if (id === get().selectedInstanceId) return
     set({ selectedInstanceId: id })
-    if (id) {
-      get().loadTasks(id)
-      get().loadMessages(id)
-    }
   },
 
   loadTasks: async (instanceId) => {

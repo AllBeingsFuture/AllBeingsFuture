@@ -1,5 +1,6 @@
 import { Command, FolderKanban, Search, Sparkles, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTaskStore } from '../../stores/taskStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -12,14 +13,19 @@ interface QuickOpenItem {
 }
 
 export default function QuickOpenDialog() {
-  const sessions = useSessionStore((state) => state.sessions)
-  const selectSession = useSessionStore((state) => state.select)
+  const { sessions, selectSession } = useSessionStore(useShallow((state) => ({
+    sessions: state.sessions,
+    selectSession: state.select,
+  })))
   const tasks = useTaskStore((state) => state.tasks)
-  const setActiveView = useUIStore((state) => state.setActiveView)
-  const toggleQuickOpen = useUIStore((state) => state.toggleQuickOpen)
+  const { setActiveView, toggleQuickOpen } = useUIStore(useShallow((state) => ({
+    setActiveView: state.setActiveView,
+    toggleQuickOpen: state.toggleQuickOpen,
+  })))
 
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const deferredQuery = useDeferredValue(query)
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -37,7 +43,7 @@ export default function QuickOpenDialog() {
   }, [toggleQuickOpen])
 
   const items = useMemo(() => {
-    const trimmed = query.trim().toLowerCase()
+    const trimmed = deferredQuery.trim().toLowerCase()
 
     const sessionItems: QuickOpenItem[] = sessions.map((session) => ({
       id: session.id,
@@ -56,7 +62,7 @@ export default function QuickOpenDialog() {
     return [...sessionItems, ...taskItems]
       .filter((item) => !trimmed || `${item.title} ${item.subtitle}`.toLowerCase().includes(trimmed))
       .slice(0, 12)
-  }, [query, sessions, tasks])
+  }, [deferredQuery, sessions, tasks])
 
   const handleOpen = (item: QuickOpenItem) => {
     if (item.kind === 'session') {

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTeamStore } from '../../stores/teamStore'
 import type { TeamDefinition, TeamRoleDefinition } from '../../../bindings/allbeingsfuture/internal/models/models'
 
@@ -27,7 +28,16 @@ const emptyRole = (): RoleForm => ({
 })
 
 export default function TeamTemplateEditor({ team, onClose }: Props) {
-  const { createDefinition, updateDefinition, deleteDefinition, addRole, updateRole, deleteRole } = useTeamStore()
+  const { createDefinition, updateDefinition, deleteDefinition, addRole, updateRole, deleteRole } = useTeamStore(
+    useShallow((state) => ({
+      createDefinition: state.createDefinition,
+      updateDefinition: state.updateDefinition,
+      deleteDefinition: state.deleteDefinition,
+      addRole: state.addRole,
+      updateRole: state.updateRole,
+      deleteRole: state.deleteRole,
+    })),
+  )
 
   const [name, setName] = useState(team?.name ?? '')
   const [description, setDescription] = useState(team?.description ?? '')
@@ -69,17 +79,19 @@ export default function TeamTemplateEditor({ team, onClose }: Props) {
     }
   }
 
-  const addEmptyRole = () => setRoles([...roles, emptyRole()])
+  const addEmptyRole = () => setRoles((current) => [...current, emptyRole()])
 
   const updateRoleField = (idx: number, field: keyof RoleForm, value: string) => {
-    const updated = [...roles]
-    updated[idx] = { ...updated[idx], [field]: value }
-    setRoles(updated)
+    setRoles((current) =>
+      current.map((role, roleIndex) => (roleIndex === idx ? { ...role, [field]: value } : role)),
+    )
   }
 
   const removeRole = (idx: number) => {
-    if (roles.length <= 1) return
-    setRoles(roles.filter((_, i) => i !== idx))
+    setRoles((current) => {
+      if (current.length <= 1) return current
+      return current.filter((_, roleIndex) => roleIndex !== idx)
+    })
   }
 
   return (

@@ -2,23 +2,35 @@
  * 监控看板侧边栏视图 - 会话统计和最近活跃会话
  */
 
+import { useMemo } from 'react'
 import { Monitor, Activity, HelpCircle, AlertCircle } from 'lucide-react'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useUIStore } from '../../stores/uiStore'
 import { STATUS_COLORS } from '../../constants/statusColors'
 
 export default function DashboardSidebarView() {
   const sessions = useSessionStore(s => s.sessions)
 
+  const { totalCount, runningCount, waitingInputCount, errorCount, recentSessions } = useMemo(() => {
+    let runningCount = 0
+    let waitingInputCount = 0
+    let errorCount = 0
 
-  const totalCount = sessions.length
-  const runningCount = sessions.filter(s => s.status === 'running' || s.status === 'starting').length
-  const waitingInputCount = sessions.filter(s => s.status === 'waiting_input').length
-  const errorCount = sessions.filter(s => s.status === 'error').length
+    for (const session of sessions) {
+      if (session.status === 'running' || session.status === 'starting') runningCount += 1
+      if (session.status === 'waiting_input') waitingInputCount += 1
+      if (session.status === 'error') errorCount += 1
+    }
 
-  const recentSessions = [...sessions]
-    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-    .slice(0, 5)
+    return {
+      totalCount: sessions.length,
+      runningCount,
+      waitingInputCount,
+      errorCount,
+      recentSessions: [...sessions]
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+        .slice(0, 5),
+    }
+  }, [sessions])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -92,8 +104,6 @@ export default function DashboardSidebarView() {
           )}
         </div>
       </div>
-
-
     </div>
   )
 }

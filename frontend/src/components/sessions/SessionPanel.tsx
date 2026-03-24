@@ -1,6 +1,7 @@
 import { Bot, MessageSquarePlus, FolderGit2, Workflow, Keyboard, Image, GitBranch } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useShallow } from 'zustand/react/shallow'
 import ConversationView from '../conversation/ConversationView'
 import { useSessionStore } from '../../stores/sessionStore'
 
@@ -21,11 +22,16 @@ const viewTransition = {
 }
 
 export default function SessionPanel() {
-  const sessions = useSessionStore((state) => state.sessions)
-  const selectedId = useSessionStore((state) => state.selectedId)
-  const select = useSessionStore((state) => state.select)
+  const { sessions, selectedId, select } = useSessionStore(useShallow((state) => ({
+    sessions: state.sessions,
+    selectedId: state.selectedId,
+    select: state.select,
+  })))
 
-  const selectedSession = sessions.find((session) => session.id === selectedId) ?? null
+  const selectedSession = useMemo(
+    () => sessions.find((session) => session.id === selectedId) ?? null,
+    [sessions, selectedId],
+  )
 
   useEffect(() => {
     if (!selectedId && sessions.length > 0) {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Allotment } from 'allotment'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Bot,
   Briefcase,
@@ -52,16 +53,29 @@ function badgeClass(active: boolean) {
 }
 
 export default function TeamPanel() {
-  const definitions = useTeamStore((state) => state.definitions)
-  const instances = useTeamStore((state) => state.instances)
-  const selectedInstanceId = useTeamStore((state) => state.selectedInstanceId)
-  const tasks = useTeamStore((state) => state.tasks)
-  const messages = useTeamStore((state) => state.messages)
-  const loadDefinitions = useTeamStore((state) => state.loadDefinitions)
-  const loadInstances = useTeamStore((state) => state.loadInstances)
-  const selectInstance = useTeamStore((state) => state.selectInstance)
-  const loadTasks = useTeamStore((state) => state.loadTasks)
-  const loadMessages = useTeamStore((state) => state.loadMessages)
+  const {
+    definitions,
+    instances,
+    selectedInstanceId,
+    tasks,
+    messages,
+    loadDefinitions,
+    loadInstances,
+    selectInstance,
+    loadTasks,
+    loadMessages,
+  } = useTeamStore(useShallow((state) => ({
+    definitions: state.definitions,
+    instances: state.instances,
+    selectedInstanceId: state.selectedInstanceId,
+    tasks: state.tasks,
+    messages: state.messages,
+    loadDefinitions: state.loadDefinitions,
+    loadInstances: state.loadInstances,
+    selectInstance: state.selectInstance,
+    loadTasks: state.loadTasks,
+    loadMessages: state.loadMessages,
+  })))
 
   const [showEditor, setShowEditor] = useState(false)
   const [editingTeam, setEditingTeam] = useState<TeamDefinition | null>(null)
@@ -87,7 +101,10 @@ export default function TeamPanel() {
     void loadMessages(selectedInstanceId)
   }, [loadMessages, loadTasks, selectedInstanceId])
 
-  const selectedInstance = instances.find((instance) => instance.id === selectedInstanceId) ?? null
+  const selectedInstance = useMemo(
+    () => instances.find((instance) => instance.id === selectedInstanceId) ?? null,
+    [instances, selectedInstanceId],
+  )
 
   useEffect(() => {
     if (!selectedInstance || selectedInstance.members.length === 0) {
@@ -100,9 +117,28 @@ export default function TeamPanel() {
     }
   }, [selectedInstance, selectedMemberId])
 
-  const selectedMember = selectedInstance?.members.find((member) => member.id === selectedMemberId) ?? null
-  const runningInstances = instances.filter((instance) => instance.status === 'running' || instance.status === 'starting')
-  const historyInstances = instances.filter((instance) => !['running', 'starting'].includes(instance.status))
+  const selectedMember = useMemo(
+    () => selectedInstance?.members.find((member) => member.id === selectedMemberId) ?? null,
+    [selectedInstance, selectedMemberId],
+  )
+
+  const { runningInstances, historyInstances } = useMemo(() => {
+    const running: TeamInstance[] = []
+    const history: TeamInstance[] = []
+
+    for (const instance of instances) {
+      if (instance.status === 'running' || instance.status === 'starting') {
+        running.push(instance)
+      } else {
+        history.push(instance)
+      }
+    }
+
+    return {
+      runningInstances: running,
+      historyInstances: history,
+    }
+  }, [instances])
 
   const groupedMembers = useMemo(() => {
     if (!selectedInstance) return []
@@ -129,11 +165,17 @@ export default function TeamPanel() {
   }, [messages, selectedMember])
 
   const stats = useMemo(() => {
-    const memberCount = selectedInstance?.members.length ?? 0
-    const completedMembers = selectedInstance?.members.filter((member) => member.status === 'completed').length ?? 0
-    const runningMembers = selectedInstance?.members.filter((member) => member.status === 'running').length ?? 0
+    const members = selectedInstance?.members ?? []
+    let completedMembers = 0
+    let runningMembers = 0
+
+    for (const member of members) {
+      if (member.status === 'completed') completedMembers += 1
+      if (member.status === 'running') runningMembers += 1
+    }
+
     return {
-      memberCount,
+      memberCount: members.length,
       completedMembers,
       runningMembers,
       taskCount: tasks.length,
@@ -628,8 +670,10 @@ function CenteredEmpty({ icon: Icon, title, description }: { icon: typeof Users;
 function StartTeamDialog({ teamId, onClose }: { teamId: string; onClose: () => void }) {
   const [workDir, setWorkDir] = useState('')
   const [task, setTask] = useState('')
-  const startInstance = useTeamStore((state) => state.startInstance)
-  const definition = useTeamStore((state) => state.definitions.find((team) => team.id === teamId))
+  const { startInstance, definition } = useTeamStore(useShallow((state) => ({
+    startInstance: state.startInstance,
+    definition: state.definitions.find((team) => team.id === teamId),
+  })))
 
   const handleStart = async () => {
     if (!workDir.trim() || !task.trim()) return
