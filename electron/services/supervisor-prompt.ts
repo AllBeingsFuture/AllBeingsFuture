@@ -20,14 +20,15 @@ import * as fs from 'node:fs'
 import { app } from 'electron'
 import { appLog } from './log.js'
 
-/** 所有 ABF 注入的规则文件名（会话结束时统一清理） */
+/** Claude: ABF 注入的规则文件名（会话结束时统一清理） */
 const ABF_RULES_FILES = [
   'abf-supervisor.md',
-  'abf-architecture.md',
   'abf-providers.md',
-  'abf-testing.md',
   'abf-git-workflow.md',
 ] as const
+
+/** Codex: AGENTS.md 文件名 */
+const CODEX_AGENTS_FILE = 'AGENTS.md'
 
 // ==================== 模板加载 ====================
 
@@ -104,6 +105,10 @@ function buildGitWorkflowRules(): string {
  * @param includeSupervisor - 是否包含 Supervisor 调度指引（默认 true）
  * @returns 拼接后的规则文本
  */
+/**
+ * 构建 ABF 规则内容（仅用于非 Claude/Codex 的 Provider 的 appendSystemPrompt 注入）
+ * Claude 和 Codex 各自通过文件发现机制获取规则，不需要 appendSystemPrompt。
+ */
 export function buildAllRulesContent(
   availableProviders: string[],
   includeSupervisor = true,
@@ -112,9 +117,8 @@ export function buildAllRulesContent(
   if (includeSupervisor) {
     parts.push(buildSupervisorPrompt(availableProviders))
   }
-  parts.push(buildArchitectureRules())
+  // 只保留 providers 和 git-workflow（去掉 architecture 和 testing）
   parts.push(buildProviderRules())
-  parts.push(buildTestingRules())
   parts.push(buildGitWorkflowRules())
   return parts.join('\n\n---\n\n')
 }
@@ -146,12 +150,10 @@ export function injectSupervisorPrompt(
   ensureRulesDir(workDir)
   const rulesDir = path.join(workDir, '.claude', 'rules')
 
-  // 构建所有规则文件内容
+  // 构建规则文件内容（去掉 architecture 和 testing，减少 token 消耗）
   const rulesMap: Record<string, string> = {
     'abf-supervisor.md': buildSupervisorPrompt(availableProviders),
-    'abf-architecture.md': buildArchitectureRules(),
     'abf-providers.md': buildProviderRules(),
-    'abf-testing.md': buildTestingRules(),
     'abf-git-workflow.md': buildGitWorkflowRules(),
   }
 
@@ -166,11 +168,47 @@ export function injectSupervisorPrompt(
 }
 
 /**
+ * 注入 Codex AGENTS.md 到工作目录
+ * Codex CLI 启动时自动读取项目根目录的 AGENTS.md
+ *
+ * @param workDir - 会话工作目录
+ * @param availableProviders - 可用的 AI Provider 名称列表
+ */
+export function injectCodexAgentsMd(
+  workDir: string,
+  availableProviders: string[],
+): void {
+  const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
+
+  // 读取 Codex 专用模板
+  let codexTemplate = ''
+  try {
+    const promptsDir = getPromptsDir()
+    codexTemplate = fs.readFileSync(path.join(promptsDir, 'codex-agents.md'), 'utf-8')
+  } catch {
+    appLog('warn', '[Supervisor] Failed to read codex-agents.md template', 'supervisor-prompt')
+    return
+  }
+
+  // 拼接 ABF 规则（providers + git-workflow，不含 supervisor 调度指引）
+  const abfRules = [
+    buildProviderRules(),
+    buildGitWorkflowRules(),
+  ].join('\n\n---\n\n')
+
+  const content = `${codexTemplate}\n\n---\n\n${abfRules}`
+  fs.writeFileSync(agentsPath, content, 'utf-8')
+  appLog('info', `[Supervisor] Injected AGENTS.md to: ${agentsPath}`, 'supervisor-prompt')
+}
+
+/**
  * 清理所有 ABF 规则文件（会话结束时调用）
  *
  * @param workDir - 会话工作目录
+ * @param cleanAgentsMd - 是否同时清理 AGENTS.md（Codex 会话）
  */
-export function cleanupSupervisorPrompt(workDir: string): void {
+export function cleanupSupervisorPrompt(workDir: string, cleanAgentsMd = false): void {
+  // 清理 .claude/rules/abf-*.md
   const rulesDir = path.join(workDir, '.claude', 'rules')
   for (const filename of ABF_RULES_FILES) {
     try {
@@ -182,5 +220,28 @@ export function cleanupSupervisorPrompt(workDir: string): void {
       // Ignore cleanup errors — file may already be gone
     }
   }
-  appLog('info', `[Supervisor] Cleaned up rule files from: ${rulesDir}`, 'supervisor-prompt')
+
+  // 清理 Codex AGENTS.md
+  if (cleanAgentsMd) {
+    try {
+      const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
+      if (fs.existsSync(agentsPath)) {
+        fs.unlinkSync(agentsPath)
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  // 同时清理旧版 architecture/testing 规则文件（如果存在）
+  for (const oldFile of ['abf-architecture.md', 'abf-testing.md']) {
+    try {
+      const oldPath = path.join(rulesDir, oldFile)
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath)
+      }
+    } catch {}
+  }
+
+  appLog('info', `[Supervisor] Cleaned up rule files from: ${workDir}`, 'supervisor-prompt')
 }

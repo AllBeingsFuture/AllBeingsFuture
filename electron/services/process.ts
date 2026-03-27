@@ -17,7 +17,7 @@ import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
 import { MessageScheduler } from './message-scheduler.js'
 import { appLog } from './log.js'
-import { injectSupervisorPrompt, cleanupSupervisorPrompt, buildAllRulesContent } from './supervisor-prompt.js'
+import { injectSupervisorPrompt, injectCodexAgentsMd, cleanupSupervisorPrompt, buildAllRulesContent } from './supervisor-prompt.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
@@ -286,23 +286,30 @@ export class ProcessService {
       config.resumeFlag = provider.resumeFlag
     }
 
-    // Inject ABF rules content into system prompt for ALL non-child sessions
-    // This ensures every AI provider (Claude, Codex, Gemini, etc.) receives project context
+    // Inject ABF rules for non-child sessions.
+    // Strategy: use file-based discovery per provider to avoid double injection.
+    //   - Claude:  .claude/rules/abf-*.md (auto-discovered, NO appendSystemPrompt)
+    //   - Codex:   AGENTS.md in workDir   (auto-discovered, NO appendSystemPrompt)
+    //   - Others:  appendSystemPrompt only (no file discovery mechanism)
     if (!session.parentSessionId) {
       try {
         const isClaudeBased = this.isClaudeAdapter(provider.adapterType)
+        const isCodex = this.isCodexAdapter(provider.adapterType)
         const providerNames = this.providerService.getAll().map(p => p.name)
+        const workDir = config.workDir as string
 
-        // Build rules content and append to system prompt
-        // Include supervisor instructions only for Claude (which supports MCP-based agent control)
-        const rulesContent = buildAllRulesContent(providerNames, isClaudeBased)
-        const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
-        config.appendSystemPrompt = existingPrompt
-          ? `${existingPrompt}\n\n${rulesContent}`
-          : rulesContent
-
-        // Inject agent-control MCP server for Claude sessions
         if (isClaudeBased) {
+          // Claude: write .claude/rules/ files only (Claude auto-discovers them)
+          // Do NOT inject via appendSystemPrompt to avoid reading rules twice
+          try {
+            injectSupervisorPrompt(workDir, providerNames)
+            this.supervisorPromptSessions.set(sessionId, workDir)
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to inject Claude rules files: ${errMsg}`, 'process')
+          }
+
+          // Inject agent-control MCP server for Claude sessions
           try {
             const apiPort = await this.ensureAgentApi()
             config.mcpServers = {
@@ -319,16 +326,24 @@ export class ProcessService {
             const errMsg = err instanceof Error ? err.message : String(err)
             appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
           }
-
-          // Also write rules files to .claude/rules/ as backup (Claude Code CLI auto-discovery)
+        } else if (isCodex) {
+          // Codex: write AGENTS.md only (Codex auto-discovers it)
+          // Do NOT inject via appendSystemPrompt to avoid reading rules twice
           try {
-            const workDir = config.workDir as string
-            injectSupervisorPrompt(workDir, providerNames)
+            injectCodexAgentsMd(workDir, providerNames)
             this.supervisorPromptSessions.set(sessionId, workDir)
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err)
-            appLog('warn', `Failed to inject supervisor prompt files: ${errMsg}`, 'process')
+            appLog('warn', `Failed to inject Codex AGENTS.md: ${errMsg}`, 'process')
           }
+        } else {
+          // Other providers (Gemini, OpenCode, etc.): use appendSystemPrompt
+          // These don't have file-based rule discovery
+          const rulesContent = buildAllRulesContent(providerNames, false)
+          const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
+          config.appendSystemPrompt = existingPrompt
+            ? `${existingPrompt}\n\n${rulesContent}`
+            : rulesContent
         }
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -1002,7 +1017,11 @@ export class ProcessService {
   private cleanupSupervisorPromptForSession(sessionId: string): void {
     const workDir = this.supervisorPromptSessions.get(sessionId)
     if (workDir) {
-      cleanupSupervisorPrompt(workDir)
+      // Check if this was a Codex session to also clean AGENTS.md
+      const session = this.sessionService.getById(sessionId)
+      const provider = session ? this.providerService.getById(session.providerId) : null
+      const isCodex = provider ? this.isCodexAdapter(provider.adapterType) : false
+      cleanupSupervisorPrompt(workDir, isCodex)
       this.supervisorPromptSessions.delete(sessionId)
     }
   }
@@ -1034,6 +1053,12 @@ export class ProcessService {
   private isClaudeAdapter(adapterType: string): boolean {
     const t = (adapterType || '').toLowerCase()
     return t.includes('claude') || t === '' // default to Claude
+  }
+
+  /** Check if a provider adapter type is Codex-based */
+  private isCodexAdapter(adapterType: string): boolean {
+    const t = (adapterType || '').toLowerCase()
+    return t.includes('codex')
   }
 
   /**
