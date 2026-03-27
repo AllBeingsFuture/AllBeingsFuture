@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
-import { useSessionStore, type ChatUpdateEvent, type AgentUpdateEvent } from '../../stores/sessionStore'
+import { useSessionStore, type ChatUpdateEvent, type ChatPatchEvent, type AgentUpdateEvent } from '../../stores/sessionStore'
 import { useIpcEvent } from '../../hooks/useIpcEvent'
 import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
@@ -15,6 +15,7 @@ import StickerCard from './StickerCard'
 import ShellTerminalView from '../terminal/ShellTerminalView'
 import { useUIStore } from '../../stores/uiStore'
 import type { ConversationMessage, FileChangeInfo } from '../../types/conversationTypes'
+import { useVirtualizedList } from './useVirtualizedList'
 
 interface Props {
   session: Session
@@ -46,6 +47,9 @@ interface MessageGroup {
   /** For child_agent groups: the display name */
   childAgentName?: string
 }
+
+const VIRTUALIZATION_GROUP_THRESHOLD = 60
+const VIRTUALIZATION_OVERSCAN_PX = 900
 
 function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup[] {
   const groups: MessageGroup[] = []
@@ -166,6 +170,32 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
   flushToolGroup()
   flushChildGroup()
   return groups
+}
+
+function getGroupKey(group: MessageGroup): string {
+  if (group.type === 'child_agent') {
+    return `${group.type}-${group.childSessionId || 'unknown'}-${group.index}`
+  }
+  return `${group.type}-${group.index}`
+}
+
+function estimateMessageGroupHeight(group: MessageGroup): number {
+  const totalContentLength = group.messages.reduce((sum, message) => sum + (message.content?.length || 0), 0)
+  const newlineCount = group.messages.reduce((sum, message) => sum + ((message.content?.match(/\n/g) || []).length), 0)
+
+  if (group.type === 'thinking') {
+    return Math.min(320, 72 + Math.ceil(totalContentLength / 7) * 10 + newlineCount * 8)
+  }
+
+  if (group.type === 'tool_group') {
+    return 48 + group.messages.length * 68
+  }
+
+  if (group.type === 'child_agent') {
+    return 72 + Math.min(120, group.messages.length * 18)
+  }
+
+  return Math.min(420, 68 + Math.ceil(totalContentLength / 9) * 16 + newlineCount * 10)
 }
 
 /** Detect file-editing tool names (MCP allbeingsfuture tools + native Edit/Write) */
@@ -426,6 +456,7 @@ export default function ConversationView({ session }: Props) {
     pollChat,
     initProcess,
     handleChatUpdate,
+    handleChatPatch,
     handleAgentUpdate,
     stopProcess,
     childToParent,
@@ -437,6 +468,7 @@ export default function ConversationView({ session }: Props) {
     pollChat: state.pollChat,
     initProcess: state.initProcess,
     handleChatUpdate: state.handleChatUpdate,
+    handleChatPatch: state.handleChatPatch,
     handleAgentUpdate: state.handleAgentUpdate,
     stopProcess: state.stopProcess,
     childToParent: state.childToParent,
@@ -446,6 +478,7 @@ export default function ConversationView({ session }: Props) {
   const isChildSession = !!(childToParent?.[session.id] || (session as any).parentSessionId)
 
   const [ready, setReady] = useState(false)
+  const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 })
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const isNearBottomRef = useRef(true)
@@ -453,16 +486,36 @@ export default function ConversationView({ session }: Props) {
   const lastEventTimeRef = useRef(0)
   const forceScrollUntilRef = useRef(0)
 
+  const syncScrollMetrics = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    setScrollMetrics((prev) => {
+      const next = {
+        scrollTop: el.scrollTop,
+        viewportHeight: el.clientHeight,
+      }
+      return prev.scrollTop === next.scrollTop && prev.viewportHeight === next.viewportHeight
+        ? prev
+        : next
+    })
+  }, [])
+
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
     const threshold = 150
     isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
-  }, [])
+    syncScrollMetrics()
+  }, [syncScrollMetrics])
 
   useIpcEvent<ChatUpdateEvent>('chat:update', (event) => {
     lastEventTimeRef.current = Date.now()
     handleChatUpdate(event)
+  })
+
+  useIpcEvent<ChatPatchEvent>('chat:patch', (event) => {
+    lastEventTimeRef.current = Date.now()
+    handleChatPatch(event)
   })
 
   useIpcEvent<AgentUpdateEvent>('agent:update', (event) => {
@@ -474,6 +527,19 @@ export default function ConversationView({ session }: Props) {
     isNearBottomRef.current = true
     forceScrollUntilRef.current = Date.now() + 3000
   }, [session.id])
+
+  useEffect(() => {
+    syncScrollMetrics()
+
+    const el = scrollContainerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => {
+      syncScrollMetrics()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [session.id, syncScrollMetrics])
 
   // Initialize session on first mount / session switch.
   // IMPORTANT: Do NOT depend on session.status here — status changes frequently
@@ -530,7 +596,20 @@ export default function ConversationView({ session }: Props) {
 
   const shellPanelVisible = useUIStore((state) => state.shellPanelVisible)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
-  const messageGroups = useMemo(() => groupMessages(messages, session.id), [messages, session.id])
+  const deferredMessages = useDeferredValue(messages)
+  const groupedMessagesSource = deferredMessages.length === 0 && messages.length <= 1
+    ? messages
+    : deferredMessages
+  const messageGroups = useMemo(() => groupMessages(groupedMessagesSource, session.id), [groupedMessagesSource, session.id])
+  const virtualization = useVirtualizedList({
+    items: messageGroups,
+    enabled: messageGroups.length >= VIRTUALIZATION_GROUP_THRESHOLD && scrollMetrics.viewportHeight > 0,
+    getItemKey: getGroupKey,
+    estimateSize: estimateMessageGroupHeight,
+    overscanPx: VIRTUALIZATION_OVERSCAN_PX,
+    scrollTop: scrollMetrics.scrollTop,
+    viewportHeight: scrollMetrics.viewportHeight,
+  })
   const handleSend = useCallback((text: string, images?: Array<{data: string; mimeType: string}>) => (
     sendMessage(session.id, text, images)
   ), [sendMessage, session.id])
@@ -538,6 +617,63 @@ export default function ConversationView({ session }: Props) {
     void stopProcess(session.id)
   }, [session.id, stopProcess])
   const inputPlaceholder = ready ? '输入消息，Enter 发送' : '正在初始化...'
+
+  const renderMessageGroup = useCallback((group: MessageGroup) => {
+    if (group.type === 'tool_group' && group.convMessages) {
+      const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
+      const fileOps = extractFileChanges(group.convMessages)
+      const stickerMsgs = group.convMessages.filter(
+        (m) => m.toolName === 'send_sticker' && m.toolInput?.mood,
+      )
+      const nonStickerMsgs = group.convMessages.filter(
+        (m) => m.toolName !== 'send_sticker',
+      )
+      return (
+        <React.Fragment key={`tool-${group.index}`}>
+          {nonStickerMsgs.length > 0 && (
+            <ToolOperationGroup
+              messages={nonStickerMsgs}
+              isActive={streaming && isLastGroup}
+            />
+          )}
+          {fileOps.map((operation, index) => (
+            <FileChangeCard key={`fc-${group.index}-${index}`} message={operation} />
+          ))}
+          {stickerMsgs.map((msg, index) => (
+            <StickerCard
+              key={`sticker-${group.index}-${index}`}
+              mood={msg.toolInput!.mood as string}
+              cacheKey={msg.id}
+            />
+          ))}
+        </React.Fragment>
+      )
+    }
+
+    if (group.type === 'child_agent' && group.childSessionId) {
+      const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
+      return (
+        <ChildAgentBlock
+          key={`child-${group.childSessionId}-${group.index}`}
+          name={group.childAgentName}
+          messages={group.messages}
+          childSessionId={group.childSessionId}
+          isActive={streaming && isLastGroup}
+        />
+      )
+    }
+
+    if (group.type === 'thinking') {
+      const merged = group.messages.map(m => m.content).join('')
+      return (
+        <ThinkingBlock key={`think-${group.index}`} content={merged} />
+      )
+    }
+
+    return group.messages.map((msg, index) => (
+      <MessageBubble key={`msg-${group.index}-${index}`} message={msg} isStreaming={streaming} />
+    ))
+  }, [groupedMessagesSource.length, streaming])
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="conversation-view">
@@ -563,63 +699,33 @@ export default function ConversationView({ session }: Props) {
               </p>
             </div>
           ) : (
-            messageGroups.map((group) => {
-              if (group.type === 'tool_group' && group.convMessages) {
-                const isLastGroup = group.index + group.messages.length >= messages.length
-                const fileOps = extractFileChanges(group.convMessages)
-                // Separate sticker tool_use messages from regular tool operations
-                const stickerMsgs = group.convMessages.filter(
-                  (m) => m.toolName === 'send_sticker' && m.toolInput?.mood,
-                )
-                const nonStickerMsgs = group.convMessages.filter(
-                  (m) => m.toolName !== 'send_sticker',
-                )
-                return (
-                  <React.Fragment key={`tool-${group.index}`}>
-                    {nonStickerMsgs.length > 0 && (
-                      <ToolOperationGroup
-                        messages={nonStickerMsgs}
-                        isActive={streaming && isLastGroup}
-                      />
-                    )}
-                    {fileOps.map((operation, index) => (
-                      <FileChangeCard key={`fc-${group.index}-${index}`} message={operation} />
-                    ))}
-                    {stickerMsgs.map((msg, index) => (
-                      <StickerCard
-                        key={`sticker-${group.index}-${index}`}
-                        mood={msg.toolInput!.mood as string}
-                        cacheKey={msg.id}
-                      />
-                    ))}
-                  </React.Fragment>
-                )
-              }
-
-              if (group.type === 'child_agent' && group.childSessionId) {
-                const isLastGroup = group.index + group.messages.length >= messages.length
-                return (
-                  <ChildAgentBlock
-                    key={`child-${group.childSessionId}-${group.index}`}
-                    name={group.childAgentName}
-                    messages={group.messages}
-                    childSessionId={group.childSessionId}
-                    isActive={streaming && isLastGroup}
-                  />
-                )
-              }
-
-              if (group.type === 'thinking') {
-                const merged = group.messages.map(m => m.content).join('')
-                return (
-                  <ThinkingBlock key={`think-${group.index}`} content={merged} />
-                )
-              }
-
-              return group.messages.map((msg, index) => (
-                <MessageBubble key={`msg-${group.index}-${index}`} message={msg} isStreaming={streaming} />
-              ))
-            })
+            virtualization.enabled ? (
+              <div
+                className="relative w-full"
+                style={{ height: Math.max(virtualization.totalHeight, 1) }}
+              >
+                {virtualization.virtualItems.map((virtualItem) => (
+                  <div
+                    key={virtualItem.key}
+                    ref={virtualization.measureElement(virtualItem.key)}
+                    className="absolute left-0 right-0 top-0"
+                    style={{ transform: `translateY(${virtualItem.start}px)` }}
+                  >
+                    {renderMessageGroup(virtualItem.item)}
+                  </div>
+                ))}
+                <div
+                  ref={bottomRef}
+                  className="absolute left-0 w-px"
+                  style={{ top: Math.max(virtualization.totalHeight - 1, 0), height: 1 }}
+                />
+              </div>
+            ) : (
+              <>
+                {messageGroups.map((group) => renderMessageGroup(group))}
+                <div ref={bottomRef} />
+              </>
+            )
           )}
 
           <AnimatePresence>
@@ -641,8 +747,6 @@ export default function ConversationView({ session }: Props) {
               </motion.div>
             )}
           </AnimatePresence>
-
-          <div ref={bottomRef} />
         </div>
       </div>
 

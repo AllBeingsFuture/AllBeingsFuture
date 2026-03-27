@@ -11,6 +11,7 @@ const storeState = {
   pollChat: vi.fn().mockResolvedValue(undefined),
   initProcess: vi.fn().mockResolvedValue(undefined),
   handleChatUpdate: vi.fn(),
+  handleChatPatch: vi.fn(),
   handleAgentUpdate: vi.fn(),
   stopProcess: vi.fn(),
   childToParent: {} as Record<string, unknown>,

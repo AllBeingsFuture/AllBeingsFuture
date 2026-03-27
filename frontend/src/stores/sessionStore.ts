@@ -8,6 +8,13 @@ const MAX_SENT_IMAGES = 50
 
 /** Session objects from the backend may carry parentSessionId for child sessions */
 type SessionWithParent = Session & { parentSessionId?: string }
+type PatchedChatMessage = ChatMessage & {
+  timestamp?: string
+  childSessionId?: string
+  toolUse?: Array<{ name: string; input?: Record<string, unknown> }>
+  toolName?: string
+  toolInput?: Record<string, unknown>
+}
 
 const ACTIVE_RUNTIME_STATUSES = new Set<Session['status']>(['starting', 'running'])
 
@@ -37,6 +44,49 @@ function syncRuntimeStatus(sessions: Session[], sessionId: string, streaming: bo
   })
 
   return changed ? nextSessions : sessions
+}
+
+function sameMessageIdentity(left: ChatMessage | undefined, right: ChatMessage): boolean {
+  if (!left || left.role !== right.role) return false
+  const leftAny = left as PatchedChatMessage
+  const rightAny = right as PatchedChatMessage
+  return leftAny.timestamp === rightAny.timestamp
+    && leftAny.childSessionId === rightAny.childSessionId
+}
+
+function withPatchedToolUse(messages: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  if (msg.role !== 'tool_use') return messages
+
+  const toolMsg = msg as PatchedChatMessage
+  const next = [...messages]
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const candidate = next[index] as PatchedChatMessage
+    if (candidate.role !== 'assistant') continue
+    if ((candidate.childSessionId || '') !== (toolMsg.childSessionId || '')) continue
+
+    const nextToolUse = [...(candidate.toolUse ?? []), {
+      name: toolMsg.toolName || 'unknown',
+      input: toolMsg.toolInput,
+    }]
+    next[index] = { ...candidate, toolUse: nextToolUse } as ChatMessage
+    break
+  }
+  return next
+}
+
+function appendPatchedMessage(messages: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  const withToolUse = withPatchedToolUse(messages, msg)
+  return [...withToolUse, msg]
+}
+
+function upsertLastPatchedMessage(messages: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  const last = messages[messages.length - 1]
+  if (sameMessageIdentity(last, msg)) {
+    const next = messages.slice()
+    next[next.length - 1] = msg
+    return next
+  }
+  return appendPatchedMessage(messages, msg)
 }
 
 export interface AgentInfo {
@@ -80,6 +130,7 @@ interface SessionState {
   sendMessage: (id: string, text: string, images?: Array<{data: string, mimeType: string}>) => Promise<void>
   pollChat: (id: string) => Promise<void>
   handleChatUpdate: (data: ChatUpdateEvent) => void
+  handleChatPatch: (data: ChatPatchEvent) => void
   handleAgentUpdate: (data: AgentUpdateEvent) => void
   stopProcess: (id: string) => Promise<void>
   resumeSession: (oldSessionId: string) => Promise<{ success: boolean; sessionId?: string; error?: string }>
@@ -93,6 +144,14 @@ interface SessionState {
 export interface ChatUpdateEvent {
   sessionId: string
   messages: ChatMessage[]
+  streaming: boolean
+  error: string
+}
+
+export interface ChatPatchEvent {
+  sessionId: string
+  type: 'append' | 'upsert_last' | 'meta'
+  message?: ChatMessage
   streaming: boolean
   error: string
 }
@@ -260,6 +319,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         next.chatError = data.error || ''
       }
 
+      return next
+    })
+  },
+
+  handleChatPatch: (data) => {
+    const { selectedId } = get()
+    set((state) => {
+      const next: Partial<SessionState> = {
+        sessions: syncRuntimeStatus(state.sessions, data.sessionId, data.streaming),
+      }
+
+      if (data.sessionId !== selectedId) {
+        return next
+      }
+
+      let nextMessages = state.messages
+      if (data.message) {
+        if (data.type === 'append') {
+          nextMessages = appendPatchedMessage(state.messages, data.message)
+        } else if (data.type === 'upsert_last') {
+          nextMessages = upsertLastPatchedMessage(state.messages, data.message)
+        }
+      }
+
+      next.messages = nextMessages
+      next.streaming = data.streaming
+      next.chatError = data.error || ''
       return next
     })
   },
