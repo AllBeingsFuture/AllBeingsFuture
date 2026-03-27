@@ -1,9 +1,7 @@
-import { useMemo, useState } from 'react'
+import { memo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, User, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
-import { useSessionStore } from '../../stores/sessionStore'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { AppAPI } from '../../../bindings/electron-api'
@@ -38,36 +36,14 @@ interface Props {
   isStreaming?: boolean
 }
 
-export default function MessageBubble({ message, isStreaming }: Props) {
+type ImageMessage = ChatMessage & { images?: string[] }
+
+function MessageBubble({ message, isStreaming }: Props) {
   const isUser = message.role === 'user'
   const isPartial = message.partial
   const [thinkingExpanded, setThinkingExpanded] = useState(true)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
-  const { sentImagesList, messages } = useSessionStore(useShallow((state) => ({
-    sentImagesList: state.sentImages,
-    messages: state.messages,
-  })))
-
-  const userImages = useMemo(() => {
-    if (!isUser) return undefined
-
-    let sameContentBefore = 0
-    for (const currentMessage of messages) {
-      if (currentMessage === message) break
-      if (currentMessage.role === 'user' && currentMessage.content === message.content) {
-        sameContentBefore += 1
-      }
-    }
-
-    let found = 0
-    for (const entry of sentImagesList) {
-      if (entry.content !== message.content) continue
-      if (found === sameContentBefore) return entry.images
-      found += 1
-    }
-
-    return undefined
-  }, [isUser, message, messages, sentImagesList])
+  const userImages = isUser ? (message as ImageMessage).images : undefined
 
   // Extract thinking text if embedded in content (format: <thinking>...</thinking>)
   const thinkingMatch = !isUser ? message.content?.match(THINKING_RE) : null
@@ -143,7 +119,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
             <div>
               {userImages && userImages.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
-                  {userImages.map((url, i) => (
+                  {userImages.map((url: string, i: number) => (
                     <img
                       key={i}
                       src={url}
@@ -239,3 +215,8 @@ export default function MessageBubble({ message, isStreaming }: Props) {
     </>
   )
 }
+
+export default memo(MessageBubble, (prev, next) => (
+  prev.isStreaming === next.isStreaming
+  && prev.message === next.message
+))

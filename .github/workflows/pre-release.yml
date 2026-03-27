@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: pre-release-${{ github.ref }}
-  cancel-in-progress: true
+  group: pre-release-publish
+  cancel-in-progress: false
 
 jobs:
   build-windows:
@@ -39,23 +39,70 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build Windows Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: npm run pack
-
       - name: Compute Release Metadata
         id: meta
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          $branch = "${env:GITHUB_REF_NAME}" -replace '[^A-Za-z0-9._-]', '-'
-          $shortSha = "${env:GITHUB_SHA}".Substring(0, 7)
-          $tag = "pre-release-$branch-$shortSha"
-          $name = "Pre-release $branch $shortSha"
-          $artifact = "release-$branch-$shortSha"
+          $pkg = Get-Content package.json | ConvertFrom-Json
+          $stableVersion = [string]$pkg.version
+          $parts = $stableVersion.Split('.')
+          if ($parts.Length -lt 3) {
+            Write-Error "Unsupported package version: $stableVersion"
+            exit 1
+          }
+
+          $major = [int]$parts[0]
+          $minor = [int]$parts[1]
+          $basePatch = [int]($parts[2] -replace '[^0-9].*$', '')
+
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept        = "application/vnd.github+json"
+            "User-Agent"  = "allbeingsfuture-prerelease-workflow"
+          }
+          $releases = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
+          $pattern = "^betaV$major\.$minor\.(\d+)$"
+          $maxPatch = $null
+
+          foreach ($release in $releases) {
+            $tagName = [string]$release.tag_name
+            if ($tagName -match $pattern) {
+              $patch = [int]$Matches[1]
+              if ($null -eq $maxPatch -or $patch -gt $maxPatch) {
+                $maxPatch = $patch
+              }
+            }
+          }
+
+          if ($null -eq $maxPatch) {
+            $nextPatch = $basePatch
+          } else {
+            $nextPatch = $maxPatch + 1
+          }
+
+          $displayVersion = "betaV$major.$minor.$nextPatch"
+          $packageVersion = "$major.$minor.$nextPatch-beta.0"
+          $tag = $displayVersion
+          $name = $displayVersion
+          $artifact = "release-$displayVersion"
+
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "name=$name" >> $env:GITHUB_OUTPUT
           "artifact=$artifact" >> $env:GITHUB_OUTPUT
+          "display_version=$displayVersion" >> $env:GITHUB_OUTPUT
+          "package_version=$packageVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Build Windows Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ABF_DISPLAY_VERSION: ${{ steps.meta.outputs.display_version }}
+          ABF_PACKAGE_VERSION: ${{ steps.meta.outputs.package_version }}
+        run: |
+          npm run build
+          npx electron-builder --win "-c.extraMetadata.version=$env:ABF_PACKAGE_VERSION" "-c.win.artifactName=AllBeingsFuture Setup $env:ABF_DISPLAY_VERSION.`${ext}"
 
       - name: Locate Installer Asset
         id: installer

@@ -72,7 +72,6 @@ function resetStore() {
     chatError: '',
     agents: {},
     childToParent: {},
-    sentImages: [],
   })
 }
 
@@ -179,5 +178,22 @@ describe('sessionStore runtime status sync', () => {
     expect(state.messages).toEqual([{ role: 'assistant', content: 'foreground', timestamp: 'fg-ts' }])
     expect(state.streaming).toBe(false)
     expect(state.sessions.find((session) => session.id === 'session-2')?.status).toBe('running')
+  })
+
+  it('routes image messages through SendMessageWithImages without extra local image cache state', async () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'idle' })],
+    })
+
+    await useSessionStore.getState().sendMessage('session-1', 'look', [
+      { data: 'abcd', mimeType: 'image/png' },
+    ])
+
+    expect(serviceMocks.processService.SendMessageWithImages).toHaveBeenCalledWith('session-1', 'look', [
+      { data: 'abcd', mimeType: 'image/png' },
+    ])
+    expect(serviceMocks.processService.SendMessage).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().messages).toEqual([])
   })
 })

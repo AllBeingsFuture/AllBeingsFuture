@@ -3,9 +3,6 @@ import { SessionService, ProcessService } from '../../bindings/allbeingsfuture/i
 import { ResumeSession as ResumeSessionAPI, ListAllAgents as ListAllAgentsAPI, SpawnChildSession, SendToChild } from '../../bindings/allbeingsfuture/internal/services/processservice'
 import type { Session, SessionConfig, ChatMessage, ChatState } from '../../bindings/allbeingsfuture/internal/models/models'
 
-/** Maximum number of cached sent-image entries to prevent unbounded memory growth */
-const MAX_SENT_IMAGES = 50
-
 /** Session objects from the backend may carry parentSessionId for child sessions */
 type SessionWithParent = Session & { parentSessionId?: string }
 type PatchedChatMessage = ChatMessage & {
@@ -118,8 +115,6 @@ interface SessionState {
   agents: Record<string, AgentInfo[]>
   /** childSessionId → ParentBinding reverse index */
   childToParent: Record<string, ParentBinding>
-  /** Locally cached image data URLs for user messages, ordered by send time */
-  sentImages: { content: string; images: string[] }[]
 
   load: () => Promise<void>
   create: (config: SessionConfig) => Promise<Session | null>
@@ -171,7 +166,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   chatError: '',
   agents: {},
   childToParent: {},
-  sentImages: [],
 
   load: async () => {
     set({ loading: true })
@@ -213,7 +207,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   select: (id) => {
     // Skip reset if already viewing this session — avoids chat history flash
     if (id === get().selectedId) return
-    set({ selectedId: id, messages: [], chatError: '', sentImages: [] })
+    set({ selectedId: id, messages: [], chatError: '' })
     // Don't reset streaming here — let pollChat fetch the real state from backend.
     // This prevents showing a "ready" UI while the backend is still streaming.
     if (id) void get().pollChat(id)
@@ -268,14 +262,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       ...(state.selectedId === id ? { streaming: true } : {}),
     }))
     try {
-      // Cache image data URLs locally so we can display them in the conversation
       if (images && images.length > 0) {
-        const dataUrls = images.map(img => `data:${img.mimeType};base64,${img.data}`)
-        const content = text || '请看图片'
-        set(s => {
-          const next = [...s.sentImages, { content, images: dataUrls }]
-          return { sentImages: next.length > MAX_SENT_IMAGES ? next.slice(-MAX_SENT_IMAGES) : next }
-        })
         await ProcessService.SendMessageWithImages(id, text, images)
       } else {
         await ProcessService.SendMessage(id, text)

@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -48,8 +48,9 @@ interface MessageGroup {
   childAgentName?: string
 }
 
-const VIRTUALIZATION_GROUP_THRESHOLD = 60
-const VIRTUALIZATION_OVERSCAN_PX = 900
+const VIRTUALIZATION_GROUP_THRESHOLD = 30
+const VIRTUALIZATION_HEIGHT_MULTIPLIER = 3
+const VIRTUALIZATION_OVERSCAN_PX = 600
 
 function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup[] {
   const groups: MessageGroup[] = []
@@ -255,7 +256,7 @@ const TOOL_ICONS: Record<string, string> = {
 }
 
 /** Collapsible thinking block — defaults to expanded */
-function ThinkingBlock({ content }: { content: string }) {
+const ThinkingBlock = memo(function ThinkingBlock({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(true)
   return (
     <div className="my-1 mx-2 rounded-xl border border-dashed border-purple-500/20 bg-purple-500/[0.03] overflow-hidden">
@@ -283,10 +284,10 @@ function ThinkingBlock({ content }: { content: string }) {
       </AnimatePresence>
     </div>
   )
-}
+})
 
 /** Collapsible block for child agent activity — defaults to collapsed */
-function ChildAgentBlock({ name, messages, childSessionId, isActive }: {
+const ChildAgentBlock = memo(function ChildAgentBlock({ name, messages, childSessionId, isActive }: {
   name?: string
   messages: ChatMessage[]
   childSessionId: string
@@ -384,7 +385,12 @@ function ChildAgentBlock({ name, messages, childSessionId, isActive }: {
       </AnimatePresence>
     </div>
   )
-}
+}, (prev, next) => (
+  prev.name === next.name
+  && prev.messages === next.messages
+  && prev.childSessionId === next.childSessionId
+  && prev.isActive === next.isActive
+))
 
 /** Streaming indicator that shows tool operations when available */
 function StreamingIndicator({ messages }: { messages: ChatMessage[] }) {
@@ -481,12 +487,13 @@ export default function ConversationView({ session }: Props) {
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 })
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const scrollMetricsFrameRef = useRef<number | null>(null)
   const isNearBottomRef = useRef(true)
   const prevMsgCountRef = useRef(0)
   const lastEventTimeRef = useRef(0)
   const forceScrollUntilRef = useRef(0)
 
-  const syncScrollMetrics = useCallback(() => {
+  const commitScrollMetrics = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
     setScrollMetrics((prev) => {
@@ -499,6 +506,18 @@ export default function ConversationView({ session }: Props) {
         : next
     })
   }, [])
+
+  const syncScrollMetrics = useCallback(() => {
+    if (typeof requestAnimationFrame !== 'function') {
+      commitScrollMetrics()
+      return
+    }
+    if (scrollMetricsFrameRef.current !== null) return
+    scrollMetricsFrameRef.current = requestAnimationFrame(() => {
+      scrollMetricsFrameRef.current = null
+      commitScrollMetrics()
+    })
+  }, [commitScrollMetrics])
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -523,13 +542,22 @@ export default function ConversationView({ session }: Props) {
   })
 
   useEffect(() => {
+    return () => {
+      if (scrollMetricsFrameRef.current !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(scrollMetricsFrameRef.current)
+        scrollMetricsFrameRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     prevMsgCountRef.current = 0
     isNearBottomRef.current = true
     forceScrollUntilRef.current = Date.now() + 3000
   }, [session.id])
 
   useEffect(() => {
-    syncScrollMetrics()
+    commitScrollMetrics()
 
     const el = scrollContainerRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
@@ -539,7 +567,7 @@ export default function ConversationView({ session }: Props) {
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [session.id, syncScrollMetrics])
+  }, [commitScrollMetrics, session.id, syncScrollMetrics])
 
   // Initialize session on first mount / session switch.
   // IMPORTANT: Do NOT depend on session.status here — status changes frequently
@@ -601,9 +629,17 @@ export default function ConversationView({ session }: Props) {
     ? messages
     : deferredMessages
   const messageGroups = useMemo(() => groupMessages(groupedMessagesSource, session.id), [groupedMessagesSource, session.id])
+  const estimatedConversationHeight = useMemo(
+    () => messageGroups.reduce((sum, group) => sum + estimateMessageGroupHeight(group), 0),
+    [messageGroups],
+  )
+  const shouldVirtualize = scrollMetrics.viewportHeight > 0 && (
+    messageGroups.length >= VIRTUALIZATION_GROUP_THRESHOLD
+    || estimatedConversationHeight >= scrollMetrics.viewportHeight * VIRTUALIZATION_HEIGHT_MULTIPLIER
+  )
   const virtualization = useVirtualizedList({
     items: messageGroups,
-    enabled: messageGroups.length >= VIRTUALIZATION_GROUP_THRESHOLD && scrollMetrics.viewportHeight > 0,
+    enabled: shouldVirtualize,
     getItemKey: getGroupKey,
     estimateSize: estimateMessageGroupHeight,
     overscanPx: VIRTUALIZATION_OVERSCAN_PX,
