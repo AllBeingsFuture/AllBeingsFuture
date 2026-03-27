@@ -57,11 +57,23 @@ jobs:
           "name=$name" >> $env:GITHUB_OUTPUT
           "artifact=$artifact" >> $env:GITHUB_OUTPUT
 
+      - name: Locate Installer Asset
+        id: installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release -File -Filter '*Setup*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) {
+            Write-Error 'No setup installer was produced under release/.'
+            exit 1
+          }
+          "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+          "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+
       - name: Upload Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.artifact }}
-          path: release/**
+          path: ${{ steps.installer.outputs.path }}
           if-no-files-found: error
 
       - name: Publish GitHub Pre-Release
@@ -72,5 +84,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: |
-            release/**
+          files: ${{ steps.installer.outputs.path }}
