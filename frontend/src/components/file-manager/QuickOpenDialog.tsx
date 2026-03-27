@@ -6,6 +6,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { File, Search, X } from 'lucide-react'
 import { useUIStore } from '../../stores/uiStore'
+import { useFileManagerStore } from '../../stores/fileManagerStore'
+import { useFileTabStore } from '../../stores/fileTabStore'
 
 interface QuickOpenItem {
   path: string
@@ -15,6 +17,7 @@ interface QuickOpenItem {
 
 export default function QuickOpenDialog() {
   const toggleQuickOpen = useUIStore((state) => state.toggleQuickOpen)
+  const currentDir = useFileManagerStore((state) => state.currentDir)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<QuickOpenItem[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -35,7 +38,7 @@ export default function QuickOpenDialog() {
         e.preventDefault()
         setSelectedIndex((i) => Math.max(i - 1, 0))
       } else if (e.key === 'Enter' && results[selectedIndex]) {
-        // TODO: open file
+        useFileTabStore.getState().openFile(results[selectedIndex].path)
         toggleQuickOpen()
       }
     }
@@ -48,8 +51,12 @@ export default function QuickOpenDialog() {
       setResults([])
       return
     }
-    // TODO: call backend fuzzy search
-    setResults([])
+    if (!currentDir) return
+    let cancelled = false
+    window.electronAPI.invoke('QuickOpen.Search', currentDir, query.trim()).then((items: QuickOpenItem[]) => {
+      if (!cancelled) setResults(items ?? [])
+    })
+    return () => { cancelled = true }
   }, [query])
 
   return (
@@ -89,7 +96,10 @@ export default function QuickOpenDialog() {
           {results.map((item, index) => (
             <button
               key={item.path}
-              onClick={() => toggleQuickOpen()}
+              onClick={() => {
+                useFileTabStore.getState().openFile(item.path)
+                toggleQuickOpen()
+              }}
               className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${
                 index === selectedIndex
                   ? 'bg-blue-500/15 text-blue-200'

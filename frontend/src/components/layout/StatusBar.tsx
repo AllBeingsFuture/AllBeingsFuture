@@ -8,7 +8,7 @@ import { Grid3x3, Columns2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useUIStore } from '../../stores/uiStore'
 import { useSessionStore } from '../../stores/sessionStore'
-import type { ViewMode } from '../../stores/uiStore'
+import type { ViewMode } from '../../stores/ui-helpers'
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000)

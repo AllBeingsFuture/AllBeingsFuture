@@ -3,6 +3,7 @@
  * Replaces Go internal/services/settings.go
  */
 
+import { app } from 'electron'
 import type { Database } from './database.js'
 
 export interface AppSettings {
@@ -88,7 +89,12 @@ export class SettingsService {
 
   setAutoLaunch(enabled: boolean): void {
     this.update('autoLaunch', String(enabled))
-    // TODO: Implement Windows registry auto-launch via electron app.setLoginItemSettings
+    app.setLoginItemSettings({ openAtLogin: enabled })
+  }
+
+  getAutoLaunch(): boolean {
+    const settings = app.getLoginItemSettings()
+    return settings.openAtLogin
   }
 
   getProxyEnv(): [string, string] {

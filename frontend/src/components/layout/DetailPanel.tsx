@@ -2,7 +2,7 @@
  * 右侧详情面板 - 根据 activePanelRight 渲染对应面板
  */
 
-import { useUIStore } from '../../stores/uiStore'
+import { usePanelStore } from '../../stores/panelStore'
 import TimelinePanel from '../panels/TimelinePanel'
 import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
@@ -11,7 +11,7 @@ import FileManagerPanel from '../files/FileManagerPanel'
 import WorktreePanel from '../git/WorktreePanel'
 
 export default function DetailPanel() {
-  const activePanelRight = useUIStore(s => s.activePanelRight)
+  const activePanelRight = usePanelStore(s => s.activePanelRight)
 
   const renderContent = () => {
     switch (activePanelRight) {

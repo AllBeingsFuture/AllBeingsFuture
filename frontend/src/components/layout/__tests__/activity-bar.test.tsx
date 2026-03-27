@@ -3,7 +3,7 @@ import { fireEvent } from '@testing-library/react'
 import ActivityBar from '../ActivityBar'
 import { renderWithProviders, screen } from '../../../test/render'
 
-const uiState = {
+const panelState = {
   panelSides: {
     sessions: 'left', explorer: 'left', git: 'left', dashboard: 'left',
     files: 'left', worktree: 'left', kanban: 'left', workflows: 'left',
@@ -15,11 +15,19 @@ const uiState = {
   setPanelSide: vi.fn(),
   setActivePanelLeft: vi.fn(),
   setActivePanelRight: vi.fn(),
-  teamsMode: false,
-  setTeamsMode: vi.fn(),
   shellPanelVisible: false,
   toggleShellPanel: vi.fn(),
 }
+
+const uiState = {
+  teamsMode: false,
+  setTeamsMode: vi.fn(),
+}
+
+vi.mock('../../../stores/panelStore', () => ({
+  usePanelStore: (selector?: (state: typeof panelState) => unknown) =>
+    typeof selector === 'function' ? selector(panelState) : panelState,
+}))
 
 vi.mock('../../../stores/uiStore', () => ({
   useUIStore: (selector?: (state: typeof uiState) => unknown) =>
@@ -29,7 +37,7 @@ vi.mock('../../../stores/uiStore', () => ({
 describe('ActivityBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    uiState.activePanelLeft = 'sessions'
+    panelState.activePanelLeft = 'sessions'
     uiState.teamsMode = false
   })
 
@@ -38,7 +46,7 @@ describe('ActivityBar', () => {
     renderWithProviders(<ActivityBar onOpenSettings={onOpenSettings} />)
 
     fireEvent.click(screen.getByRole('button', { name: '文件资源管理器' }))
-    expect(uiState.setActivePanelLeft).toHaveBeenCalledWith('explorer')
+    expect(panelState.setActivePanelLeft).toHaveBeenCalledWith('explorer')
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(onOpenSettings).toHaveBeenCalled()

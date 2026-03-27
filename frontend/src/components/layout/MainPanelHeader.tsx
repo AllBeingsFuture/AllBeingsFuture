@@ -7,11 +7,11 @@
 import React from 'react'
 import { MessageSquare, FolderOpen } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { useUIStore } from '../../stores/uiStore'
+import { useLayoutStore } from '../../stores/layoutStore'
 import LayoutControls from './LayoutControls'
 
 export default function MainPanelHeader() {
-  const { layoutMode, primaryPane, setPaneContent, swapPanes } = useUIStore(
+  const { layoutMode, primaryPane, setPaneContent, swapPanes } = useLayoutStore(
     useShallow((state) => ({
       layoutMode: state.layoutMode,
       primaryPane: state.primaryPane,

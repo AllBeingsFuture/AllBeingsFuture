@@ -4,12 +4,13 @@
  */
 
 import { Square, PanelsLeftRight, PanelsTopBottom, ArrowLeftRight, ArrowUpDown } from 'lucide-react'
-import { type LayoutMode, useUIStore } from '../../stores/uiStore'
+import type { LayoutMode } from '../../stores/ui-helpers'
+import { useLayoutStore } from '../../stores/layoutStore'
 
 export default function LayoutControls() {
-  const layoutMode = useUIStore((state) => state.layoutMode)
-  const setLayoutMode = useUIStore((state) => state.setLayoutMode)
-  const swapPanes = useUIStore((state) => state.swapPanes)
+  const layoutMode = useLayoutStore((state) => state.layoutMode)
+  const setLayoutMode = useLayoutStore((state) => state.setLayoutMode)
+  const swapPanes = useLayoutStore((state) => state.swapPanes)
 
   const buttons: Array<{ mode: LayoutMode; icon: React.ElementType; title: string }> = [
     { mode: 'single',  icon: Square,           title: '单窗格' },

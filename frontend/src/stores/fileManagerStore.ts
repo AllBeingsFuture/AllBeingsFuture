@@ -242,8 +242,8 @@ export const useFileManagerStore = create<FileManagerState>((set, get) => ({
     await useFileTabStore.getState().openFile(filePath)
 
     // 单窗格模式：若 primaryPane 不是 files，自动切换到文件视图
-    const { useUIStore } = await import('./uiStore')
-    const { layoutMode, primaryPane, setPaneContent } = useUIStore.getState()
+    const { useLayoutStore } = await import('./layoutStore')
+    const { layoutMode, primaryPane, setPaneContent } = useLayoutStore.getState()
     if (layoutMode === 'single' && primaryPane !== 'files') {
       setPaneContent('primary', 'files')
     }

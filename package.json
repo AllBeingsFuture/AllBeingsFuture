@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.62",
-    "@types/yauzl": "^2.10.3",
     "better-sqlite3": "^11.7.0",
     "claude": "^0.1.1",
     "electron-store": "^10.0.0",
@@ -25,7 +24,6 @@
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.5.207",
-    "recharts": "^3.8.0",
     "sharp": "^0.34.5",
     "uuid": "^11.1.0",
     "yauzl": "^3.2.1"
@@ -36,6 +34,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/uuid": "^10.0.0",
+    "@types/yauzl": "^2.10.3",
     "concurrently": "^9.1.0",
     "electron": "^33.3.0",
     "electron-builder": "^25.1.8",

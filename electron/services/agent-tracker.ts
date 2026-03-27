@@ -14,6 +14,7 @@
  */
 
 import type { SessionService } from './session.js'
+import type { BridgeEvent, ContentBlock, ChatMessage } from './process-types.js'
 import { appLog } from './log.js'
 
 export interface TrackedAgent {
@@ -48,7 +49,7 @@ export class AgentTracker {
    * Called when the SDK emits a task_started system event.
    * Creates a child session and begins tracking.
    */
-  onTaskStarted(parentSessionId: string, event: any): TrackedAgent {
+  onTaskStarted(parentSessionId: string, event: BridgeEvent): TrackedAgent {
     const taskId = event.task_id || event.taskId || `task-${Date.now()}`
     const sdkSessionId = event.session_id || event.sessionId || ''
     const description = event.description || event.prompt || ''
@@ -100,8 +101,8 @@ export class AgentTracker {
    * messages (assistant / thinking / tool_use) in the child session —
    * mirroring the main agent's message flow.
    */
-  onTaskProgress(event: any): TrackedAgent | null {
-    const taskId = event.task_id || event.taskId
+  onTaskProgress(event: BridgeEvent): TrackedAgent | null {
+    const taskId = event.task_id || event.taskId || ''
     const agent = this.agents.get(taskId)
     if (!agent) {
       appLog('warn', `task_progress for unknown agent: ${taskId}`, 'agent-tracker')
@@ -136,8 +137,8 @@ export class AgentTracker {
   /**
    * Called when the SDK emits a task_notification (final status).
    */
-  onTaskNotification(event: any): TrackedAgent | null {
-    const taskId = event.task_id || event.taskId
+  onTaskNotification(event: BridgeEvent): TrackedAgent | null {
+    const taskId = event.task_id || event.taskId || ''
     const agent = this.agents.get(taskId)
     if (!agent) {
       appLog('warn', `task_notification for unknown agent: ${taskId}`, 'agent-tracker')
@@ -268,12 +269,14 @@ export class AgentTracker {
    * proper typed messages (thinking / assistant / tool_use).
    * Returns true if any detailed content was found.
    */
-  private processEventContent(agent: TrackedAgent, event: any): boolean {
-    const data = event.data || {}
+  private processEventContent(agent: TrackedAgent, event: BridgeEvent): boolean {
+    const data = (event.data || {}) as Record<string, unknown>
     let found = false
 
     // 1. Check for an array of content blocks (SDK may send these)
-    const contentBlocks: any[] = data.content || data.content_blocks || event.content || event.content_blocks || []
+    const contentBlocks: ContentBlock[] = (
+      (data.content || data.content_blocks || event.content || event.content_blocks || []) as ContentBlock[]
+    )
     if (Array.isArray(contentBlocks) && contentBlocks.length > 0) {
       for (const block of contentBlocks) {
         if (block.type === 'thinking' && block.thinking) {
@@ -301,26 +304,26 @@ export class AgentTracker {
     }
 
     // 2. Check for standalone thinking field
-    const thinking = data.thinking || event.thinking
+    const thinking = (data.thinking as string | undefined) || event.thinking
     if (thinking && typeof thinking === 'string') {
       this.appendChildMessage(agent.childSessionId, 'thinking', thinking, { isThinking: true })
       found = true
     }
 
     // 3. Check for standalone tool_use fields
-    const toolName = data.tool_name || data.toolName || event.tool_name || event.toolName
+    const toolName = (data.tool_name || data.toolName || event.tool_name || event.toolName) as string | undefined
     if (toolName) {
       this.appendChildMessage(agent.childSessionId, 'tool_use', toolName, {
         toolName,
-        toolInput: data.tool_input || data.toolInput || event.tool_input || event.toolInput || {},
+        toolInput: ((data.tool_input || data.toolInput || event.tool_input || event.toolInput || {}) as Record<string, unknown>),
       })
       found = true
     }
 
     // 4. Check if message field is a structured object with content blocks
     const msgObj = event.message || data.message
-    if (msgObj && typeof msgObj === 'object' && Array.isArray(msgObj.content)) {
-      for (const block of msgObj.content) {
+    if (msgObj && typeof msgObj === 'object' && Array.isArray((msgObj as { content?: ContentBlock[] }).content)) {
+      for (const block of (msgObj as { content: ContentBlock[] }).content) {
         if (block.type === 'thinking' && block.thinking) {
           this.appendChildMessage(agent.childSessionId, 'thinking', block.thinking, { isThinking: true })
           found = true
@@ -342,7 +345,7 @@ export class AgentTracker {
     }
 
     // 5. Check for result text (may contain tool execution summary from Agent tool)
-    const resultText = event.result || data.result
+    const resultText = event.result || (data.result as string | undefined)
     if (resultText && typeof resultText === 'string') {
       const prev = this.lastAssistantText.get(agent.agentId)
       if (resultText !== prev) {
@@ -358,15 +361,15 @@ export class AgentTracker {
   /** Write a message into a child session's persisted messages */
   private appendChildMessage(
     childSessionId: string,
-    role: string,
+    role: ChatMessage['role'],
     content: string,
-    extra?: { toolName?: string; toolInput?: any; isThinking?: boolean },
+    extra?: { toolName?: string; toolInput?: Record<string, unknown>; isThinking?: boolean },
   ) {
     if (!content) return
     try {
       const session = this.sessionService.getById(childSessionId)
       if (!session) return
-      let messages: any[] = []
+      let messages: ChatMessage[] = []
       try { messages = JSON.parse(session.messagesJson || '[]') } catch {}
       messages.push({
         role,
@@ -377,8 +380,9 @@ export class AgentTracker {
         ...(extra?.isThinking ? { isThinking: true } : {}),
       })
       this.sessionService.updateMessages(childSessionId, JSON.stringify(messages))
-    } catch (err: any) {
-      appLog('warn', `Failed to append child message: ${err.message}`, 'agent-tracker')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      appLog('warn', `Failed to append child message: ${message}`, 'agent-tracker')
     }
   }
 }

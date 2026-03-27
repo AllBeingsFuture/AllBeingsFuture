@@ -4,7 +4,9 @@
  * Each ipcMain.handle(channel, ...) maps to a service method.
  */
 
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, shell } from 'electron'
+import { execSync } from 'child_process'
+import path from 'path'
 import type { Database } from '../services/database.js'
 import type { BridgeManager } from '../bridge/bridge.js'
 
@@ -142,6 +144,7 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SettingsService.GetAutoWorktree', () => settingsService.getAutoWorktree())
   ipcMain.handle('SettingsService.SetAutoWorktree', (_e, enabled: boolean) => settingsService.setAutoWorktree(enabled))
   ipcMain.handle('SettingsService.SetAutoLaunch', (_e, enabled: boolean) => settingsService.setAutoLaunch(enabled))
+  ipcMain.handle('SettingsService.GetAutoLaunch', () => settingsService.getAutoLaunch())
   ipcMain.handle('SettingsService.GetProxyEnv', () => settingsService.getProxyEnv())
   ipcMain.handle('SettingsService.SendNotification', (_e, title: string, body: string) => settingsService.sendNotification(title, body))
 
@@ -494,6 +497,42 @@ export function registerAllIpcHandlers(
   ipcMain.handle('WorkspaceService.ScanRepos', (_e, dir: string) => workspaceService.scanRepos(dir))
   ipcMain.handle('WorkspaceService.ImportVscode', (_e, filePath: string) => workspaceService.importVscode(filePath))
   ipcMain.handle('WorkspaceService.IsGitRepo', (_e, dir: string) => workspaceService.isGitRepo(dir))
+
+  // ==============================================================
+  // QuickOpen - file fuzzy search
+  // ==============================================================
+  ipcMain.handle('QuickOpen.Search', (_e, rootDir: string, query: string) => {
+    if (!rootDir || !query.trim()) return []
+    try {
+      // Try git ls-files first (faster, respects .gitignore)
+      const stdout = execSync('git ls-files --cached --others --exclude-standard', {
+        cwd: rootDir,
+        encoding: 'utf-8',
+        timeout: 5000,
+        maxBuffer: 10 * 1024 * 1024,
+      })
+      const files = stdout.split('\n').filter(Boolean)
+      const lowerQuery = query.toLowerCase()
+      const matched = files
+        .filter((f) => {
+          const name = f.split('/').pop() || f
+          return name.toLowerCase().includes(lowerQuery)
+        })
+        .slice(0, 50)
+        .map((f) => ({
+          path: path.join(rootDir, f).replace(/\\/g, '/'),
+          name: f.split('/').pop() || f,
+          dir: f.split('/').slice(0, -1).join('/') || '.',
+        }))
+      return matched
+    } catch {
+      return []
+    }
+  })
+
+  ipcMain.handle('QuickOpen.OpenFile', (_e, filePath: string) => {
+    if (filePath) shell.openPath(filePath)
+  })
 
   return { botPushService, processService }
 }

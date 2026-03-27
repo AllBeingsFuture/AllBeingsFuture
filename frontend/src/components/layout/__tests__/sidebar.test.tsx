@@ -6,8 +6,8 @@ const uiState = {
   activePanelLeft: 'sessions' as string,
 }
 
-vi.mock('../../../stores/uiStore', () => ({
-  useUIStore: (selector?: (state: typeof uiState) => unknown) =>
+vi.mock('../../../stores/panelStore', () => ({
+  usePanelStore: (selector?: (state: typeof uiState) => unknown) =>
     typeof selector === 'function' ? selector(uiState) : uiState,
 }))
 

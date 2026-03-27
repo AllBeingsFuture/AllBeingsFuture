@@ -17,6 +17,8 @@ import PanelErrorBoundary from '../common/PanelErrorBoundary'
 import ActivityBar from './ActivityBar'
 import TitleBar from './TitleBar'
 import { useUIStore } from '../../stores/uiStore'
+import { usePanelStore } from '../../stores/panelStore'
+import { useLayoutStore } from '../../stores/layoutStore'
 import { useTeamStore } from '../../stores/teamStore'
 import SettingsModal from '../settings/SettingsModal'
 import SessionCreator from '../sessions/SessionCreator'
@@ -24,39 +26,44 @@ import QuickOpenDialog from '../file-manager/QuickOpenDialog'
 
 export default function AppLayout() {
   const {
-    sidebarCollapsed,
-    detailPanelCollapsed,
-    toggleSidebar,
-    toggleDetailPanel,
     showSearchPanel,
     showHistoryPanel,
     showQuickOpen,
     teamsMode,
     setTeamsMode,
-    activePanelLeft,
-    primaryPane,
-    secondaryPane,
     showSettings,
     setShowSettings,
     showNewSessionDialog,
     setShowNewSessionDialog,
   } = useUIStore(useShallow((state) => ({
-    sidebarCollapsed: state.sidebarCollapsed,
-    detailPanelCollapsed: state.detailPanelCollapsed,
-    toggleSidebar: state.toggleSidebar,
-    toggleDetailPanel: state.toggleDetailPanel,
     showSearchPanel: state.showSearchPanel,
     showHistoryPanel: state.showHistoryPanel,
     showQuickOpen: state.showQuickOpen,
     teamsMode: state.teamsMode,
     setTeamsMode: state.setTeamsMode,
-    activePanelLeft: state.activePanelLeft,
-    primaryPane: state.primaryPane,
-    secondaryPane: state.secondaryPane,
     showSettings: state.showSettings,
     setShowSettings: state.setShowSettings,
     showNewSessionDialog: state.showNewSessionDialog,
     setShowNewSessionDialog: state.setShowNewSessionDialog,
+  })))
+
+  const {
+    sidebarCollapsed,
+    detailPanelCollapsed,
+    toggleSidebar,
+    toggleDetailPanel,
+    activePanelLeft,
+  } = usePanelStore(useShallow((state) => ({
+    sidebarCollapsed: state.sidebarCollapsed,
+    detailPanelCollapsed: state.detailPanelCollapsed,
+    toggleSidebar: state.toggleSidebar,
+    toggleDetailPanel: state.toggleDetailPanel,
+    activePanelLeft: state.activePanelLeft,
+  })))
+
+  const { primaryPane, secondaryPane } = useLayoutStore(useShallow((state) => ({
+    primaryPane: state.primaryPane,
+    secondaryPane: state.secondaryPane,
   })))
 
   const mainPanelResetKey = `${primaryPane}:${secondaryPane}`

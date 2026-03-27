@@ -2,7 +2,7 @@
  * 左侧边栏 - 根据 activePanelLeft 渲染对应面板内容
  */
 
-import { useUIStore } from '../../stores/uiStore'
+import { usePanelStore } from '../../stores/panelStore'
 import FileManagerPanel from '../files/FileManagerPanel'
 import WorktreePanel from '../git/WorktreePanel'
 import DashboardSidebarView from '../sidebar/DashboardSidebarView'
@@ -13,7 +13,7 @@ import SessionsContent from './SessionsContent'
 import ToolsCatalogPanel from '../tools/ToolsCatalogPanel'
 
 export default function Sidebar() {
-  const activePanelLeft = useUIStore(s => s.activePanelLeft)
+  const activePanelLeft = usePanelStore(s => s.activePanelLeft)
 
   switch (activePanelLeft) {
     case 'dashboard':

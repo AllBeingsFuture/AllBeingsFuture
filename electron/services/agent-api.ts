@@ -7,8 +7,11 @@
  */
 
 import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import type { ProcessService } from './process.js'
 import type { ProviderService } from './provider.js'
+import type { AIProvider } from './provider.js'
+import type { AgentApiBody } from './process-types.js'
 import { appLog } from './log.js'
 
 export class AgentApi {
@@ -43,7 +46,7 @@ export class AgentApi {
       this.server.headersTimeout = 610_000
 
       this.server.listen(0, '127.0.0.1', () => {
-        const addr = this.server!.address() as any
+        const addr = this.server!.address() as AddressInfo
         this.port = addr.port
         appLog('info', `Agent API started on port ${this.port}`, 'agent-api')
         resolve(this.port)
@@ -81,8 +84,8 @@ export class AgentApi {
     const url = new URL(req.url || '/', 'http://localhost')
 
     try {
-      const body = req.method === 'POST' ? await this.readBody(req) : {}
-      let result: any
+      const body: AgentApiBody = req.method === 'POST' ? await this.readBody(req) : {}
+      let result: unknown
 
       switch (url.pathname) {
         case '/spawn':
@@ -126,14 +129,15 @@ export class AgentApi {
 
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(result))
-    } catch (err: any) {
-      appLog('error', `Agent API ${url.pathname}: ${err.message}`, 'agent-api')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      appLog('error', `Agent API ${url.pathname}: ${message}`, 'agent-api')
       res.writeHead(500, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: err.message }))
+      res.end(JSON.stringify({ error: message }))
     }
   }
 
-  private readBody(req: http.IncomingMessage): Promise<any> {
+  private readBody(req: http.IncomingMessage): Promise<AgentApiBody> {
     return new Promise((resolve, reject) => {
       let data = ''
       req.on('data', (chunk: Buffer) => { data += chunk })
@@ -150,7 +154,7 @@ export class AgentApi {
 
   // ─── Endpoint handlers ────────────────────────────────────────
 
-  private async handleSpawn(body: any) {
+  private async handleSpawn(body: AgentApiBody) {
     const { parentSessionId, name, prompt, providerId } = body
     if (!parentSessionId) throw new Error('parentSessionId required')
     if (!name) throw new Error('name required')
@@ -160,7 +164,7 @@ export class AgentApi {
     let resolvedProviderId = providerId
     if (providerId && typeof providerId === 'string') {
       const providers = this.providerService.getAll()
-      const match = providers.find((p: any) =>
+      const match = providers.find((p: AIProvider) =>
         p.id === providerId ||
         p.name.toLowerCase().includes(providerId.toLowerCase()) ||
         (p.adapterType || '').toLowerCase().includes(providerId.toLowerCase()) ||
@@ -176,7 +180,7 @@ export class AgentApi {
     return { success: true, childSessionId, result }
   }
 
-  private async handleSend(body: any) {
+  private async handleSend(body: AgentApiBody) {
     const { parentSessionId, childSessionId, message } = body
     if (!parentSessionId) throw new Error('parentSessionId required')
     if (!childSessionId) throw new Error('childSessionId required')
@@ -190,14 +194,14 @@ export class AgentApi {
     return { success: true, result }
   }
 
-  private async handleList(body: any) {
+  private async handleList(body: AgentApiBody) {
     const parentSessionId = body.parentSessionId
     if (!parentSessionId) throw new Error('parentSessionId required')
     const agents = this.processService.getAgentsBySession(parentSessionId)
     return { agents }
   }
 
-  private async handleClose(body: any) {
+  private async handleClose(body: AgentApiBody) {
     const { parentSessionId, childSessionId } = body
     if (!parentSessionId) throw new Error('parentSessionId required')
     if (!childSessionId) throw new Error('childSessionId required')
@@ -206,7 +210,7 @@ export class AgentApi {
     return { success: true }
   }
 
-  private async handleWaitIdle(body: any) {
+  private async handleWaitIdle(body: AgentApiBody) {
     const { parentSessionId, childSessionId, timeout } = body
     if (!parentSessionId) throw new Error('parentSessionId required')
     if (!childSessionId) throw new Error('childSessionId required')
@@ -219,14 +223,14 @@ export class AgentApi {
     return result
   }
 
-  private async handleGetOutput(body: any) {
+  private async handleGetOutput(body: AgentApiBody) {
     const { childSessionId, lines } = body
     if (!childSessionId) throw new Error('childSessionId required')
 
     return this.processService.getAgentOutput(childSessionId, lines)
   }
 
-  private async handleGetStatus(body: any) {
+  private async handleGetStatus(body: AgentApiBody) {
     const { parentSessionId, childSessionId } = body
     if (!parentSessionId) throw new Error('parentSessionId required')
     if (!childSessionId) throw new Error('childSessionId required')
@@ -237,13 +241,13 @@ export class AgentApi {
 
   // ─── Cross-Session Awareness endpoints ──────────────────────────
 
-  private async handleListSessions(body: any) {
+  private async handleListSessions(body: AgentApiBody) {
     const { status, limit } = body
     const sessions = this.processService.listSessionsForAwareness({ status, limit })
     return { sessions }
   }
 
-  private async handleGetSessionSummary(body: any) {
+  private async handleGetSessionSummary(body: AgentApiBody) {
     const { sessionId, maxMessages } = body
     if (!sessionId) throw new Error('sessionId required')
 
@@ -254,7 +258,7 @@ export class AgentApi {
     return summary
   }
 
-  private async handleSearchSessions(body: any) {
+  private async handleSearchSessions(body: AgentApiBody) {
     const { query, limit } = body
     if (!query) throw new Error('query required')
 

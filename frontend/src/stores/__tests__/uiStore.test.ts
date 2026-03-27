@@ -1,50 +1,58 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDefaultUIState, useUIStore } from '../uiStore'
+import { createDefaultLayoutState, useLayoutStore } from '../layoutStore'
+import { createDefaultPanelState, usePanelStore } from '../panelStore'
 
-function resetUIStore() {
+function resetAllStores() {
   window.localStorage.clear()
   useUIStore.setState(createDefaultUIState())
+  useLayoutStore.setState(createDefaultLayoutState())
+  usePanelStore.setState(createDefaultPanelState())
 }
 
 describe('uiStore panel system', () => {
   beforeEach(() => {
-    resetUIStore()
+    resetAllStores()
   })
 
   it('includes explorer view and claudeops-style panels', () => {
-    const state = createDefaultUIState()
-    expect(state.explorerView).toBe('tree')
-    expect(state.panelSides).toHaveProperty('explorer')
-    expect(state.panelSides).toHaveProperty('git')
+    const panelState = createDefaultPanelState()
+    const uiState = createDefaultUIState()
+    expect(uiState.explorerView).toBe('tree')
+    expect(panelState.panelSides).toHaveProperty('explorer')
+    expect(panelState.panelSides).toHaveProperty('git')
   })
 
   it('syncs workspace state when a left panel becomes active', () => {
-    useUIStore.getState().setActivePanelLeft('workflows')
+    usePanelStore.getState().setActivePanelLeft('workflows')
 
-    const state = useUIStore.getState()
-    expect(state.activePanelLeft).toBe('workflows')
-    expect(state.activeView).toBe('workflows')
-    expect(state.primaryPane).toBe('workflows')
-    expect(state.teamsMode).toBe(false)
+    const panelState = usePanelStore.getState()
+    const uiState = useUIStore.getState()
+    const layoutState = useLayoutStore.getState()
+    expect(panelState.activePanelLeft).toBe('workflows')
+    expect(uiState.activeView).toBe('workflows')
+    expect(layoutState.primaryPane).toBe('workflows')
+    expect(uiState.teamsMode).toBe(false)
   })
 
   it('enters teams mode when the workspace switches to teams', () => {
     useUIStore.getState().setActiveView('teams')
 
-    const state = useUIStore.getState()
-    expect(state.activeView).toBe('teams')
-    expect(state.primaryPane).toBe('teams')
-    expect(state.teamsMode).toBe(true)
+    const uiState = useUIStore.getState()
+    const layoutState = useLayoutStore.getState()
+    expect(uiState.activeView).toBe('teams')
+    expect(layoutState.primaryPane).toBe('teams')
+    expect(uiState.teamsMode).toBe(true)
   })
 
   it('moves panels between sides and expands the target panel region', () => {
-    useUIStore.setState({ detailPanelCollapsed: true })
+    usePanelStore.setState({ detailPanelCollapsed: true })
 
-    useUIStore.getState().setPanelSide('dashboard', 'right')
+    usePanelStore.getState().setPanelSide('dashboard', 'right')
 
-    const state = useUIStore.getState()
-    expect(state.panelSides.dashboard).toBe('right')
-    expect(state.activePanelRight).toBe('dashboard')
-    expect(state.detailPanelCollapsed).toBe(false)
+    const panelState = usePanelStore.getState()
+    expect(panelState.panelSides.dashboard).toBe('right')
+    expect(panelState.activePanelRight).toBe('dashboard')
+    expect(panelState.detailPanelCollapsed).toBe(false)
   })
 })

@@ -13,7 +13,6 @@ import type { SessionService } from './session.js'
 import type { ProviderService } from './provider.js'
 import type { SettingsService } from './settings.js'
 import type { BridgeManager } from '../bridge/bridge.js'
-import { AgentTracker, type TrackedAgent } from './agent-tracker.js'
 import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
 import { MessageScheduler } from './message-scheduler.js'
@@ -22,68 +21,20 @@ import { injectSupervisorPrompt, cleanupSupervisorPrompt, buildAllRulesContent }
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
+import type { ChatMessage, ChatState, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
+import { AgentLifecycleManager } from './agent-lifecycle.js'
+import { SessionSearchService } from './session-search.js'
 
-export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system' | 'tool_use' | 'thinking'
-  content: string
-  timestamp: string
-  toolUse?: any[]
-  thinking?: string
-  images?: string[]
-  /** For role: 'tool_use' — the tool name */
-  toolName?: string
-  /** For role: 'tool_use' — the tool input parameters */
-  toolInput?: Record<string, any>
-  /** True when this is a thinking message */
-  isThinking?: boolean
-  /** Token usage for the completed turn */
-  usage?: {
-    inputTokens: number
-    outputTokens: number
-    cacheReadTokens?: number
-    cacheCreationTokens?: number
-  }
-  /** True when assistant is still streaming (partial) */
-  partial?: boolean
-  /** When set, this message belongs to a child agent's activity in the parent session */
-  childSessionId?: string
-  /** Display name of the child agent (only set together with childSessionId) */
-  childAgentName?: string
-}
-
-export interface ChatState {
-  messages: ChatMessage[]
-  streaming: boolean
-  error: string
-}
-
-interface SessionState {
-  messages: ChatMessage[]
-  streaming: boolean
-  error: string
-  conversationId: string
-}
+// Re-export types so existing consumers don't break
+export type { ChatMessage, ChatState } from './process-types.js'
 
 export class ProcessService {
   private sessionStates = new Map<string, SessionState>()
-  /** One AgentTracker per parent session that has spawned sub-agents */
-  private agentTrackers = new Map<string, AgentTracker>()
   /** Sessions that had supervisor prompt injected — tracks workDir for cleanup */
   private supervisorPromptSessions = new Map<string, string>()
   /** Internal HTTP API for the agent-control MCP server */
   private agentApi: AgentApi | null = null
   private agentApiPort = 0
-  /** Waiters for persistent child turns: childSessionId → resolve(result) */
-  private childTurnWaiters = new Map<string, (result: string) => void>()
-  /**
-   * Idle flags for persistent agents: childSessionId → true when turn completed but agent still alive.
-   * Solves race condition: if turn_complete fires before waitAgentIdle is called,
-   * the flag preserves the idle state so the next call returns immediately.
-   * Idle flag pattern for persistent agent turn tracking.
-   */
-  private agentIdleFlags = new Map<string, boolean>()
-  /** Waiters for idle detection: childSessionId → resolve callbacks */
-  private agentIdleWaiters = new Map<string, Array<{ resolve: (info: { idle: boolean; output: string }) => void; timer?: ReturnType<typeof setTimeout> }>>()
   /** Concurrency guard — limits max concurrent sessions and monitors resources */
   private concurrencyGuard = new ConcurrencyGuard()
   /** Per-session message schedulers — queues messages when session is busy */
@@ -92,17 +43,12 @@ export class ProcessService {
   private outputParser = new OutputParser()
   /** State inference — detects session status from output patterns */
   private stateInference = new StateInference()
-  /**
-   * Stack of active sub-agent child session IDs per parent session.
-   * When Claude SDK spawns a sub-agent, the sub-agent's output (delta/tool/thinking)
-   * flows through the parent stream. We use this stack to mirror those events
-   * to the child session so it has full conversation records.
-   */
-  private activeChildStack = new Map<string, string[]>()
-  /** Reverse lookup: childSessionId → agent display name (for tagging parent messages) */
-  private childSessionNames = new Map<string, string>()
   /** Optional notification manager — sends system + bot notifications on turn complete/error */
   private notificationManager: NotificationManager | null = null
+  /** Agent lifecycle manager — handles child/sub-agent sessions */
+  private agentLifecycle: AgentLifecycleManager
+  /** Session search service — cross-session awareness and search */
+  private sessionSearch: SessionSearchService
 
   constructor(
     private db: Database,
@@ -112,11 +58,30 @@ export class ProcessService {
     private bridgeManager: BridgeManager,
     private getWindow: () => BrowserWindow | null,
   ) {
+    // Initialize agent lifecycle manager
+    this.agentLifecycle = new AgentLifecycleManager(
+      sessionService,
+      bridgeManager,
+      this.concurrencyGuard,
+      getWindow,
+      {
+        getOrCreateState: (id) => this.getOrCreateState(id),
+        emitChatUpdate: (id) => this.emitChatUpdate(id),
+        persistMessages: (id) => this.persistMessages(id),
+        initSession: (id) => this.initSession(id),
+        sendMessage: (id, msg) => this.sendMessage(id, msg),
+      },
+      this.sessionStates,
+    )
+
+    // Initialize session search service
+    this.sessionSearch = new SessionSearchService(sessionService, this.sessionStates)
+
     // Start the state inference polling timer
     this.stateInference.start()
 
     // Forward parser activity events to the renderer
-    this.outputParser.on('activity', (sessionId: string, event: any) => {
+    this.outputParser.on('activity', (sessionId: string, event: unknown) => {
       const win = this.getWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('parser:activity', { sessionId, event })
@@ -247,7 +212,7 @@ export class ProcessService {
     if (!provider) throw new Error(`Provider not found: ${session.providerId}`)
 
     // Initialize bridge adapter for this session
-    const config: Record<string, any> = {
+    const config: Record<string, unknown> = {
       workDir: session.workingDirectory || process.cwd(),
       command: provider.command || undefined,
       autoAccept: session.autoAccept,
@@ -274,12 +239,12 @@ export class ProcessService {
     if (!session.parentSessionId) {
       try {
         const isClaudeBased = this.isClaudeAdapter(provider.adapterType)
-        const providerNames = this.providerService.getAll().map((p: any) => p.name)
+        const providerNames = this.providerService.getAll().map(p => p.name)
 
         // Build rules content and append to system prompt
         // Include supervisor instructions only for Claude (which supports MCP-based agent control)
         const rulesContent = buildAllRulesContent(providerNames, isClaudeBased)
-        const existingPrompt = (config.appendSystemPrompt || '').trim()
+        const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
         config.appendSystemPrompt = existingPrompt
           ? `${existingPrompt}\n\n${rulesContent}`
           : rulesContent
@@ -298,8 +263,9 @@ export class ProcessService {
                 },
               },
             }
-          } catch (err: any) {
-            appLog('warn', `Failed to set up agent-control MCP: ${err.message}`, 'process')
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
           }
 
           // Also write rules files to .claude/rules/ as backup (Claude Code CLI auto-discovery)
@@ -307,12 +273,14 @@ export class ProcessService {
             const workDir = config.workDir as string
             injectSupervisorPrompt(workDir, providerNames)
             this.supervisorPromptSessions.set(sessionId, workDir)
-          } catch (err: any) {
-            appLog('warn', `Failed to inject supervisor prompt files: ${err.message}`, 'process')
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to inject supervisor prompt files: ${errMsg}`, 'process')
           }
         }
-      } catch (err: any) {
-        appLog('warn', `Failed to inject ABF rules: ${err.message}`, 'process')
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to inject ABF rules: ${errMsg}`, 'process')
       }
     }
 
@@ -329,7 +297,7 @@ export class ProcessService {
       )
       this.concurrencyGuard.registerSession(sessionId)
       this.sessionService.updateStatus(sessionId, 'idle')
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.sessionService.updateStatus(sessionId, 'error')
       throw err
     }
@@ -349,22 +317,6 @@ export class ProcessService {
       }
     }
     return result
-  }
-
-  /**
-   * Get the active child session ID for a parent session (top of stack).
-   * Returns undefined if no sub-agent is currently active.
-   */
-  private getActiveChild(parentSessionId: string): string | undefined {
-    const stack = this.activeChildStack.get(parentSessionId)
-    return stack && stack.length > 0 ? stack[stack.length - 1] : undefined
-  }
-
-  /** Get active child info (id + name) for tagging parent messages */
-  private getActiveChildInfo(parentSessionId: string): { id: string; name: string } | undefined {
-    const id = this.getActiveChild(parentSessionId)
-    if (!id) return undefined
-    return { id, name: this.childSessionNames.get(id) || '' }
   }
 
   /**
@@ -393,7 +345,7 @@ export class ProcessService {
     }
   }
 
-  private handleBridgeEvent(sessionId: string, event: any) {
+  private handleBridgeEvent(sessionId: string, event: BridgeEvent) {
     const state = this.getOrCreateState(sessionId)
 
     // When new work arrives after a 'done' event (multi-turn SDK streams),
@@ -407,7 +359,7 @@ export class ProcessService {
           this.sessionService.updateStatus(sessionId, 'running')
           this.stateInference.markWorkStarted(sessionId)
         }
-        const childInfo = this.getActiveChildInfo(sessionId)
+        const childInfo = this.agentLifecycle.getActiveChildInfo(sessionId)
         // Append to last assistant message or create new one
         const lastMsg = state.messages[state.messages.length - 1]
         if (lastMsg?.role === 'assistant' && lastMsg.childSessionId === childInfo?.id) {
@@ -445,14 +397,9 @@ export class ProcessService {
 
       case 'done': {
         // The 'done' event means the current turn is complete — always clear streaming.
-        // Note: isAlive() checks cannot be used here because the adapter's finally-block
-        // (which clears consuming/sdkQuery) hasn't run yet at this point, so isAlive()
-        // would still return true and streaming would never be cleared.
         state.streaming = false
 
         // Check if the adapter stream is still alive for notification/idle decisions.
-        // For Claude SDK, this will be true here (see note above), so we use a
-        // microtask-delayed check to let the adapter's finally-block run first.
         const adapterStillAlive = this.bridgeManager.isSessionActive(sessionId)
 
         // Send notification only when the stream truly ends (adapter no longer alive)
@@ -461,7 +408,6 @@ export class ProcessService {
             const doneSession = this.sessionService.getById(sessionId)
             if (!doneSession?.parentSessionId && this.notificationManager) {
               const sessionName = doneSession?.name || sessionId
-              // Extract last assistant message content as summary for bot push
               const lastAssistantMsg = [...state.messages].reverse().find(
                 m => m.role === 'assistant' && m.content && !m.toolName && !m.toolUse
               )
@@ -469,8 +415,9 @@ export class ProcessService {
               appLog('info', `Sending turn-complete notification for "${sessionName}" (${sessionId})`, 'process')
               this.notificationManager.notify('taskComplete', sessionId, sessionName, summary)
             }
-          } catch (notifErr: any) {
-            appLog('error', `Failed to send turn-complete notification: ${notifErr?.message}`, 'process')
+          } catch (notifErr: unknown) {
+            const msg = notifErr instanceof Error ? notifErr.message : String(notifErr)
+            appLog('error', `Failed to send turn-complete notification: ${msg}`, 'process')
           }
         }
 
@@ -494,8 +441,6 @@ export class ProcessService {
           this.sessionService.updateConversationId(sessionId, event.conversationId)
         }
         // Only mark idle when the adapter stream has truly ended.
-        // For multi-turn SDK streams, intermediate 'done' events should not
-        // flip the status to idle — the next turn will start momentarily.
         if (!adapterStillAlive) {
           this.sessionService.updateStatus(sessionId, 'idle')
           this.outputParser.markSessionEnded(sessionId)
@@ -505,7 +450,7 @@ export class ProcessService {
         this.emitChatUpdate(sessionId)
 
         // Persist mirrored messages for any remaining active children
-        const remainingStack = this.activeChildStack.get(sessionId)
+        const remainingStack = this.agentLifecycle.getActiveChildStack(sessionId)
         if (remainingStack) {
           for (const childId of remainingStack) {
             const cs = this.sessionStates.get(childId)
@@ -515,29 +460,29 @@ export class ProcessService {
               this.emitChatUpdate(childId)
             }
           }
-          this.activeChildStack.delete(sessionId)
+          this.agentLifecycle.deleteActiveChildStack(sessionId)
         }
 
         // If this is a child session, inject result back to parent
         const doneSessionForChild = this.sessionService.getById(sessionId)
         if (doneSessionForChild?.parentSessionId) {
-          if (this.isPersistentChild(doneSessionForChild.parentSessionId, sessionId)) {
+          if (this.agentLifecycle.isPersistentChild(doneSessionForChild.parentSessionId, sessionId)) {
             // Persistent child: resolve waiter, set status to 'idle', keep alive
             const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant')
             const resultText = lastAssistant?.content || '(no output)'
-            this.resolveChildTurnWaiter(sessionId, resultText)
-            this.updatePersistentAgentStatus(doneSessionForChild.parentSessionId, sessionId, 'idle')
+            this.agentLifecycle.resolveChildTurnWaiter(sessionId, resultText)
+            this.agentLifecycle.updatePersistentAgentStatus(doneSessionForChild.parentSessionId, sessionId, 'idle')
             // Set idle flag (for waitAgentIdle race condition handling)
-            this.agentIdleFlags.set(sessionId, true)
-            this.resolveAgentIdleWaiters(sessionId)
+            this.agentLifecycle.setAgentIdleFlag(sessionId, true)
+            this.agentLifecycle.resolveAgentIdleWaiters(sessionId)
           } else {
-            this.injectChildResult(doneSessionForChild.parentSessionId, sessionId)
+            this.agentLifecycle.injectChildResult(doneSessionForChild.parentSessionId, sessionId)
           }
         }
 
         // Finalize any sub-agents that are still running
         // Skip persistent children on normal turn completion
-        this.finalizeChildAgents(sessionId, 'completed', true)
+        this.agentLifecycle.finalizeChildAgents(sessionId, 'completed', true)
 
         // Flush pending messages from the scheduler
         this.flushSchedulerPending(sessionId)
@@ -552,7 +497,7 @@ export class ProcessService {
         // Free concurrency slot so the session can be re-initialized later
         this.concurrencyGuard.unregisterSession(sessionId)
         // Persist mirrored messages for active children before cleanup
-        const errorStack = this.activeChildStack.get(sessionId)
+        const errorStack = this.agentLifecycle.getActiveChildStack(sessionId)
         if (errorStack) {
           for (const childId of errorStack) {
             const cs = this.sessionStates.get(childId)
@@ -562,10 +507,10 @@ export class ProcessService {
               this.emitChatUpdate(childId)
             }
           }
-          this.activeChildStack.delete(sessionId)
+          this.agentLifecycle.deleteActiveChildStack(sessionId)
         }
         // Mark sub-agents as failed when parent errors (including persistent)
-        this.finalizeChildAgents(sessionId, 'failed', false)
+        this.agentLifecycle.finalizeChildAgents(sessionId, 'failed', false)
         // Clean up supervisor prompt on terminal error
         this.cleanupSupervisorPromptForSession(sessionId)
 
@@ -579,8 +524,9 @@ export class ProcessService {
               this.notificationManager.notify('error', sessionId, sessionName, state.error)
             }
           }
-        } catch (notifErr: any) {
-          appLog('error', `Failed to send error notification: ${notifErr?.message}`, 'process')
+        } catch (notifErr: unknown) {
+          const msg = notifErr instanceof Error ? notifErr.message : String(notifErr)
+          appLog('error', `Failed to send error notification: ${msg}`, 'process')
         }
         break
       }
@@ -591,7 +537,7 @@ export class ProcessService {
           this.sessionService.updateStatus(sessionId, 'running')
           this.stateInference.markWorkStarted(sessionId)
         }
-        const childInfoTool = this.getActiveChildInfo(sessionId)
+        const childInfoTool = this.agentLifecycle.getActiveChildInfo(sessionId)
         // Create a separate tool_use message for each tool invocation
         const toolMsg: ChatMessage = {
           role: 'tool_use',
@@ -610,7 +556,7 @@ export class ProcessService {
         const prevMsg = state.messages.slice().reverse().find(m => m.role === 'assistant')
         if (prevMsg) {
           if (!prevMsg.toolUse) prevMsg.toolUse = []
-          prevMsg.toolUse.push({ name: event.name, input: event.input })
+          prevMsg.toolUse.push({ name: event.name || 'unknown', input: event.input || {} })
         }
 
         this.emitChatUpdate(sessionId)
@@ -629,7 +575,7 @@ export class ProcessService {
           this.stateInference.markWorkStarted(sessionId)
         }
         const chunk = event.text || ''
-        const childInfoThink = this.getActiveChildInfo(sessionId)
+        const childInfoThink = this.agentLifecycle.getActiveChildInfo(sessionId)
 
         // Merge into the last thinking message if it exists and belongs to the same child
         const lastMsg = state.messages[state.messages.length - 1]
@@ -675,7 +621,7 @@ export class ProcessService {
           this.sessionService.updateStatus(sessionId, 'running')
           this.stateInference.markWorkStarted(sessionId)
         }
-        this.handleAgentTaskEvent(sessionId, event)
+        this.agentLifecycle.handleAgentTaskEvent(sessionId, event)
         break
       }
     }
@@ -725,10 +671,11 @@ export class ProcessService {
       }
       appLog('info', `Sending message to AI (${message.length} chars)`, 'process')
       await this.bridgeManager.sendMessage(sessionId, message)
-    } catch (err: any) {
-      appLog('error', `sendMessage failed: ${err.message}`, 'process')
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      appLog('error', `sendMessage failed: ${errMsg}`, 'process')
       state.streaming = false
-      state.error = err.message || 'Failed to send message'
+      state.error = errMsg || 'Failed to send message'
       this.sessionService.updateStatus(sessionId, 'error')
       this.emitChatUpdate(sessionId)
     }
@@ -773,9 +720,10 @@ export class ProcessService {
         await this.initSession(sessionId)
       }
       await this.bridgeManager.sendMessage(sessionId, message, images)
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
       state.streaming = false
-      state.error = err.message || 'Failed to send message'
+      state.error = errMsg || 'Failed to send message'
       this.sessionService.updateStatus(sessionId, 'error')
       this.emitChatUpdate(sessionId)
     }
@@ -839,7 +787,7 @@ export class ProcessService {
     this.outputParser.clearSession(sessionId)
     this.stateInference.removeSession(sessionId)
     // Cancel all sub-agents when parent is stopped (including persistent)
-    this.finalizeChildAgents(sessionId, 'cancelled', false)
+    this.agentLifecycle.finalizeChildAgents(sessionId, 'cancelled', false)
     // Clean up supervisor prompt rules file
     this.cleanupSupervisorPromptForSession(sessionId)
   }
@@ -863,579 +811,111 @@ export class ProcessService {
       }
 
       return { success: true, sessionId: oldSessionId }
-    } catch (err: any) {
-      return { success: false, error: err.message }
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   }
 
-  // ─── Persistent Sub-Agent API ─────────────────────────────────────
+  // ─── Delegated Agent Lifecycle Methods ─────────────────────────
 
-  /**
-   * Spawn a persistent child session with its own live adapter.
-   * Unlike SDK sub-agents, these stay alive and accept follow-up messages.
-   */
   async spawnChildSession(
     parentSessionId: string,
     options: { name: string; prompt: string; providerId?: string },
   ): Promise<{ childSessionId: string }> {
-    const parent = this.sessionService.getById(parentSessionId)
-    if (!parent) throw new Error(`Parent session not found: ${parentSessionId}`)
-
-    // Create child session in DB (optionally with a different provider)
-    const child = this.sessionService.create({
-      name: options.name,
-      providerId: options.providerId || parent.providerId,
-      workingDirectory: parent.workingDirectory,
-      parentSessionId,
-      autoAccept: parent.autoAccept,
-      permissionMode: parent.permissionMode,
-    })
-
-    // Register in AgentTracker
-    const tracker = this.getOrCreateTracker(parentSessionId)
-    const agent = tracker.registerPersistentChild(
-      parentSessionId,
-      child.id,
-      options.name,
-      options.prompt,
-    )
-    this.emitAgentUpdate(parentSessionId, agent)
-
-    // Init live adapter and send initial prompt
-    await this.initSession(child.id)
-    await this.sendMessage(child.id, options.prompt)
-
-    appLog('info', `Persistent child spawned: ${child.id} for parent ${parentSessionId}`, 'process')
-    return { childSessionId: child.id }
+    return this.agentLifecycle.spawnChildSession(parentSessionId, options)
   }
 
-  /**
-   * Spawn a persistent child and wait for its initial response.
-   * Used by the agent-control MCP server via HTTP API.
-   */
   async spawnChildSessionAndWait(
     parentSessionId: string,
     options: { name: string; prompt: string; providerId?: string },
     timeoutMs = 300_000,
   ): Promise<{ childSessionId: string; result: string }> {
-    const parent = this.sessionService.getById(parentSessionId)
-    if (!parent) throw new Error(`Parent session not found: ${parentSessionId}`)
-
-    const child = this.sessionService.create({
-      name: options.name,
-      providerId: options.providerId || parent.providerId,
-      workingDirectory: parent.workingDirectory,
-      parentSessionId,
-      autoAccept: parent.autoAccept,
-      permissionMode: parent.permissionMode,
-    })
-
-    const tracker = this.getOrCreateTracker(parentSessionId)
-    const agent = tracker.registerPersistentChild(
-      parentSessionId,
-      child.id,
-      options.name,
-      options.prompt,
-    )
-    this.emitAgentUpdate(parentSessionId, agent)
-
-    // Set up completion waiter BEFORE sending (avoids race condition)
-    const resultPromise = this.createChildTurnWaiter(child.id, timeoutMs)
-
-    await this.initSession(child.id)
-    await this.sendMessage(child.id, options.prompt)
-
-    appLog('info', `Persistent child spawned (with wait): ${child.id}`, 'process')
-    const result = await resultPromise
-    return { childSessionId: child.id, result }
+    return this.agentLifecycle.spawnChildSessionAndWait(parentSessionId, options, timeoutMs)
   }
 
-  /**
-   * Send a message to a child session from its parent.
-   */
   async sendToChild(
     parentSessionId: string,
     childSessionId: string,
     message: string,
   ): Promise<void> {
-    const child = this.sessionService.getById(childSessionId)
-    if (!child) throw new Error(`Child session not found: ${childSessionId}`)
-    if (child.parentSessionId !== parentSessionId) {
-      throw new Error(`Session ${childSessionId} is not a child of ${parentSessionId}`)
-    }
-    // Clear idle flag — agent entering new turn
-    this.agentIdleFlags.delete(childSessionId)
-    // Mark agent as 'running' while processing
-    this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'running')
-    await this.sendMessage(childSessionId, message)
+    return this.agentLifecycle.sendToChild(parentSessionId, childSessionId, message)
   }
 
-  /**
-   * Send a message to a child and wait for its response.
-   * Used by the agent-control MCP server via HTTP API.
-   */
   async sendToChildAndWait(
     parentSessionId: string,
     childSessionId: string,
     message: string,
     timeoutMs = 300_000,
   ): Promise<string> {
-    // Set up waiter BEFORE sending to avoid race
-    const resultPromise = this.createChildTurnWaiter(childSessionId, timeoutMs)
-    await this.sendToChild(parentSessionId, childSessionId, message)
-    return resultPromise
+    return this.agentLifecycle.sendToChildAndWait(parentSessionId, childSessionId, message, timeoutMs)
   }
 
-  /**
-   * Explicitly close a persistent child agent.
-   */
   async closeChildSession(parentSessionId: string, childSessionId: string): Promise<void> {
-    const child = this.sessionService.getById(childSessionId)
-    if (!child) throw new Error(`Child session not found: ${childSessionId}`)
-    if (child.parentSessionId !== parentSessionId) {
-      throw new Error(`Session ${childSessionId} is not a child of ${parentSessionId}`)
-    }
-
-    // Stop the child's bridge adapter and free concurrency slot
-    await this.bridgeManager.destroySession(childSessionId).catch(() => {})
-    this.concurrencyGuard.unregisterSession(childSessionId)
-
-    // Get last result from child
-    const childState = this.getOrCreateState(childSessionId)
-    const lastAssistant = [...childState.messages].reverse().find(m => m.role === 'assistant')
-    const result = lastAssistant?.content || '(no output)'
-
-    // Update tracker and session status
-    this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'completed')
-    this.sessionService.updateStatus(childSessionId, 'completed')
-
-    // Inject final result into parent
-    const parentState = this.sessionStates.get(parentSessionId)
-    if (parentState) {
-      parentState.messages.push({
-        role: 'system',
-        content: `[子Agent "${child.name}" 已关闭]\n\n最终输出: ${result.slice(0, 2000)}`,
-        timestamp: new Date().toISOString(),
-      })
-      this.persistMessages(parentSessionId)
-      this.emitChatUpdate(parentSessionId)
-    }
-
-    // Resolve any pending waiter
-    this.resolveChildTurnWaiter(childSessionId, result)
-
-    childState.streaming = false
-    this.emitChatUpdate(childSessionId)
-    appLog('info', `Persistent child closed: ${childSessionId}`, 'process')
+    return this.agentLifecycle.closeChildSession(parentSessionId, childSessionId)
   }
 
-  /**
-   * Get all child sessions for a parent.
-   */
-  getChildSessions(parentSessionId: string): any[] {
-    const allSessions = this.sessionService.getAll()
-    return allSessions.filter((s: any) => s.parentSessionId === parentSessionId)
+  getChildSessions(parentSessionId: string): ReturnType<AgentLifecycleManager['getChildSessions']> {
+    return this.agentLifecycle.getChildSessions(parentSessionId)
   }
 
-  /**
-   * When a child session completes, inject its result into the parent's context.
-   */
-  private injectChildResult(parentSessionId: string, childSessionId: string) {
-    const parentState = this.sessionStates.get(parentSessionId)
-    if (!parentState) return
-
-    const child = this.sessionService.getById(childSessionId)
-    if (!child) return
-
-    // Get the last assistant message from child as result
-    const childState = this.getOrCreateState(childSessionId)
-    const lastAssistant = [...childState.messages].reverse().find(m => m.role === 'assistant')
-    const result = lastAssistant?.content || '(no output)'
-
-    parentState.messages.push({
-      role: 'system',
-      content: `[子Agent "${child.name}" 完成]\n\n${result.slice(0, 2000)}`,
-      timestamp: new Date().toISOString(),
-    })
-    this.persistMessages(parentSessionId)
-    this.emitChatUpdate(parentSessionId)
-
-    // Update tracker
-    const tracker = this.agentTrackers.get(parentSessionId)
-    if (tracker) {
-      for (const agent of tracker.getAll()) {
-        if (agent.childSessionId === childSessionId && agent.status === 'running') {
-          agent.status = 'completed'
-          agent.completedAt = new Date().toISOString()
-          agent.streaming = false
-          agent.summary = result.slice(0, 200)
-          this.emitAgentUpdate(parentSessionId, agent)
-          break
-        }
-      }
-    }
+  listAllAgents(): AgentInfo[] {
+    return this.agentLifecycle.listAllAgents()
   }
 
-  listAllAgents(): any[] {
-    const result: any[] = []
-    for (const tracker of this.agentTrackers.values()) {
-      for (const agent of tracker.getAll()) {
-        result.push(this.trackedAgentToInfo(agent))
-      }
-    }
-    return result
+  getAgentsBySession(sessionId: string): AgentInfo[] {
+    return this.agentLifecycle.getAgentsBySession(sessionId)
   }
 
-  getAgentsBySession(sessionId: string): any[] {
-    const tracker = this.agentTrackers.get(sessionId)
-    if (!tracker) return []
-    return tracker.getAgentsByParent(sessionId).map(a => this.trackedAgentToInfo(a))
-  }
-
-  /**
-   * When a parent session finishes (done/error/stop), finalize all its
-   * still-running child agents so they don't stay stuck in 'running'.
-   */
-  private finalizeChildAgents(
-    parentSessionId: string,
-    status: 'completed' | 'cancelled' | 'failed',
-    skipPersistent = false,
-  ) {
-    const tracker = this.agentTrackers.get(parentSessionId)
-    if (!tracker) return
-
-    const finalized = tracker.finalizeRunningAgents(status, skipPersistent)
-    for (const agent of finalized) {
-      // Destroy live adapter for persistent children and free concurrency slot
-      this.bridgeManager.destroySession(agent.childSessionId).catch(() => {})
-      this.concurrencyGuard.unregisterSession(agent.childSessionId)
-
-      this.syncChildStateFromDB(agent.childSessionId)
-      const childState = this.sessionStates.get(agent.childSessionId)
-      if (childState) {
-        childState.streaming = false
-      }
-      this.emitAgentUpdate(parentSessionId, agent)
-      this.emitChatUpdate(agent.childSessionId)
-    }
-  }
-
-  private getOrCreateTracker(parentSessionId: string): AgentTracker {
-    let tracker = this.agentTrackers.get(parentSessionId)
-    if (!tracker) {
-      const session = this.sessionService.getById(parentSessionId)
-      tracker = new AgentTracker(
-        this.sessionService,
-        session?.providerId || '',
-        session?.workingDirectory || process.cwd(),
-      )
-      this.agentTrackers.set(parentSessionId, tracker)
-    }
-    return tracker
-  }
-
-  private handleAgentTaskEvent(parentSessionId: string, event: any) {
-    const tracker = this.getOrCreateTracker(parentSessionId)
-    let agent: TrackedAgent | null = null
-
-    switch (event.subtype) {
-      case 'task_started':
-        agent = tracker.onTaskStarted(parentSessionId, event)
-        // Push child session onto active stack so delta/tool/thinking events
-        // are mirrored to this child session
-        if (agent) {
-          this.childSessionNames.set(agent.childSessionId, agent.name)
-          let stack = this.activeChildStack.get(parentSessionId)
-          if (!stack) {
-            stack = []
-            this.activeChildStack.set(parentSessionId, stack)
-          }
-          stack.push(agent.childSessionId)
-          appLog('info', `Active child pushed: ${agent.childSessionId} (stack depth: ${stack.length})`, 'process')
-        }
-        break
-      case 'task_progress':
-        agent = tracker.onTaskProgress(event)
-        break
-      case 'task_notification': {
-        agent = tracker.onTaskNotification(event)
-        // Pop child session from active stack and persist its messages
-        if (agent) {
-          const stack = this.activeChildStack.get(parentSessionId)
-          if (stack) {
-            const idx = stack.indexOf(agent.childSessionId)
-            if (idx !== -1) {
-              stack.splice(idx, 1)
-            }
-            if (stack.length === 0) {
-              this.activeChildStack.delete(parentSessionId)
-            }
-          }
-          // Persist the mirrored messages to DB
-          const childState = this.sessionStates.get(agent.childSessionId)
-          if (childState) {
-            childState.streaming = false
-            this.persistMessages(agent.childSessionId)
-          }
-          appLog('info', `Active child popped: ${agent.childSessionId}`, 'process')
-        }
-        break
-      }
-    }
-
-    if (agent) {
-      // For task_started, always sync from DB to pick up the initial user message
-      // that AgentTracker wrote. Mirroring hasn't started yet at this point.
-      if (event.subtype === 'task_started') {
-        this.syncChildStateFromDB(agent.childSessionId)
-      }
-      // For task_progress, sync from DB only if NOT actively mirroring events
-      // from the parent stream. When mirroring is active, in-memory state has
-      // richer content than the AgentTracker's summary-based DB writes.
-      const isMirroring = this.activeChildStack.get(parentSessionId)?.includes(agent.childSessionId)
-      if (event.subtype === 'task_progress' && !isMirroring) {
-        this.syncChildStateFromDB(agent.childSessionId)
-      }
-
-      // Mirror the agent's streaming flag into the child session's in-memory state
-      // so the frontend shows the "正在思考..." animation for sub-agents too.
-      const childState = this.sessionStates.get(agent.childSessionId)
-      if (childState) {
-        childState.streaming = agent.streaming
-      }
-
-      this.emitAgentUpdate(parentSessionId, agent)
-      // Also emit a chat:update for the child session so ConversationView picks it up
-      this.emitChatUpdate(agent.childSessionId)
-    }
-  }
-
-  /**
-   * Reload a child session's messages from DB into the in-memory sessionStates map.
-   * This bridges the gap between AgentTracker (writes to DB) and emitChatUpdate (reads from memory).
-   */
-  private syncChildStateFromDB(childSessionId: string) {
-    const session = this.sessionService.getById(childSessionId)
-    if (!session) return
-
-    let messages: ChatMessage[] = []
-    try {
-      messages = JSON.parse(session.messagesJson || '[]')
-    } catch {}
-
-    const existing = this.sessionStates.get(childSessionId)
-    if (existing) {
-      existing.messages = messages
-    } else {
-      this.sessionStates.set(childSessionId, {
-        messages,
-        streaming: false,
-        error: '',
-        conversationId: session.conversationId || '',
-      })
-    }
-  }
-
-  private emitAgentUpdate(parentSessionId: string, agent: TrackedAgent) {
-    const window = this.getWindow()
-    if (window && !window.isDestroyed()) {
-      window.webContents.send('agent:update', {
-        parentSessionId,
-        agent: this.trackedAgentToInfo(agent),
-      })
-    }
-  }
-
-  private trackedAgentToInfo(agent: TrackedAgent) {
-    return {
-      agentId: agent.agentId,
-      name: agent.name,
-      parentSessionId: agent.parentSessionId,
-      childSessionId: agent.childSessionId,
-      status: agent.status,
-      summary: agent.summary,
-      workDir: '',
-      createdAt: agent.createdAt,
-      completedAt: agent.completedAt,
-      usage: agent.usage,
-      streaming: agent.streaming,
-    }
-  }
-
-  // ─── Persistent child helpers ──────────────────────────────────
-
-  /** Check if a child session is a persistent (user-spawned) agent */
-  private isPersistentChild(parentSessionId: string, childSessionId: string): boolean {
-    const tracker = this.agentTrackers.get(parentSessionId)
-    if (!tracker) return false
-    return tracker.getAll().some(
-      a => a.childSessionId === childSessionId && a.agentId.startsWith('persistent-'),
-    )
-  }
-
-  /** Update the tracker status for a persistent child agent */
-  private updatePersistentAgentStatus(
-    parentSessionId: string,
-    childSessionId: string,
-    status: TrackedAgent['status'],
-  ) {
-    const tracker = this.agentTrackers.get(parentSessionId)
-    if (!tracker) return
-    for (const agent of tracker.getAll()) {
-      if (agent.childSessionId === childSessionId && agent.agentId.startsWith('persistent-')) {
-        agent.status = status
-        agent.streaming = status === 'running'
-        if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-          agent.completedAt = agent.completedAt || new Date().toISOString()
-        }
-        this.emitAgentUpdate(parentSessionId, agent)
-        break
-      }
-    }
-  }
-
-  /** Create a Promise that resolves when a persistent child finishes its current turn */
-  private createChildTurnWaiter(childSessionId: string, timeoutMs = 300_000): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.childTurnWaiters.delete(childSessionId)
-        reject(new Error(`Timeout waiting for child agent ${childSessionId} (${timeoutMs}ms)`))
-      }, timeoutMs)
-
-      this.childTurnWaiters.set(childSessionId, (result: string) => {
-        clearTimeout(timer)
-        resolve(result)
-      })
-    })
-  }
-
-  /** Resolve a pending child turn waiter (called from done event handler) */
-  private resolveChildTurnWaiter(childSessionId: string, result: string) {
-    const waiter = this.childTurnWaiters.get(childSessionId)
-    if (waiter) {
-      this.childTurnWaiters.delete(childSessionId)
-      waiter(result)
-    }
-  }
-
-  // ─── Agent idle detection ───
-
-  /**
-   * Wait until a persistent child agent finishes its current turn (idle).
-   * Returns immediately if the agent already completed its turn.
-   */
   async waitAgentIdle(
     parentSessionId: string,
     childSessionId: string,
     timeoutMs = 300_000,
   ): Promise<{ idle: boolean; output: string }> {
-    const child = this.sessionService.getById(childSessionId)
-    if (!child) return { idle: false, output: '' }
-    if (child.parentSessionId !== parentSessionId) {
-      return { idle: false, output: `Session ${childSessionId} is not a child of ${parentSessionId}` }
-    }
-
-    // Already completed/failed/cancelled — return immediately
-    const tracker = this.agentTrackers.get(parentSessionId)
-    if (tracker) {
-      for (const agent of tracker.getAll()) {
-        if (agent.childSessionId === childSessionId) {
-          if (agent.status === 'completed' || agent.status === 'failed' || agent.status === 'cancelled') {
-            return { idle: true, output: this.getAgentOutputText(childSessionId) }
-          }
-          break
-        }
-      }
-    }
-
-    // Fast path: idle flag already set (turn_complete fired before this call)
-    if (this.agentIdleFlags.get(childSessionId)) {
-      this.agentIdleFlags.delete(childSessionId)
-      return { idle: true, output: this.getAgentOutputText(childSessionId) }
-    }
-
-    // Slow path: register waiter
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        const waiters = this.agentIdleWaiters.get(childSessionId) || []
-        const idx = waiters.findIndex(w => w.resolve === resolve)
-        if (idx >= 0) waiters.splice(idx, 1)
-        resolve({ idle: false, output: this.getAgentOutputText(childSessionId) })
-      }, timeoutMs)
-
-      const waiters = this.agentIdleWaiters.get(childSessionId) || []
-      waiters.push({ resolve, timer })
-      this.agentIdleWaiters.set(childSessionId, waiters)
-    })
+    return this.agentLifecycle.waitAgentIdle(parentSessionId, childSessionId, timeoutMs)
   }
 
-  /**
-   * Get agent output text (last N lines of assistant messages).
-   */
   getAgentOutput(
     childSessionId: string,
     lines?: number,
   ): { output: string; error?: string } {
-    const state = this.sessionStates.get(childSessionId)
-    if (!state) {
-      // Try loading from DB
-      const session = this.sessionService.getById(childSessionId)
-      if (!session) return { output: '', error: 'Session not found' }
-      let messages: ChatMessage[] = []
-      try { messages = JSON.parse(session.messagesJson || '[]') } catch {}
-      const assistantMsgs = messages.filter(m => m.role === 'assistant' && m.content)
-      let output = assistantMsgs.map(m => m.content).join('\n')
-      if (lines && lines > 0) {
-        const allLines = output.split('\n')
-        if (allLines.length > lines) output = allLines.slice(-lines).join('\n')
-      }
-      return { output }
-    }
-
-    const assistantMsgs = state.messages.filter(m => m.role === 'assistant' && m.content)
-    let output = assistantMsgs.map(m => m.content).join('\n')
-    if (lines && lines > 0) {
-      const allLines = output.split('\n')
-      if (allLines.length > lines) output = allLines.slice(-lines).join('\n')
-    }
-    return { output }
+    return this.agentLifecycle.getAgentOutput(childSessionId, lines)
   }
 
-  /**
-   * Get agent status info.
-   */
   getAgentStatus(
     parentSessionId: string,
     childSessionId: string,
   ): { status: string; name: string; agentId: string } | null {
-    const tracker = this.agentTrackers.get(parentSessionId)
-    if (!tracker) return null
-    for (const agent of tracker.getAll()) {
-      if (agent.childSessionId === childSessionId) {
-        return { status: agent.status, name: agent.name, agentId: agent.agentId }
-      }
-    }
-    return null
+    return this.agentLifecycle.getAgentStatus(parentSessionId, childSessionId)
   }
 
-  /** Helper: get last assistant text for a child session */
-  private getAgentOutputText(childSessionId: string): string {
-    const state = this.sessionStates.get(childSessionId)
-    if (!state) return ''
-    const last = [...state.messages].reverse().find(m => m.role === 'assistant')
-    return last?.content || ''
+  // ─── Delegated Session Search Methods ──────────────────────────
+
+  listSessionsForAwareness(
+    options: { status?: string; limit?: number } = {},
+  ): Array<{
+    id: string
+    name: string
+    status: string
+    workDir: string
+    createdAt: string
+    providerId: string
+    parentSessionId: string
+  }> {
+    return this.sessionSearch.listSessionsForAwareness(options)
   }
 
-  /** Resolve all pending idle waiters for a child session */
-  private resolveAgentIdleWaiters(childSessionId: string) {
-    const waiters = this.agentIdleWaiters.get(childSessionId)
-    if (!waiters || waiters.length === 0) return
-    const output = this.getAgentOutputText(childSessionId)
-    for (const w of waiters) {
-      if (w.timer) clearTimeout(w.timer)
-      w.resolve({ idle: true, output })
-    }
-    this.agentIdleWaiters.delete(childSessionId)
+  getSessionSummary(
+    sessionId: string,
+    maxMessages = 10,
+  ) {
+    return this.sessionSearch.getSessionSummary(sessionId, maxMessages)
+  }
+
+  searchSessions(
+    query: string,
+    limit = 20,
+  ) {
+    return this.sessionSearch.searchSessions(query, limit)
   }
 
   // ─── Supervisor prompt cleanup ─────────────────────────────────
@@ -1450,202 +930,6 @@ export class ProcessService {
       cleanupSupervisorPrompt(workDir)
       this.supervisorPromptSessions.delete(sessionId)
     }
-  }
-
-  // ─── Cross-Session Awareness API ─────────────────────────────
-
-  /**
-   * List all sessions (active and recent) for cross-session awareness.
-   * Excludes child session internal details to keep the response concise.
-   */
-  listSessionsForAwareness(
-    options: { status?: string; limit?: number } = {},
-  ): Array<{
-    id: string
-    name: string
-    status: string
-    workDir: string
-    createdAt: string
-    providerId: string
-    parentSessionId: string
-  }> {
-    const { status = 'all', limit = 20 } = options
-
-    let sessions = this.sessionService.getAll()
-
-    // Filter by status if specified
-    if (status && status !== 'all') {
-      sessions = sessions.filter((s) => s.status === status)
-    }
-
-    // Map to a simplified structure
-    const result = sessions.slice(0, limit).map((s) => ({
-      id: s.id,
-      name: s.name,
-      status: s.status,
-      workDir: s.workingDirectory,
-      createdAt: s.startedAt,
-      providerId: s.providerId,
-      parentSessionId: s.parentSessionId,
-    }))
-
-    return result
-  }
-
-  /**
-   * Get a summary of a specific session's conversation.
-   * Includes last N assistant messages, tool calls used, and files modified.
-   */
-  getSessionSummary(
-    sessionId: string,
-    maxMessages = 10,
-  ): {
-    sessionId: string
-    name: string
-    status: string
-    providerId: string
-    workDir: string
-    createdAt: string
-    assistantMessages: Array<{ content: string; timestamp: string }>
-    toolsUsed: string[]
-    filesModified: string[]
-  } | null {
-    const session = this.sessionService.getById(sessionId)
-    if (!session) return null
-
-    // Get messages from in-memory state or DB
-    let messages: ChatMessage[] = []
-    const state = this.sessionStates.get(sessionId)
-    if (state) {
-      messages = state.messages
-    } else {
-      try {
-        messages = JSON.parse(session.messagesJson || '[]')
-      } catch {}
-    }
-
-    // Extract last N assistant messages
-    const assistantMsgs = messages
-      .filter((m) => m.role === 'assistant' && m.content)
-      .slice(-maxMessages)
-      .map((m) => ({
-        content: m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content,
-        timestamp: m.timestamp,
-      }))
-
-    // Collect unique tool names used across all messages
-    const toolsSet = new Set<string>()
-    for (const m of messages) {
-      if (m.toolUse && Array.isArray(m.toolUse)) {
-        for (const t of m.toolUse) {
-          if (t.name) toolsSet.add(t.name)
-        }
-      }
-    }
-
-    // Extract file paths from tool uses (common patterns: file_path, path, filePath)
-    const filesSet = new Set<string>()
-    for (const m of messages) {
-      if (m.toolUse && Array.isArray(m.toolUse)) {
-        for (const t of m.toolUse) {
-          const input = t.input || {}
-          const filePath = input.file_path || input.path || input.filePath
-          if (filePath && typeof filePath === 'string') {
-            filesSet.add(filePath)
-          }
-        }
-      }
-    }
-
-    return {
-      sessionId: session.id,
-      name: session.name,
-      status: session.status,
-      providerId: session.providerId,
-      workDir: session.workingDirectory,
-      createdAt: session.startedAt,
-      assistantMessages: assistantMsgs,
-      toolsUsed: Array.from(toolsSet),
-      filesModified: Array.from(filesSet),
-    }
-  }
-
-  /**
-   * Search across all session messages for a query string.
-   * Returns matching sessions with relevant snippets.
-   */
-  searchSessions(
-    query: string,
-    limit = 20,
-  ): Array<{
-    sessionId: string
-    name: string
-    status: string
-    matches: Array<{ role: string; snippet: string; timestamp: string }>
-  }> {
-    if (!query || query.trim().length === 0) return []
-
-    const lowerQuery = query.toLowerCase()
-    const allSessions = this.sessionService.getAll()
-    const results: Array<{
-      sessionId: string
-      name: string
-      status: string
-      matches: Array<{ role: string; snippet: string; timestamp: string }>
-    }> = []
-
-    for (const session of allSessions) {
-      if (results.length >= limit) break
-
-      // Get messages from in-memory state or DB
-      let messages: ChatMessage[] = []
-      const state = this.sessionStates.get(session.id)
-      if (state) {
-        messages = state.messages
-      } else {
-        try {
-          messages = JSON.parse(session.messagesJson || '[]')
-        } catch {
-          continue
-        }
-      }
-
-      const matches: Array<{ role: string; snippet: string; timestamp: string }> = []
-
-      for (const msg of messages) {
-        if (!msg.content) continue
-        const lowerContent = msg.content.toLowerCase()
-        const idx = lowerContent.indexOf(lowerQuery)
-        if (idx === -1) continue
-
-        // Extract a snippet around the match (100 chars before, 200 chars after)
-        const start = Math.max(0, idx - 100)
-        const end = Math.min(msg.content.length, idx + query.length + 200)
-        let snippet = msg.content.slice(start, end)
-        if (start > 0) snippet = '...' + snippet
-        if (end < msg.content.length) snippet = snippet + '...'
-
-        matches.push({
-          role: msg.role,
-          snippet,
-          timestamp: msg.timestamp,
-        })
-
-        // Limit matches per session to avoid huge payloads
-        if (matches.length >= 5) break
-      }
-
-      if (matches.length > 0) {
-        results.push({
-          sessionId: session.id,
-          name: session.name,
-          status: session.status,
-          matches,
-        })
-      }
-    }
-
-    return results
   }
 
   // ─── Resource status & Scheduler helpers ──────────────────────

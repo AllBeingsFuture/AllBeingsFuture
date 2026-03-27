@@ -3,7 +3,7 @@
  * 默认显示活动时间线（TimelinePanel）
  */
 
-import { useUIStore } from '../../stores/uiStore'
+import { usePanelStore } from '../../stores/panelStore'
 import TimelinePanel from '../panels/TimelinePanel'
 import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
@@ -12,7 +12,7 @@ import WorktreePanel from '../git/WorktreePanel'
 import ToolsCatalogPanel from '../tools/ToolsCatalogPanel'
 
 export default function RightPanel() {
-  const activePanelRight = useUIStore(s => s.activePanelRight)
+  const activePanelRight = usePanelStore(s => s.activePanelRight)
 
   switch (activePanelRight) {
     case 'timeline':
