@@ -11,6 +11,7 @@ const storeState = {
   pollChat: vi.fn().mockResolvedValue(undefined),
   initProcess: vi.fn().mockResolvedValue(undefined),
   handleChatUpdate: vi.fn(),
+  handleChatPatch: vi.fn(),
   handleAgentUpdate: vi.fn(),
   stopProcess: vi.fn(),
   childToParent: {} as Record<string, unknown>,
@@ -25,8 +26,8 @@ vi.mock('../../../stores/sessionStore', () => ({
     typeof selector === 'function' ? selector(storeState) : storeState,
 }))
 
-vi.mock('../../../stores/panelStore', () => ({
-  usePanelStore: (selector?: (state: typeof uiState) => unknown) =>
+vi.mock('../../../stores/uiStore', () => ({
+  useUIStore: (selector?: (state: typeof uiState) => unknown) =>
     typeof selector === 'function' ? selector(uiState) : uiState,
 }))
 

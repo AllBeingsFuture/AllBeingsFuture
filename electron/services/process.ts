@@ -21,15 +21,19 @@ import { injectSupervisorPrompt, cleanupSupervisorPrompt, buildAllRulesContent }
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
-import type { ChatMessage, ChatState, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
+import type { ChatMessage, ChatState, ChatPatchEvent, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
 import { AgentLifecycleManager } from './agent-lifecycle.js'
 import { SessionSearchService } from './session-search.js'
 
 // Re-export types so existing consumers don't break
-export type { ChatMessage, ChatState } from './process-types.js'
+export type { ChatMessage, ChatState, ChatPatchEvent } from './process-types.js'
+
+const STREAM_PATCH_INTERVAL_MS = 120
 
 export class ProcessService {
   private sessionStates = new Map<string, SessionState>()
+  /** Coalesces hot streaming updates so the renderer does not process every token event. */
+  private chatPatchTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Sessions that had supervisor prompt injected — tracks workDir for cleanup */
   private supervisorPromptSessions = new Map<string, string>()
   /** Internal HTTP API for the agent-control MCP server */
@@ -167,6 +171,7 @@ export class ProcessService {
   }
 
   private emitChatUpdate(sessionId: string) {
+    this.clearPendingChatPatch(sessionId)
     const state = this.getOrCreateState(sessionId)
     const window = this.getWindow()
     if (window && !window.isDestroyed()) {
@@ -177,6 +182,53 @@ export class ProcessService {
         error: state.error,
       })
     }
+  }
+
+  private emitChatPatch(sessionId: string, patch: Omit<ChatPatchEvent, 'sessionId'>) {
+    const window = this.getWindow()
+    if (window && !window.isDestroyed()) {
+      window.webContents.send('chat:patch', {
+        sessionId,
+        ...patch,
+      } satisfies ChatPatchEvent)
+    }
+  }
+
+  private clearPendingChatPatch(sessionId: string) {
+    const timer = this.chatPatchTimers.get(sessionId)
+    if (timer) {
+      clearTimeout(timer)
+      this.chatPatchTimers.delete(sessionId)
+    }
+  }
+
+  private scheduleLastMessagePatch(sessionId: string) {
+    if (this.chatPatchTimers.has(sessionId)) return
+
+    const timer = setTimeout(() => {
+      this.chatPatchTimers.delete(sessionId)
+      const state = this.sessionStates.get(sessionId)
+      if (!state) return
+
+      const message = state.messages[state.messages.length - 1]
+      if (!message) {
+        this.emitChatPatch(sessionId, {
+          type: 'meta',
+          streaming: state.streaming,
+          error: state.error,
+        })
+        return
+      }
+
+      this.emitChatPatch(sessionId, {
+        type: 'upsert_last',
+        message,
+        streaming: state.streaming,
+        error: state.error,
+      })
+    }, STREAM_PATCH_INTERVAL_MS)
+
+    this.chatPatchTimers.set(sessionId, timer)
   }
 
   private persistMessages(sessionId: string) {
@@ -331,14 +383,22 @@ export class ProcessService {
       const lastMsg = childState.messages[childState.messages.length - 1]
       if (lastMsg?.role === 'assistant' && !lastMsg.toolName && !lastMsg.toolUse) {
         lastMsg.content += msg.content
-        // Don't persist every delta — will be persisted on done/notification
-        this.emitChatUpdate(childSessionId)
+        this.scheduleLastMessagePatch(childSessionId)
         return
       }
     }
     childState.messages.push(msg)
     childState.streaming = true
-    this.emitChatUpdate(childSessionId)
+    if (msg.role === 'assistant' || msg.role === 'thinking') {
+      this.scheduleLastMessagePatch(childSessionId)
+    } else {
+      this.emitChatPatch(childSessionId, {
+        type: 'append',
+        message: msg,
+        streaming: childState.streaming,
+        error: childState.error,
+      })
+    }
     // Persist tool/thinking events immediately so they survive if child doesn't end cleanly
     if (msg.toolUse || msg.thinking || msg.role === 'thinking') {
       this.persistMessages(childSessionId)
@@ -382,7 +442,7 @@ export class ProcessService {
           this.stateInference.onOutput(sessionId, event.text)
           this.stateInference.onOutputData(sessionId, event.text)
         }
-        this.emitChatUpdate(sessionId)
+        this.scheduleLastMessagePatch(sessionId)
 
         // Mirror delta to active child session
         if (childInfo && event.text) {
@@ -559,7 +619,12 @@ export class ProcessService {
           prevMsg.toolUse.push({ name: event.name || 'unknown', input: event.input || {} })
         }
 
-        this.emitChatUpdate(sessionId)
+        this.emitChatPatch(sessionId, {
+          type: 'append',
+          message: toolMsg,
+          streaming: state.streaming,
+          error: state.error,
+        })
 
         // Mirror tool event to active child session
         if (childInfoTool) {
@@ -594,7 +659,7 @@ export class ProcessService {
           }
           state.messages.push(thinkMsg)
         }
-        this.emitChatUpdate(sessionId)
+        this.scheduleLastMessagePatch(sessionId)
 
         // Mirror thinking event to active child session
         if (childInfoThink) {
@@ -602,7 +667,7 @@ export class ProcessService {
           const childLast = childState.messages[childState.messages.length - 1]
           if (childLast?.role === 'thinking') {
             childLast.content += chunk
-            this.emitChatUpdate(childInfoThink.id)
+            this.scheduleLastMessagePatch(childInfoThink.id)
           } else {
             this.mirrorToChildSession(childInfoThink.id, {
               role: 'thinking',
@@ -657,7 +722,12 @@ export class ProcessService {
     })
 
     this.sessionService.updateStatus(sessionId, 'running')
-    this.emitChatUpdate(sessionId)
+    this.emitChatPatch(sessionId, {
+      type: 'append',
+      message: state.messages[state.messages.length - 1],
+      streaming: state.streaming,
+      error: state.error,
+    })
     // Notify parser engines that user initiated a new turn
     this.stateInference.markWorkStarted(sessionId)
     this.outputParser.clearInterventionDedupe(sessionId)
@@ -710,7 +780,12 @@ export class ProcessService {
     })
 
     this.sessionService.updateStatus(sessionId, 'running')
-    this.emitChatUpdate(sessionId)
+    this.emitChatPatch(sessionId, {
+      type: 'append',
+      message: state.messages[state.messages.length - 1],
+      streaming: state.streaming,
+      error: state.error,
+    })
     // Notify parser engines that user initiated a new turn
     this.stateInference.markWorkStarted(sessionId)
     this.outputParser.clearInterventionDedupe(sessionId)

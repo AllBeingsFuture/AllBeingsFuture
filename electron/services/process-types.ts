@@ -124,6 +124,14 @@ export interface ChatState {
   error: string
 }
 
+export interface ChatPatchEvent {
+  sessionId: string
+  type: 'append' | 'upsert_last' | 'meta'
+  message?: ChatMessage
+  streaming: boolean
+  error: string
+}
+
 export interface SessionState {
   messages: ChatMessage[]
   streaming: boolean

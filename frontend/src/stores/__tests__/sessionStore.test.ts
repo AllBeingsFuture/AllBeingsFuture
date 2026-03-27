@@ -71,7 +71,7 @@ function resetStore() {
     streaming: false,
     chatError: '',
     agents: {},
-    sentImages: [],
+    childToParent: {},
   })
 }
 
@@ -121,5 +121,79 @@ describe('sessionStore runtime status sync', () => {
     const state = useSessionStore.getState()
     expect(state.messages).toEqual([{ role: 'assistant', content: 'keep me' }])
     expect(state.sessions.find((session) => session.id === 'session-2')?.status).toBe('idle')
+  })
+
+  it('applies streaming patches incrementally for the selected session', () => {
+    const timestamp = new Date().toISOString()
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'running' })],
+      messages: [{ role: 'user', content: 'hello', timestamp } as never],
+    })
+
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-1',
+      type: 'append',
+      message: { role: 'assistant', content: 'part 1', timestamp: 'assistant-ts' } as never,
+      streaming: true,
+      error: '',
+    })
+
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-1',
+      type: 'upsert_last',
+      message: { role: 'assistant', content: 'part 1 part 2', timestamp: 'assistant-ts' } as never,
+      streaming: true,
+      error: '',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.messages).toEqual([
+      { role: 'user', content: 'hello', timestamp },
+      { role: 'assistant', content: 'part 1 part 2', timestamp: 'assistant-ts' },
+    ])
+    expect(state.streaming).toBe(true)
+    expect(state.sessions[0]?.status).toBe('running')
+  })
+
+  it('keeps the current conversation intact when a background session receives a streaming patch', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [
+        makeSession({ id: 'session-1', status: 'idle' }),
+        makeSession({ id: 'session-2', status: 'running', name: 'Background Session' }),
+      ],
+      messages: [{ role: 'assistant', content: 'foreground', timestamp: 'fg-ts' } as never],
+    })
+
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-2',
+      type: 'append',
+      message: { role: 'assistant', content: 'background', timestamp: 'bg-ts' } as never,
+      streaming: true,
+      error: '',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.messages).toEqual([{ role: 'assistant', content: 'foreground', timestamp: 'fg-ts' }])
+    expect(state.streaming).toBe(false)
+    expect(state.sessions.find((session) => session.id === 'session-2')?.status).toBe('running')
+  })
+
+  it('routes image messages through SendMessageWithImages without extra local image cache state', async () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'idle' })],
+    })
+
+    await useSessionStore.getState().sendMessage('session-1', 'look', [
+      { data: 'abcd', mimeType: 'image/png' },
+    ])
+
+    expect(serviceMocks.processService.SendMessageWithImages).toHaveBeenCalledWith('session-1', 'look', [
+      { data: 'abcd', mimeType: 'image/png' },
+    ])
+    expect(serviceMocks.processService.SendMessage).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().messages).toEqual([])
   })
 })
