@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - '**'
+  pull_request:
+    branches:
+      - '**'
   workflow_dispatch:
 
 permissions:
@@ -49,6 +52,7 @@ jobs:
 
       - name: Compute Release Metadata
         id: meta
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -109,8 +113,13 @@ jobs:
           ABF_DISPLAY_VERSION: ${{ steps.meta.outputs.display_version }}
           ABF_PACKAGE_VERSION: ${{ steps.meta.outputs.package_version }}
         run: |
-          npm run build
-          npx electron-builder --win "-c.extraMetadata.version=$env:ABF_PACKAGE_VERSION" "-c.win.artifactName=AllBeingsFuture Setup $env:ABF_DISPLAY_VERSION.`${ext}"
+          if ($env:ABF_PACKAGE_VERSION) {
+            npm run build
+            npx electron-builder --win "-c.extraMetadata.version=$env:ABF_PACKAGE_VERSION" "-c.win.artifactName=AllBeingsFuture Setup $env:ABF_DISPLAY_VERSION.`${ext}"
+          } else {
+            npm run build
+            npx electron-builder --win
+          }
 
       - name: Locate Installer Asset
         id: installer
@@ -125,6 +134,7 @@ jobs:
           "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
 
       - name: Upload Workflow Artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.artifact }}
@@ -132,6 +142,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Pre-Release
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
