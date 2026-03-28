@@ -203,6 +203,61 @@ describe('sessionStore runtime status sync', () => {
     expect(session).toEqual(hydratedSession)
   })
 
+  it('uses the primary repo root when the selected path is already inside a worktree', async () => {
+    const repoPath = 'C:/repo'
+    const nestedRepoPath = 'C:/repo/.allbeingsfuture-worktrees/session-parent'
+    const worktreePath = 'C:/repo/.allbeingsfuture-worktrees/fix-from-nested-worktree'
+    const createdSession = makeSession({
+      id: 'session-nested',
+      workingDirectory: worktreePath,
+    })
+    const hydratedSession = makeSession({
+      id: 'session-nested',
+      workingDirectory: worktreePath,
+      worktreePath,
+      worktreeBranch: 'worktree-fix-from-nested-worktree',
+      worktreeBaseCommit: 'fedcba',
+      worktreeBaseBranch: 'main',
+      worktreeSourceRepo: repoPath,
+    })
+
+    serviceMocks.gitService.GetRepoRoot.mockResolvedValue(repoPath)
+    serviceMocks.gitService.CreateWorktree.mockResolvedValue({
+      worktreePath,
+      branch: 'worktree-fix-from-nested-worktree',
+      baseCommit: 'fedcba',
+      baseBranch: 'main',
+    })
+    serviceMocks.sessionService.Create.mockResolvedValue(createdSession)
+    serviceMocks.sessionService.SetWorktreeInfo.mockResolvedValue(undefined)
+    serviceMocks.sessionService.GetByID.mockResolvedValue(hydratedSession)
+
+    const session = await useSessionStore.getState().create({
+      name: 'Fix From Nested Worktree',
+      workingDirectory: nestedRepoPath,
+      providerId: 'codex',
+      worktreeEnabled: true,
+      gitRepoPath: nestedRepoPath,
+      gitBranch: 'fix-from-nested-worktree',
+    } as any)
+
+    expect(serviceMocks.gitService.GetRepoRoot).toHaveBeenCalledWith(nestedRepoPath)
+    expect(serviceMocks.gitService.CreateWorktree).toHaveBeenCalledWith(
+      repoPath,
+      'fix-from-nested-worktree',
+      'fix-from-nested-worktree',
+    )
+    expect(serviceMocks.sessionService.SetWorktreeInfo).toHaveBeenCalledWith(
+      'session-nested',
+      worktreePath,
+      'worktree-fix-from-nested-worktree',
+      'fedcba',
+      'main',
+      repoPath,
+    )
+    expect(session).toEqual(hydratedSession)
+  })
+
   it('marks a selected running session idle once polling reports streaming has stopped', async () => {
     serviceMocks.processService.GetChatState.mockResolvedValue({
       messages: [{ role: 'assistant', content: '[Error] timeout' }],

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { GitBranch, FolderOpen, Trash2, GitMerge, Check, AlertTriangle, RefreshCw, Plus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useGitStore } from '../../stores/gitStore'
 import type { WorktreeInfo, MergeResult } from '../../../bindings/allbeingsfuture/internal/models/models'
 
@@ -42,9 +43,12 @@ export default function WorktreePanel() {
     const valid = await isGitRepo(repoInput)
     setIsValid(valid)
     if (valid) {
-      setRepo(repoInput)
-      loadStatus(repoInput)
-      loadWorktrees(repoInput)
+      const resolvedWorktrees = await GitService.ListWorktrees(repoInput).catch(() => [])
+      const primaryRepo = resolvedWorktrees.find((worktree) => worktree.isMain)?.path || repoInput
+      setRepo(primaryRepo)
+      setRepoInput(primaryRepo)
+      loadStatus(primaryRepo)
+      loadWorktrees(primaryRepo)
     }
   }
 
@@ -64,14 +68,14 @@ export default function WorktreePanel() {
 
   const handleCheckMerge = async (wt: WorktreeInfo) => {
     if (!currentRepo || wt.isMain) return
-    const mainBranch = status?.branch ?? 'main'
+    const mainBranch = worktrees.find((worktree) => worktree.isMain)?.branch || status?.branch || 'main'
     const result = await checkMerge(currentRepo, wt.branch, mainBranch)
     setMergeResult(result)
   }
 
   const handleMerge = async (wt: WorktreeInfo) => {
     if (!currentRepo || wt.isMain) return
-    const mainBranch = status?.branch ?? 'main'
+    const mainBranch = worktrees.find((worktree) => worktree.isMain)?.branch || status?.branch || 'main'
     const result = await mergeWorktree(currentRepo, wt.branch, mainBranch)
     setMergeResult(result)
     if (result?.success) {

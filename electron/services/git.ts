@@ -57,7 +57,20 @@ export class GitService {
   }
 
   async getRepoRoot(dirPath: string): Promise<string> {
-    return this.git(['rev-parse', '--show-toplevel'], dirPath)
+    return this.getPrimaryRepoPath(dirPath)
+  }
+
+  private async getPrimaryRepoPath(dirPath: string): Promise<string> {
+    const worktreeRoot = normalizeFilePath(await this.git(['rev-parse', '--show-toplevel'], dirPath))
+    const commonDirRaw = await this.git(['rev-parse', '--path-format=absolute', '--git-common-dir'], dirPath).catch(() => '')
+    if (!commonDirRaw) return worktreeRoot
+
+    const commonDir = normalizeFilePath(path.isAbsolute(commonDirRaw) ? commonDirRaw : path.resolve(worktreeRoot, commonDirRaw))
+    if (path.basename(commonDir).toLowerCase() !== '.git') {
+      return worktreeRoot
+    }
+
+    return normalizeFilePath(path.dirname(commonDir))
   }
 
   async getCurrentBranch(repoPath: string): Promise<string> {
@@ -124,40 +137,43 @@ export class GitService {
   }
 
   async createWorktree(repoPath: string, branchName: string, taskId?: string): Promise<any> {
+    const baseRepoPath = await this.getPrimaryRepoPath(repoPath)
     const safeName = branchName.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || `session-${Date.now()}`
-    const worktreePath = path.join(repoPath, '.allbeingsfuture-worktrees', safeName).replace(/\\/g, '/')
+    const worktreePath = path.join(baseRepoPath, '.allbeingsfuture-worktrees', safeName).replace(/\\/g, '/')
     const branch = `worktree-${safeName}`
 
-    await this.git(['worktree', 'prune'], repoPath).catch(() => {})
+    await this.git(['worktree', 'prune'], baseRepoPath).catch(() => {})
     await mkdir(path.dirname(worktreePath), { recursive: true })
-    await this.git(['worktree', 'add', worktreePath, '-b', branch], repoPath)
-    const baseCommit = await this.git(['rev-parse', 'HEAD'], repoPath)
-    const baseBranch = await this.getCurrentBranch(repoPath)
+    await this.git(['worktree', 'add', worktreePath, '-b', branch], baseRepoPath)
+    const baseCommit = await this.git(['rev-parse', 'HEAD'], baseRepoPath)
+    const baseBranch = await this.getCurrentBranch(baseRepoPath)
 
     return { worktreePath, branch, baseCommit, baseBranch, taskId: taskId || '' }
   }
 
   async removeWorktree(repoPath: string, worktreePath: string, deleteBranch: boolean = true): Promise<void> {
     if (!worktreePath) return
+    const baseRepoPath = await this.getPrimaryRepoPath(repoPath).catch(() => normalizeFilePath(repoPath))
 
-    await this.git(['worktree', 'remove', worktreePath, '--force'], repoPath).catch(async () => {
+    await this.git(['worktree', 'remove', worktreePath, '--force'], baseRepoPath).catch(async () => {
       await rm(worktreePath, { recursive: true, force: true }).catch(() => {})
-      await this.git(['worktree', 'prune'], repoPath)
+      await this.git(['worktree', 'prune'], baseRepoPath)
     })
 
     if (deleteBranch) {
       const worktreeName = path.basename(worktreePath)
       const branchName = `worktree-${worktreeName}`
-      await this.git(['branch', '-D', branchName], repoPath).catch(() => {})
+      await this.git(['branch', '-D', branchName], baseRepoPath).catch(() => {})
     }
   }
 
   async listWorktrees(repoPath: string): Promise<any[]> {
-    await this.git(['worktree', 'prune'], repoPath).catch(() => {})
-    const output = await this.git(['worktree', 'list', '--porcelain'], repoPath).catch(() => '')
+    const baseRepoPath = await this.getPrimaryRepoPath(repoPath)
+    await this.git(['worktree', 'prune'], baseRepoPath).catch(() => {})
+    const output = await this.git(['worktree', 'list', '--porcelain'], baseRepoPath).catch(() => '')
     if (!output) return []
 
-    const repoRoot = normalizeFilePath(repoPath)
+    const repoRoot = normalizeFilePath(baseRepoPath)
     const worktrees: any[] = []
     let current: any = {}
 
@@ -189,9 +205,10 @@ export class GitService {
   }
 
   async checkMerge(repoPath: string, worktreeBranch: string, targetBranch: string): Promise<any> {
+    const baseRepoPath = await this.getPrimaryRepoPath(repoPath)
     try {
-      const mergeBase = await this.git(['merge-base', targetBranch, worktreeBranch], repoPath)
-      const diff = await this.git(['diff', '--stat', `${mergeBase}..${worktreeBranch}`], repoPath).catch(() => '')
+      const mergeBase = await this.git(['merge-base', targetBranch, worktreeBranch], baseRepoPath)
+      const diff = await this.git(['diff', '--stat', `${mergeBase}..${worktreeBranch}`], baseRepoPath).catch(() => '')
       const message = diff
         ? `可以将 ${worktreeBranch} 合并到 ${targetBranch}`
         : `${worktreeBranch} 与 ${targetBranch} 没有待合并差异`
@@ -219,13 +236,14 @@ export class GitService {
   }
 
   async mergeWorktree(repoPath: string, worktreeBranch: string, targetBranch: string): Promise<any> {
-    const currentBranch = await this.getCurrentBranch(repoPath)
+    const baseRepoPath = await this.getPrimaryRepoPath(repoPath)
+    const currentBranch = await this.getCurrentBranch(baseRepoPath)
     if (currentBranch !== targetBranch) {
-      await this.git(['checkout', targetBranch], repoPath)
+      await this.git(['checkout', targetBranch], baseRepoPath)
     }
 
     try {
-      const result = await this.git(['merge', worktreeBranch, '--no-ff'], repoPath)
+      const result = await this.git(['merge', worktreeBranch, '--no-ff'], baseRepoPath)
       return {
         success: true,
         mergedBranch: worktreeBranch,
@@ -236,9 +254,9 @@ export class GitService {
         message: result || `已将 ${worktreeBranch} 合并到 ${targetBranch}`,
       }
     } catch (err: any) {
-      const conflictOutput = await this.git(['diff', '--name-only', '--diff-filter=U'], repoPath).catch(() => '')
+      const conflictOutput = await this.git(['diff', '--name-only', '--diff-filter=U'], baseRepoPath).catch(() => '')
       const conflictFiles = conflictOutput.split('\n').filter(Boolean)
-      await this.git(['merge', '--abort'], repoPath).catch(() => {})
+      await this.git(['merge', '--abort'], baseRepoPath).catch(() => {})
       return {
         success: false,
         mergedBranch: worktreeBranch,
