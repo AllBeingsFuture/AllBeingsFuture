@@ -6,6 +6,7 @@
 
 import { ipcMain, BrowserWindow, shell } from 'electron'
 import { execSync } from 'child_process'
+import { readdir, rm } from 'node:fs/promises'
 import path from 'path'
 import type { Database } from '../services/database.js'
 import type { BridgeManager } from '../bridge/bridge.js'
@@ -137,6 +138,7 @@ export function registerAllIpcHandlers(
     for (const repoPath of knownRepos) {
       const keepPaths = keepPathsByRepo.get(repoPath) || new Set<string>()
       let worktrees: any[] = []
+      const registeredPaths = new Set<string>()
 
       try {
         worktrees = await gitService.listWorktrees(repoPath)
@@ -146,6 +148,7 @@ export function registerAllIpcHandlers(
 
       for (const worktree of worktrees) {
         const worktreePath = normalizeManagedPath(worktree?.path || '')
+        if (worktreePath) registeredPaths.add(worktreePath)
         if (!worktreePath || worktree?.isMain || !isManagedWorktreePath(repoPath, worktreePath) || keepPaths.has(worktreePath)) {
           continue
         }
@@ -154,6 +157,30 @@ export function registerAllIpcHandlers(
           await gitService.removeWorktree(repoPath, worktreePath, true, worktree?.branch || '')
         } catch (err) {
           console.warn('[startup-worktree-cleanup] failed to remove worktree', { repoPath, worktreePath, err })
+        }
+      }
+
+      for (const managedDirName of ['.allbeingsfuture-worktrees', '.abf-worktrees']) {
+        const managedDirPath = path.join(repoPath, managedDirName)
+        let entries: Array<{ name: string; isDirectory(): boolean; isSymbolicLink(): boolean }> = []
+
+        try {
+          entries = await readdir(managedDirPath, { withFileTypes: true })
+        } catch {
+          continue
+        }
+
+        for (const entry of entries) {
+          if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+
+          const orphanPath = normalizeManagedPath(path.join(managedDirPath, entry.name))
+          if (!orphanPath || keepPaths.has(orphanPath) || registeredPaths.has(orphanPath)) continue
+
+          try {
+            await rm(orphanPath, { recursive: true, force: true })
+          } catch (err) {
+            console.warn('[startup-worktree-cleanup] failed to remove orphan directory', { repoPath, orphanPath, err })
+          }
         }
       }
     }
