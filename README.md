@@ -391,6 +391,3 @@ release/AllBeingsFuture Setup <version>.exe
 
 本项目采用 [BSD 3-Clause](LICENSE) 许可证。
 
-## 社区
-
-- [LINUX DO](https://linux.do/)
