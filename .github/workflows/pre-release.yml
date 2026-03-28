@@ -134,7 +134,6 @@ jobs:
           "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
 
       - name: Upload Workflow Artifact
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.artifact }}
