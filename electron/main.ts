@@ -53,6 +53,17 @@ function logStartup(label: string, payload?: unknown) {
   }
 }
 
+function resetStartupLog() {
+  try {
+    fs.mkdirSync(STARTUP_LOG_DIR, { recursive: true })
+    if (fs.existsSync(STARTUP_LOG_PATH)) {
+      fs.unlinkSync(STARTUP_LOG_PATH)
+    }
+  } catch {
+    // Ignore cleanup failures.
+  }
+}
+
 function serializeError(error: unknown) {
   if (error instanceof Error) {
     return {
@@ -109,14 +120,12 @@ async function registerAppProtocol() {
   await protocol.handle(APP_SCHEME, async (request) => {
     try {
       const filePath = resolveAppAssetPath(request.url)
-      logStartup('protocol-request', {
-        url: request.url,
-        filePath,
-        exists: fs.existsSync(filePath),
-      })
       return net.fetch(pathToFileURL(filePath).toString())
     } catch (error) {
-      logStartup('protocol-error', serializeError(error))
+      logStartup('protocol-error', {
+        url: request.url,
+        error: serializeError(error),
+      })
       return new Response('Not Found', { status: 404 })
     }
   })
@@ -158,36 +167,6 @@ let db: Database | null = null
 let bridgeManager: BridgeManager | null = null
 let processService: ProcessService | null = null
 
-async function snapshotRenderer(window: BrowserWindow, phase: string) {
-  try {
-    const snapshot = await window.webContents.executeJavaScript(`
-      (() => ({
-        href: window.location.href,
-        readyState: document.readyState,
-        title: document.title,
-        bodyClass: document.body?.className ?? '',
-        rootExists: !!document.getElementById('root'),
-        rootChildCount: document.getElementById('root')?.childElementCount ?? -1,
-        rootHtmlLength: document.getElementById('root')?.innerHTML.length ?? -1,
-        styleSheetCount: document.styleSheets.length,
-        styleSheets: Array.from(document.styleSheets).map((sheet) => {
-          try {
-            return { href: sheet.href, rules: sheet.cssRules?.length ?? 0 }
-          } catch (error) {
-            return { href: sheet.href, error: String(error) }
-          }
-        }),
-        scripts: Array.from(document.scripts).map((script) => ({ src: script.src, type: script.type })),
-        electronApiKeys: Object.keys(window.electronAPI ?? {}),
-        compatKeys: Object.keys(window.allBeingsFuture ?? {}),
-      }))()
-    `, true)
-    logStartup(`renderer-snapshot:${phase}`, snapshot)
-  } catch (error) {
-    logStartup(`renderer-snapshot-error:${phase}`, serializeError(error))
-  }
-}
-
 async function loadRenderer(window: BrowserWindow) {
   if (isDev) {
     await window.loadURL('http://localhost:5173')
@@ -198,15 +177,6 @@ async function loadRenderer(window: BrowserWindow) {
 }
 
 async function createWindow() {
-  logStartup('create-window', {
-    preloadPath: getPreloadPath(),
-    preloadExists: fs.existsSync(getPreloadPath()),
-    rendererPath: getRendererPath(),
-    rendererExists: fs.existsSync(getRendererPath()),
-    resourcesPath: process.resourcesPath,
-    isPackaged: app.isPackaged,
-  })
-
   mainWindow = new BrowserWindow({
     width: 1900,
     height: 1200,
@@ -229,34 +199,15 @@ async function createWindow() {
     },
   })
 
-  const requestFilter = { urls: [`${APP_SCHEME}://*/*`, 'file://*/*'] }
-  mainWindow.webContents.session.webRequest.onCompleted(requestFilter, (details) => {
-    if (details.webContentsId === mainWindow?.webContents.id) {
-      logStartup('request-completed', {
-        url: details.url,
-        method: details.method,
-        statusCode: details.statusCode,
-        fromCache: details.fromCache,
-      })
-    }
-  })
-  mainWindow.webContents.session.webRequest.onErrorOccurred(requestFilter, (details) => {
-    if (details.webContentsId === mainWindow?.webContents.id) {
-      logStartup('request-error', {
-        url: details.url,
-        method: details.method,
-        error: details.error,
-      })
-    }
-  })
-
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error('[main] Renderer failed to load:', { errorCode, errorDescription, validatedURL })
     logStartup('did-fail-load', { errorCode, errorDescription, validatedURL })
   })
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    console.log('[renderer]', { level, message, line, sourceId })
-    logStartup('console-message', { level, message, line, sourceId })
+    if (level >= 2) {
+      console.error('[renderer]', { level, message, line, sourceId })
+      logStartup('console-message', { level, message, line, sourceId })
+    }
   })
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     console.error('[main] Preload failed:', { preloadPath, error })
@@ -265,17 +216,6 @@ async function createWindow() {
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('[main] Renderer process gone:', details)
     logStartup('render-process-gone', details)
-  })
-  mainWindow.webContents.on('did-finish-load', () => {
-    const currentUrl = mainWindow?.webContents.getURL() ?? ''
-    console.log('[main] Renderer loaded:', currentUrl)
-    logStartup('did-finish-load', currentUrl)
-    void snapshotRenderer(mainWindow!, 'did-finish-load')
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        void snapshotRenderer(mainWindow, 'after-1500ms')
-      }
-    }, 1500)
   })
 
   void loadRenderer(mainWindow).catch((error) => {
@@ -327,11 +267,7 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
-  logStartup('app-ready', {
-    appPath: app.getAppPath(),
-    userData: app.getPath('userData'),
-    resourcesPath: process.resourcesPath,
-  })
+  resetStartupLog()
 
   await registerAppProtocol()
 
