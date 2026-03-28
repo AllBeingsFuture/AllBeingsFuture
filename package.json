@@ -1,6 +1,6 @@
 {
   "name": "allbeingsfuture",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "private": true,
   "description": "AllBeingsFuture - AI Workbench (Electron + React)",
   "main": "electron/dist/main.js",
