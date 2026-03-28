@@ -82,4 +82,10 @@ describe('App shell', () => {
     expect(screen.getByTestId('title-bar')).toBeInTheDocument()
     expect(screen.getByTestId('status-bar')).toBeInTheDocument()
   })
+
+  it('reserves a right gutter for the detail toggle so it does not cover the main panel scrollbar', () => {
+    renderWithProviders(<App />)
+
+    expect(screen.getByTestId('main-panel').parentElement).toHaveClass('pr-6')
+  })
 })

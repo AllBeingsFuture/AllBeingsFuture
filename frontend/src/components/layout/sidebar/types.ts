@@ -22,6 +22,8 @@ export interface SessionItemProps {
   onResume?: (id: string) => void
   onEnd?: (id: string) => void
   onRemove?: (id: string) => void
+  onRename?: (id: string, name: string) => void | Promise<void>
+  onSmartRename?: (id: string) => void | Promise<void>
   agents?: any[]
 }
 
@@ -34,6 +36,8 @@ export interface TimeGroupCardProps {
   onResume?: (id: string) => void
   onEnd?: (id: string) => void
   onRemove?: (id: string) => void
+  onRename?: (id: string, name: string) => void | Promise<void>
+  onSmartRename?: (id: string) => void | Promise<void>
   agents?: Record<string, any[]>
 }
 
@@ -46,6 +50,8 @@ export interface DirectoryGroupCardProps {
   onResume?: (id: string) => void
   onEnd?: (id: string) => void
   onRemove?: (id: string) => void
+  onRename?: (id: string, name: string) => void | Promise<void>
+  onSmartRename?: (id: string) => void | Promise<void>
   agents?: Record<string, any[]>
 }
 

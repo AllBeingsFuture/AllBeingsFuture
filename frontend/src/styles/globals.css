@@ -245,6 +245,7 @@
     color: var(--color-text-secondary);
     cursor: pointer;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.2s ease;
   }
 
@@ -253,8 +254,10 @@
     color: var(--color-text-primary);
   }
 
-  .group:hover .panel-toggle-btn {
+  .group:hover .panel-toggle-btn,
+  .panel-toggle-btn:focus-visible {
     opacity: 1;
+    pointer-events: auto;
   }
 
   /* Subtle glow for focused inputs */

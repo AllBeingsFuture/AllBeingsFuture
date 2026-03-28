@@ -137,6 +137,10 @@ export class SessionService {
     this.db.raw.prepare('UPDATE sessions SET status = ? WHERE id = ?').run(status, id)
   }
 
+  updateName(id: string, name: string): void {
+    this.db.raw.prepare('UPDATE sessions SET name = ? WHERE id = ?').run(name, id)
+  }
+
   updateMessages(id: string, messagesJson: string): void {
     this.db.raw.prepare('UPDATE sessions SET messages_json = ? WHERE id = ?').run(messagesJson, id)
   }

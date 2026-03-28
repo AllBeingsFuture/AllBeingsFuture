@@ -8,6 +8,7 @@ const serviceMocks = vi.hoisted(() => ({
     Create: vi.fn(),
     Delete: vi.fn(),
     End: vi.fn(),
+    UpdateName: vi.fn(),
     SetWorktreeInfo: vi.fn(),
     MarkWorktreeMerged: vi.fn(),
   },
@@ -42,7 +43,7 @@ vi.mock('../../../bindings/allbeingsfuture/internal/services/processservice', ()
 
 import { useSessionStore } from '../sessionStore'
 
-function makeSession(overrides: Partial<Session> = {}): Session {
+function makeSession(overrides: Partial<Session> & { messagesJson?: string; parentSessionId?: string } = {}): Session {
   return {
     id: 'session-1',
     name: 'Test Session',
@@ -66,6 +67,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     exitCode: null,
     startedAt: new Date().toISOString(),
     endedAt: null,
+    messagesJson: '[]',
     ...overrides,
   } as Session
 }
@@ -364,5 +366,79 @@ describe('sessionStore runtime status sync', () => {
     ])
     expect(serviceMocks.processService.SendMessage).not.toHaveBeenCalled()
     expect(useSessionStore.getState().messages).toEqual([])
+  })
+
+  it('cleans up managed worktrees when removing a parent session', async () => {
+    const parentWorktree = 'C:/repo/.allbeingsfuture-worktrees/session-parent'
+    const childWorktree = 'C:/repo/.allbeingsfuture-worktrees/session-child'
+
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      messages: [{ role: 'assistant', content: 'to be cleared' } as never],
+      streaming: true,
+      chatError: 'busy',
+      sessions: [
+        makeSession({
+          id: 'session-1',
+          name: 'Parent Session',
+          workingDirectory: parentWorktree,
+          worktreePath: parentWorktree,
+          worktreeBranch: 'worktree-parent',
+          worktreeSourceRepo: 'C:/repo',
+        }),
+        makeSession({
+          id: 'child-1',
+          name: 'Child Session',
+          workingDirectory: childWorktree,
+          worktreePath: childWorktree,
+          worktreeBranch: 'worktree-child',
+          worktreeSourceRepo: 'C:/repo',
+          parentSessionId: 'session-1',
+        }),
+      ],
+    })
+
+    serviceMocks.processService.StopProcess.mockResolvedValue(undefined)
+    serviceMocks.gitService.RemoveWorktree.mockResolvedValue(undefined)
+    serviceMocks.sessionService.Delete.mockResolvedValue(undefined)
+
+    await useSessionStore.getState().remove('session-1')
+
+    expect(serviceMocks.processService.StopProcess).toHaveBeenCalledWith('session-1')
+    expect(serviceMocks.processService.StopProcess).toHaveBeenCalledWith('child-1')
+    expect(serviceMocks.gitService.RemoveWorktree).toHaveBeenCalledWith('C:/repo', parentWorktree, true)
+    expect(serviceMocks.gitService.RemoveWorktree).toHaveBeenCalledWith('C:/repo', childWorktree, true)
+    expect(serviceMocks.sessionService.Delete).toHaveBeenCalledWith('session-1')
+
+    const state = useSessionStore.getState()
+    expect(state.sessions).toEqual([])
+    expect(state.selectedId).toBeNull()
+    expect(state.messages).toEqual([])
+    expect(state.streaming).toBe(false)
+    expect(state.chatError).toBe('')
+  })
+
+  it('renames sessions and can generate a smart name from stored messages', async () => {
+    useSessionStore.setState({
+      sessions: [
+        makeSession({
+          id: 'session-1',
+          name: 'Old Name',
+          messagesJson: JSON.stringify([
+            { role: 'user', content: '清理删除会话 worktree 并支持重命名' },
+          ]),
+        }),
+      ],
+    })
+
+    serviceMocks.sessionService.UpdateName.mockResolvedValue(undefined)
+
+    await useSessionStore.getState().rename('session-1', '手动改名')
+    const smartName = await useSessionStore.getState().smartRename('session-1')
+
+    expect(serviceMocks.sessionService.UpdateName).toHaveBeenNthCalledWith(1, 'session-1', '手动改名')
+    expect(serviceMocks.sessionService.UpdateName).toHaveBeenNthCalledWith(2, 'session-1', '清理删除会话 worktree 并支持重命名')
+    expect(smartName).toBe('清理删除会话 worktree 并支持重命名')
+    expect(useSessionStore.getState().sessions[0]?.name).toBe('清理删除会话 worktree 并支持重命名')
   })
 })
