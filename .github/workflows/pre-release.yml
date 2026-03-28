@@ -39,6 +39,9 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Rebuild Native Modules for Electron
+        run: npx @electron/rebuild --force
+
       - name: Compute Release Metadata
         id: meta
         shell: pwsh
