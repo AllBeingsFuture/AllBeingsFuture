@@ -136,7 +136,7 @@ jobs:
       - name: Upload Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.meta.outputs.artifact }}
+          name: ${{ steps.meta.outputs.artifact || format('pr-build-{0}', github.event.pull_request.number || github.run_id) }}
           path: ${{ steps.installer.outputs.path }}
           if-no-files-found: error
 
