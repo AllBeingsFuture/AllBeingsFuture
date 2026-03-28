@@ -248,7 +248,7 @@ export class Database {
       INSERT OR IGNORE INTO settings (key, value) VALUES
         ('theme', 'dark'),
         ('fontSize', '14'),
-        ('autoWorktree', 'true'),
+        ('autoWorktree', 'false'),
         ('alwaysReplyInChinese', 'true'),
         ('autoLaunch', 'false'),
         ('notificationEnabled', 'true'),

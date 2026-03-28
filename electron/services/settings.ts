@@ -44,7 +44,7 @@ export class SettingsService {
     return {
       theme: settings.theme || 'dark',
       fontSize: settings.fontSize || 14,
-      autoWorktree: settings.autoWorktree ?? true,
+      autoWorktree: settings.autoWorktree ?? false,
       alwaysReplyInChinese: settings.alwaysReplyInChinese ?? true,
       autoLaunch: settings.autoLaunch ?? false,
       notificationEnabled: settings.notificationEnabled ?? true,

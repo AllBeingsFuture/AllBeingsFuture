@@ -4,11 +4,10 @@ import { useShallow } from 'zustand/react/shallow'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 export default function GeneralSettings() {
-  const { settings, setProxy, setAutoWorktree, setAutoLaunch, setNotification, setLanguage, setVoice } =
+  const { settings, setProxy, setAutoLaunch, setNotification, setLanguage, setVoice } =
     useSettingsStore(useShallow((state) => ({
       settings: state.settings,
       setProxy: state.setProxy,
-      setAutoWorktree: state.setAutoWorktree,
       setAutoLaunch: state.setAutoLaunch,
       setNotification: state.setNotification,
       setLanguage: state.setLanguage,
@@ -175,20 +174,13 @@ export default function GeneralSettings() {
           Git Worktree 隔离
         </h4>
 
-        <Toggle
-          enabled={settings.autoWorktree}
-          onChange={setAutoWorktree}
-          label="新建任务时默认启用 Worktree 隔离"
-          description="开启后，在看板中创建新任务时，Git Worktree 隔离选项将默认勾选并展开，每个任务在独立的分支目录下工作，彻底隔离代码修改，适合并行开发场景。"
-        />
-
-        {settings.autoWorktree && (
-          <div className="mt-2 ml-12 px-3 py-2 bg-emerald-900/20 border border-emerald-800/30 rounded-lg">
-            <p className="text-xs text-emerald-400">
-              ✓ 已启用。新建任务时 Worktree 区域将自动展开，还需手动指定 Git 仓库路径和分支名方可创建。
-            </p>
-          </div>
-        )}
+        <div className="rounded-lg border border-emerald-800/30 bg-emerald-900/20 px-4 py-3">
+          <p className="text-sm text-emerald-300">当前按 ABF Git Workflow 规则进行隔离。</p>
+          <p className="mt-1 text-xs leading-relaxed text-emerald-400/90">
+            新建会话时不会直接创建 worktree。真正涉及代码修改时，Agent 应先调用 `enter_worktree`
+            进入隔离目录；在非 worktree 会话里，写文件工具会被拦截。
+          </p>
+        </div>
       </section>
 
       {/* ---- 回复语言 ---- */}

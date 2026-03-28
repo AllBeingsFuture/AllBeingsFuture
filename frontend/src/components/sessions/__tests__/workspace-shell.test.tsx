@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SessionPanel from '../SessionPanel'
-import { renderWithProviders, screen } from '../../../test/render'
+import SessionCreator from '../SessionCreator'
+import { fireEvent, renderWithProviders, screen, waitFor } from '../../../test/render'
 
 const sessionState = {
   sessions: [
@@ -34,6 +35,7 @@ const sessionState = {
   childToParent: {},
   agents: {},
   sentImages: [],
+  create: vi.fn().mockResolvedValue({ id: 'session-new' }),
   select: vi.fn(),
   remove: vi.fn(),
   end: vi.fn(),
@@ -54,6 +56,12 @@ vi.mock('../../../hooks/useIpcEvent', () => ({
   useIpcEvent: vi.fn(),
 }))
 
+vi.mock('../../../bindings/electron-api', () => ({
+  AppAPI: {
+    selectDirectory: vi.fn(),
+  },
+}))
+
 describe('Session workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -66,5 +74,31 @@ describe('Session workspace', () => {
     expect(screen.getByTestId('conversation-view')).toBeInTheDocument()
     expect(screen.getByText('world')).toBeInTheDocument()
     expect(await screen.findByPlaceholderText(/输入消息/i)).toBeInTheDocument()
+  })
+
+  it('creates sessions without eager worktree isolation', async () => {
+    renderWithProviders(<SessionCreator onClose={vi.fn()} />)
+
+    const inputs = screen.getAllByRole('textbox')
+    const nameInput = inputs[0]
+    const workDirInput = inputs[1]
+
+    fireEvent.change(nameInput, { target: { value: 'Worktree Rule Session' } })
+    fireEvent.change(workDirInput, { target: { value: 'C:/repo/project' } })
+
+    const promptInput = screen.getByPlaceholderText('创建后自动发送的指令...')
+    fireEvent.change(promptInput, { target: { value: '检查仓库并按规则执行' } })
+
+    const createButton = screen.getByRole('button', { name: '创建' })
+    fireEvent.click(createButton)
+
+    await waitFor(() => {
+      expect(sessionState.create).toHaveBeenCalledWith(expect.objectContaining({
+        workingDirectory: 'C:/repo/project',
+        worktreeEnabled: false,
+        gitRepoPath: '',
+        gitBranch: '',
+      }))
+    })
   })
 })

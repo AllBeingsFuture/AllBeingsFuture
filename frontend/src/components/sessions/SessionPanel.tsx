@@ -7,7 +7,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 
 const TIPS = [
   { icon: MessageSquarePlus, title: '多 Provider 支持', desc: '同时配置 Claude、Codex、Gemini 等多种 AI 提供商' },
-  { icon: FolderGit2, title: 'Worktree 隔离', desc: '每个会话在独立 Git Worktree 中工作，互不干扰' },
+  { icon: FolderGit2, title: 'Worktree 隔离', desc: '真正写代码前进入独立 Git Worktree，避免直接修改主仓库' },
   { icon: Image, title: '图片识别', desc: '直接粘贴或上传截图，AI 可以理解图片内容' },
   { icon: Workflow, title: '工作流编排', desc: '将多步骤任务编排为自动化工作流，一键执行' },
   { icon: GitBranch, title: '子 Agent', desc: 'AI 可自动派生子 Agent 并行处理子任务' },

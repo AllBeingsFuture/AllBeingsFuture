@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { AppAPI } from '../../../bindings/electron-api'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useSettingsStore } from '../../stores/settingsStore'
 import DraggableDialog from '../common/DraggableDialog'
 import type { SessionConfig } from '../../../bindings/allbeingsfuture/internal/models/models'
 
@@ -99,7 +98,6 @@ export default function SessionCreator({ onClose }: Props) {
   const initProcess = useSessionStore(s => s.initProcess)
   const sendMessage = useSessionStore(s => s.sendMessage)
   const selectSession = useSessionStore(s => s.select)
-  const autoWorktree = useSettingsStore(s => s.settings.autoWorktree)
 
   const [name, setName] = useState(() => `会话 ${new Date().toLocaleTimeString('zh-CN')}`)
   const [workDir, setWorkDir] = useState('')
@@ -108,8 +106,6 @@ export default function SessionCreator({ onClose }: Props) {
   const [subAgentProviderIds, setSubAgentProviderIds] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
   const autoAccept = true
-  const worktreeEnabled = autoWorktree
-  const [gitBranch, setGitBranch] = useState('')
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -199,9 +195,9 @@ export default function SessionCreator({ onClose }: Props) {
         mode: mode as any,
         initialPrompt: prompt,
         autoAccept,
-        worktreeEnabled,
-        gitRepoPath: worktreeEnabled ? workDir : '',
-        gitBranch,
+        worktreeEnabled: false,
+        gitRepoPath: '',
+        gitBranch: '',
       } as SessionConfig
       const session = await create(config)
       if (session) {
@@ -329,6 +325,10 @@ export default function SessionCreator({ onClose }: Props) {
             placeholder="创建后自动发送的指令..."
             className="w-full px-3 py-2 bg-slate-900/60 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60 resize-none"
           />
+          <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
+            Git Worktree 隔离按 ABF Git Workflow 执行。新建会话不会自动创建 worktree；
+            真正涉及代码修改时，模型会先通过 `enter_worktree` 进入隔离目录，再进行写入。
+          </p>
         </div>
 
         {/* ── 5. AI 提供者 ── */}
