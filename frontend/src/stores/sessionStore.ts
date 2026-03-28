@@ -88,6 +88,12 @@ function buildWorktreeIdentifiers(config: SessionConfig): { branchName: string; 
   return { branchName, taskId: branchName }
 }
 
+const MANAGED_WORKTREE_MARKERS = [
+  '/.allbeingsfuture-worktrees/',
+  '/.abf-worktrees/',
+  '/.claudeops-worktrees/',
+]
+
 async function createSessionWithWorktree(config: SessionConfig): Promise<Session | null> {
   const repoCandidate = (config.gitRepoPath || config.workingDirectory || '').trim()
   if (!repoCandidate) {
@@ -139,6 +145,109 @@ async function createSessionWithWorktree(config: SessionConfig): Promise<Session
     await GitService.RemoveWorktree(repoPath, worktreePath, true).catch(() => {})
     throw err
   }
+}
+
+function isManagedWorktreePath(value: string): boolean {
+  const normalized = value.replace(/\\/g, '/').toLowerCase()
+  return MANAGED_WORKTREE_MARKERS.some((marker) => normalized.includes(marker))
+}
+
+function resolveSessionWorktreePath(session: Session): string {
+  const explicitPath = ((session as Session & { worktreePath?: string }).worktreePath || '').trim()
+  if (explicitPath) return explicitPath
+  const workingDirectory = (session.workingDirectory || '').trim()
+  return isManagedWorktreePath(workingDirectory) ? workingDirectory : ''
+}
+
+function resolveSessionRepoPath(session: Session): string {
+  const explicitRepo = ((session as Session & { worktreeSourceRepo?: string }).worktreeSourceRepo || '').trim()
+  if (explicitRepo) return explicitRepo
+
+  const worktreePath = resolveSessionWorktreePath(session).replace(/\\/g, '/')
+  const lowerPath = worktreePath.toLowerCase()
+  for (const marker of MANAGED_WORKTREE_MARKERS) {
+    const index = lowerPath.indexOf(marker.toLowerCase())
+    if (index > 0) {
+      return worktreePath.slice(0, index)
+    }
+  }
+  return ''
+}
+
+async function cleanupSessionWorktree(session: Session): Promise<void> {
+  const worktreePath = resolveSessionWorktreePath(session)
+  const repoPath = resolveSessionRepoPath(session)
+  if (!worktreePath || !repoPath) return
+  await GitService.RemoveWorktree(repoPath, worktreePath, true).catch(() => {})
+}
+
+function parseStoredMessages(session: Session): ChatMessage[] {
+  const raw = ((session as Session & { messagesJson?: string }).messagesJson || '').trim()
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed as ChatMessage[] : []
+  } catch {
+    return []
+  }
+}
+
+function cleanSessionTitleText(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+    .replace(/[#>*_~]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function trimSessionTitle(value: string): string {
+  const normalized = value
+    .replace(/^(请你|请帮我|帮我把|帮我|帮忙|麻烦|需要|想要|我要|给我|请|协助我)\s*/u, '')
+    .replace(/^(实现|修复|优化|添加|改成|重构|创建|生成)\s*/u, '')
+    .trim()
+  if (!normalized) return ''
+
+  const sentence = normalized
+    .split(/[。！？!?；;：:|]/u)
+    .map(part => part.trim())
+    .find(part => part.length >= 4) || normalized
+
+  const clipped = Array.from(sentence.trim())
+  if (clipped.length === 0) return ''
+  return clipped.length > 24 ? `${clipped.slice(0, 24).join('')}…` : clipped.join('')
+}
+
+function formatBranchTitle(branch: string): string {
+  const normalized = branch
+    .replace(/^worktree-/u, '')
+    .replace(/[-_]+/g, ' ')
+    .trim()
+  return trimSessionTitle(normalized)
+}
+
+function buildSmartSessionName(session: Session, liveMessages?: ChatMessage[]): string {
+  const sourceMessages = liveMessages && liveMessages.length > 0 ? liveMessages : parseStoredMessages(session)
+
+  for (const message of sourceMessages) {
+    const role = (message as ChatMessage & { role?: string }).role
+    if (role !== 'user' && role !== 'assistant') continue
+    const candidate = trimSessionTitle(cleanSessionTitleText((message.content || '').trim()))
+    if (candidate) return candidate
+  }
+
+  const promptCandidate = trimSessionTitle(cleanSessionTitleText((((session as Session & { initialPrompt?: string }).initialPrompt) || '').trim()))
+  if (promptCandidate) return promptCandidate
+
+  const branchCandidate = formatBranchTitle(((session as Session & { worktreeBranch?: string }).worktreeBranch) || '')
+  if (branchCandidate) return branchCandidate
+
+  const existingName = trimSessionTitle(cleanSessionTitleText((session.name || '').trim()))
+  if (existingName) return existingName
+
+  return `会话 ${session.id.slice(0, 6)}`
 }
 
 function stableSerialize(value: unknown): string {
@@ -254,6 +363,8 @@ interface SessionState {
   load: () => Promise<void>
   create: (config: SessionConfig) => Promise<Session | null>
   select: (id: string | null) => void
+  rename: (id: string, name: string) => Promise<void>
+  smartRename: (id: string) => Promise<string | null>
   remove: (id: string) => Promise<void>
   end: (id: string) => Promise<void>
   initProcess: (id: string) => Promise<void>
@@ -350,20 +461,65 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (id) void get().pollChat(id)
   },
 
+  rename: async (id, name) => {
+    const nextName = name.trim()
+    if (!nextName) return
+    await SessionService.UpdateName(id, nextName)
+    set((state) => ({
+      sessions: state.sessions.map((session) => (
+        session.id === id
+          ? { ...session, name: nextName }
+          : session
+      )),
+    }))
+  },
+
+  smartRename: async (id) => {
+    const state = get()
+    const session = state.sessions.find((item) => item.id === id)
+    if (!session) return null
+
+    const liveMessages = state.selectedId === id ? state.messages : undefined
+    const nextName = buildSmartSessionName(session, liveMessages)
+    if (!nextName) return null
+    if (nextName === session.name) return nextName
+
+    await SessionService.UpdateName(id, nextName)
+    set((current) => ({
+      sessions: current.sessions.map((item) => (
+        item.id === id
+          ? { ...item, name: nextName }
+          : item
+      )),
+    }))
+    return nextName
+  },
+
   remove: async (id) => {
     // Stop parent and all child processes
     const { sessions } = get()
-    const children = sessions.filter(s => (s as SessionWithParent).parentSessionId === id)
-    for (const child of children) {
-      try { await ProcessService.StopProcess(child.id) } catch {}
+    const targetSessions = sessions.filter((session) => (
+      session.id === id || (session as SessionWithParent).parentSessionId === id
+    ))
+    const children = targetSessions.filter(session => session.id !== id)
+
+    for (const session of targetSessions) {
+      try { await ProcessService.StopProcess(session.id) } catch {}
     }
-    try { await ProcessService.StopProcess(id) } catch {}
+
+    for (const session of targetSessions) {
+      await cleanupSessionWorktree(session)
+    }
+
     // DB delete cascades to children
     await SessionService.Delete(id)
     const childIds = new Set(children.map(c => c.id))
     set(s => ({
       sessions: s.sessions.filter(x => x.id !== id && !childIds.has(x.id)),
       selectedId: (s.selectedId === id || childIds.has(s.selectedId!)) ? null : s.selectedId,
+      ...(s.selectedId === id || childIds.has(s.selectedId!)
+        ? { messages: [], streaming: false, chatError: '' }
+        : {}),
     }))
   },
 

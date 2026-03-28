@@ -41,7 +41,7 @@ vi.mock('../MessageBubble', () => ({
 }))
 
 vi.mock('../MessageInput', () => ({
-  default: () => null,
+  default: () => <div data-testid="message-input" style={{ height: 84 }} />,
 }))
 
 vi.mock('../SessionToolbar', () => ({
@@ -162,6 +162,20 @@ describe('ConversationView session boot', () => {
     })
 
     expect(scrollContainer.scrollTop).toBe(640)
+  })
+
+  it('adds bottom clearance so the composer does not cover the latest activity', async () => {
+    const { container } = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
+    const composerShell = container.querySelector('[data-message-input-shell]') as HTMLDivElement
+
+    await waitFor(() => {
+      expect(storeState.initProcess).toHaveBeenCalledWith('session-1')
+    })
+
+    expect(scrollContainer).toHaveStyle({ scrollPaddingBottom: '108px' })
+    expect(scrollContainer.firstElementChild).toHaveStyle({ paddingBottom: '108px' })
+    expect(composerShell).toBeInTheDocument()
   })
 })
 

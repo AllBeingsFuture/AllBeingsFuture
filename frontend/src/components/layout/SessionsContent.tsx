@@ -30,6 +30,8 @@ export default function SessionsContent() {
     selectSession,
     endSession,
     removeSession,
+    renameSession,
+    smartRenameSession,
     resumeSession,
     agents,
     childToParent,
@@ -40,6 +42,8 @@ export default function SessionsContent() {
     selectSession: state.select,
     endSession: state.end,
     removeSession: state.remove,
+    renameSession: state.rename,
+    smartRenameSession: state.smartRename,
     resumeSession: state.resumeSession,
     agents: state.agents,
     childToParent: state.childToParent,
@@ -218,6 +222,8 @@ export default function SessionsContent() {
                 onResume={(id) => void resumeSession(id)}
                 onEnd={(id) => void endSession(id)}
                 onRemove={(id) => void removeSession(id)}
+                onRename={(id, name) => void renameSession(id, name)}
+                onSmartRename={(id) => void smartRenameSession(id)}
                 agents={agents}
               />
             ))}
@@ -237,6 +243,8 @@ export default function SessionsContent() {
                 onResume={(id) => void resumeSession(id)}
                 onEnd={(id) => void endSession(id)}
                 onRemove={(id) => void removeSession(id)}
+                onRename={(id, name) => void renameSession(id, name)}
+                onSmartRename={(id) => void smartRenameSession(id)}
                 agents={agents}
               />
             ))}

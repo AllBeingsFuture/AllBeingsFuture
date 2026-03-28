@@ -104,7 +104,7 @@ export default function AppLayout() {
               )}
 
               <Allotment.Pane>
-                <div className="relative h-full">
+                <div className="relative h-full pr-6">
                   <PanelErrorBoundary title="主内容区" key={mainPanelResetKey}>
                     <MainPanel />
                   </PanelErrorBoundary>

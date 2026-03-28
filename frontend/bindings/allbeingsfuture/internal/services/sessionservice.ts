@@ -13,6 +13,10 @@ export function End(id: string): Promise<void> {
     return ipc("SessionService.End", id)
 }
 
+export function UpdateName(id: string, name: string): Promise<void> {
+    return ipc("SessionService.UpdateName", id, name)
+}
+
 export function GetAll(): Promise<models.Session[]> {
     return ipc("SessionService.GetAll").then(createArray(models.Session.createFrom))
 }

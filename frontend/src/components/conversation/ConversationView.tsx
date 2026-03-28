@@ -52,6 +52,8 @@ interface MessageGroup {
 const VIRTUALIZATION_GROUP_THRESHOLD = 30
 const VIRTUALIZATION_HEIGHT_MULTIPLIER = 3
 const VIRTUALIZATION_OVERSCAN_PX = 600
+const DEFAULT_COMPOSER_HEIGHT = 96
+const COMPOSER_BOTTOM_GAP = 12
 
 function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup[] {
   const groups: MessageGroup[] = []
@@ -748,7 +750,9 @@ export default function ConversationView({ session }: Props) {
 
   const [ready, setReady] = useState(false)
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 })
+  const [composerHeight, setComposerHeight] = useState(0)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const composerRef = useRef<HTMLDivElement | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollMetricsFrameRef = useRef<number | null>(null)
   const autoScrollFrameRef = useRef<number | null>(null)
@@ -809,6 +813,17 @@ export default function ConversationView({ session }: Props) {
 
     applyScroll()
   }, [cancelPendingAutoScroll, commitScrollMetrics])
+
+  const measureComposerHeight = useCallback(() => {
+    const el = composerRef.current
+    if (!el) {
+      setComposerHeight((prev) => (prev === 0 ? prev : 0))
+      return
+    }
+
+    const nextHeight = Math.ceil(Math.max(el.offsetHeight, el.getBoundingClientRect().height || 0))
+    setComposerHeight((prev) => (prev === nextHeight ? prev : nextHeight))
+  }, [])
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -914,6 +929,10 @@ export default function ConversationView({ session }: Props) {
 
   const shellPanelVisible = usePanelStore((state) => state.shellPanelVisible)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
+  const hasComposer = !isEnded || isChildSession
+  const composerClearance = hasComposer
+    ? Math.max(composerHeight, DEFAULT_COMPOSER_HEIGHT) + COMPOSER_BOTTOM_GAP
+    : 0
   const deferredMessages = useDeferredValue(messages)
   const groupedMessagesSource = deferredMessages.length === 0 && messages.length <= 1
     ? messages
@@ -943,6 +962,39 @@ export default function ConversationView({ session }: Props) {
     void stopProcess(session.id)
   }, [session.id, stopProcess])
   const inputPlaceholder = ready ? '输入消息，Enter 发送' : '正在初始化...'
+
+  useLayoutEffect(() => {
+    if (!hasComposer) {
+      setComposerHeight(0)
+      return
+    }
+
+    measureComposerHeight()
+  }, [hasComposer, measureComposerHeight, session.id])
+
+  useEffect(() => {
+    if (!hasComposer) return
+
+    const el = composerRef.current
+    if (!el) return
+
+    measureComposerHeight()
+
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => {
+      measureComposerHeight()
+    })
+    observer.observe(el)
+
+    return () => observer.disconnect()
+  }, [hasComposer, measureComposerHeight, session.id])
+
+  useLayoutEffect(() => {
+    if (!hasComposer || composerClearance === 0) return
+    if (!isNearBottomRef.current && Date.now() >= forceScrollUntilRef.current) return
+    scrollToBottom(true)
+  }, [composerClearance, hasComposer, scrollToBottom])
 
   const renderMessageGroup = useCallback((group: MessageGroup) => {
     if (group.type === 'tool_group' && group.convMessages) {
@@ -1016,9 +1068,12 @@ export default function ConversationView({ session }: Props) {
         onScroll={handleScroll}
         data-scroll-container
         className="flex-1 overflow-y-auto px-5 py-5"
-        style={{ overflowAnchor: 'none' }}
+        style={{ overflowAnchor: 'none', scrollPaddingBottom: `${composerClearance}px` }}
       >
-        <div className="mx-auto flex max-w-4xl flex-col gap-3">
+        <div
+          className="mx-auto flex max-w-4xl flex-col gap-3"
+          style={{ paddingBottom: composerClearance > 0 ? `${composerClearance}px` : undefined }}
+        >
           {!ready && messages.length === 0 ? (
             /* Shimmer skeleton while session is initializing */
             <div className="animate-fade-in space-y-4">
@@ -1088,16 +1143,18 @@ export default function ConversationView({ session }: Props) {
         </div>
       </div>
 
-      {(!isEnded || isChildSession) && (
-        <MessageInput
-          key={session.id}
-          sessionId={session.id}
-          disabled={!ready}
-          streaming={streaming}
-          placeholder={inputPlaceholder}
-          onSend={handleSend}
-          onStop={handleStop}
-        />
+      {hasComposer && (
+        <div ref={composerRef} data-message-input-shell>
+          <MessageInput
+            key={session.id}
+            sessionId={session.id}
+            disabled={!ready}
+            streaming={streaming}
+            placeholder={inputPlaceholder}
+            onSend={handleSend}
+            onStop={handleStop}
+          />
+        </div>
       )}
 
       {shellPanelVisible && (

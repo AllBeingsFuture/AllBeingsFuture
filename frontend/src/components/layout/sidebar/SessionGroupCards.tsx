@@ -72,6 +72,8 @@ export function TimeGroupCard({
   onResume,
   onEnd,
   onRemove,
+  onRename,
+  onSmartRename,
   agents,
 }: TimeGroupCardProps) {
   return (
@@ -91,6 +93,8 @@ export function TimeGroupCard({
             onResume={onResume}
             onEnd={onEnd}
             onRemove={onRemove}
+            onRename={onRename}
+            onSmartRename={onSmartRename}
             agents={agents?.[session.id]}
           />
         </div>
@@ -108,6 +112,8 @@ export function DirectoryGroupCard({
   onResume,
   onEnd,
   onRemove,
+  onRename,
+  onSmartRename,
   agents,
 }: DirectoryGroupCardProps) {
   return (
@@ -128,6 +134,8 @@ export function DirectoryGroupCard({
             onResume={onResume}
             onEnd={onEnd}
             onRemove={onRemove}
+            onRename={onRename}
+            onSmartRename={onSmartRename}
             agents={agents?.[session.id]}
           />
         </div>
