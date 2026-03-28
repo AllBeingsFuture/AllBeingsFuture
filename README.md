@@ -1,4 +1,11 @@
 # AllBeingsFuture
+前提声明！
+本来以为L站是一个很好的社区 进来了两天 发现也就那样 除了能白嫖ai 其他没啥亮点
+之前L站可能是个好社区 现在味道变了 事逼挺多的 可能是天天白嫖源码或者什么
+对开源的东西要求特别高 我自己遇到别人开源的东西 起码都会体验一下 在L站上 体验没有体验就说项目有问题什么的 
+L站以注销 以后看看会不会有变化 
+tg 交流群
+https://t.me/AllBeingsFuture
 
 AllBeingsFuture 是一个面向多 Agent 协作场景的桌面 AI 工作台，基于 Electron + React 构建，聚焦于把不同 AI Provider、会话、子 Agent、MCP、Skill、Git Worktree 和本地开发环境整合到同一个应用里。
 
