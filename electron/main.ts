@@ -69,11 +69,17 @@ function getPreloadPath() {
   return path.join(__dirname, '..', 'preload.cjs')
 }
 
-function getRendererUrl() {
+function getRendererPath() {
+  return path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html')
+}
+
+async function loadRenderer(window: BrowserWindow) {
   if (isDev) {
-    return 'http://localhost:5173'
+    await window.loadURL('http://localhost:5173')
+    return
   }
-  return `file://${path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html')}`
+
+  await window.loadFile(getRendererPath())
 }
 
 function getIconPath() {
@@ -84,7 +90,7 @@ function getIconPath() {
   return path.join(process.resourcesPath, 'appicon.ico')
 }
 
-function createWindow() {
+async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1900,
     height: 1200,
@@ -107,7 +113,13 @@ function createWindow() {
     },
   })
 
-  mainWindow.loadURL(getRendererUrl())
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('[main] Renderer failed to load:', { errorCode, errorDescription, validatedURL })
+  })
+
+  void loadRenderer(mainWindow).catch((error) => {
+    console.error('[main] Failed to initialize renderer:', error)
+  })
 
   // Safety net: intercept file:// navigations caused by unhandled file drops.
   // If a drop event's preventDefault() somehow fails, the browser will try to
@@ -178,7 +190,7 @@ app.whenReady().then(async () => {
   processService!.setNotificationManager(notificationManager)
 
   // Create window and tray
-  createWindow()
+  await createWindow()
   createTray()
 })
 
