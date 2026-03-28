@@ -44,11 +44,11 @@ export default {
       },
       colors: {
         dark: {
-          bg: '#1b2636',
-          card: '#1e293b',
-          border: '#334155',
-          hover: '#2d3f55',
-          accent: '#3b82f6',
+          bg: '#0c0c0c',
+          card: '#111111',
+          border: '#2e2e2e',
+          hover: '#1a1a1a',
+          accent: '#ff4f1a',
         },
         'bg-primary': 'var(--color-bg-primary)',
         'bg-secondary': 'var(--color-bg-secondary)',

@@ -129,83 +129,75 @@ export default function SessionsContent() {
     : '暂无会话，点击下方按钮创建'
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-bg-secondary" data-testid="sessions-sidebar">
+    <div className="flex h-full flex-col overflow-hidden bg-[#0c0c0c]" data-testid="sessions-sidebar">
       {/* Header */}
-      <div className="px-3 pt-3.5 pb-2">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-[13px] font-semibold text-text-primary tracking-wide">会话</h2>
-            {activeSessions > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/15 px-2 py-0.5 text-[10px] font-medium tabular-nums text-emerald-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {activeSessions} 活跃
-              </span>
-            ) : (
-              <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">{sessions.length}</span>
-            )}
+      <div className="px-3 pt-3 pb-2 border-b border-[#1e1e1e]">
+        <div className="flex items-center justify-between gap-2 mb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-700 tracking-[0.18em] uppercase text-[#555]">SESSIONS</span>
+            <span className={`text-[9px] font-600 tabular-nums ${activeSessions > 0 ? 'text-[#3eb550]' : 'text-[#444]'}`}>
+              {activeSessions > 0 ? `${activeSessions} ACTIVE` : sessions.length}
+            </span>
           </div>
           <div className="flex items-center gap-0.5">
             <button
               type="button"
               onClick={() => setShowNewSessionDialog(true)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
+              className="flex h-6 w-6 items-center justify-center text-[#444] hover:bg-[#1a1a1a] hover:text-[#ff4f1a] transition-all duration-150"
               title="新建会话"
             >
-              <MessageSquarePlus size={14} />
+              <MessageSquarePlus size={13} />
             </button>
             <button
               type="button"
               onClick={() => setShowTaskDialog(true)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
+              className="flex h-6 w-6 items-center justify-center text-[#444] hover:bg-[#1a1a1a] hover:text-[#ff4f1a] transition-all duration-150"
               title="新建任务"
             >
-              <FolderKanban size={14} />
+              <FolderKanban size={13} />
             </button>
             <button
               type="button"
               onClick={toggleSearchPanel}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
+              className="flex h-6 w-6 items-center justify-center text-[#444] hover:bg-[#1a1a1a] hover:text-[#ff4f1a] transition-all duration-150"
               title="搜索"
             >
-              <Search size={14} />
+              <Search size={13} />
             </button>
           </div>
         </div>
 
         <div className={[
-          'flex items-center gap-2.5 rounded-xl border px-3 py-2 transition-all duration-200',
-          searchFocused
-            ? 'border-blue-500/30 bg-white/[0.05] shadow-[0_0_0_1px_rgba(59,130,246,0.1)]'
-            : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.03]',
+          'flex items-center gap-2 border px-2.5 py-1.5 transition-all duration-150',
+          searchFocused ? 'border-[#ff4f1a]/30 bg-[#111]' : 'border-[#1e1e1e] bg-[#0c0c0c] hover:border-[#2e2e2e]',
         ].join(' ')}>
-          <Search size={13} className={`shrink-0 transition-colors duration-200 ${searchFocused ? 'text-blue-400' : 'text-gray-600'}`} />
+          <Search size={11} className={`shrink-0 ${searchFocused ? 'text-[#ff4f1a]' : 'text-[#3a3a3a]'}`} />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
-            placeholder="搜索会话..."
-            className="w-full border-0 bg-transparent text-xs text-text-primary outline-none placeholder:text-gray-600"
+            placeholder="SEARCH..."
+            className="w-full border-0 bg-transparent text-[11px] text-[#aaa] outline-none placeholder:text-[#333] placeholder:tracking-wider placeholder:font-600 placeholder:text-[9px]"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery('')}
-              className="shrink-0 text-gray-600 hover:text-gray-400 transition-colors"
+              className="shrink-0 text-[#444] hover:text-[#888] transition-colors text-xs"
             >
-              <span className="text-xs">&#x2715;</span>
+              ×
             </button>
           )}
         </div>
 
-        <div className="mt-2.5 flex items-center justify-between">
-          <span className="text-[11px] text-gray-600">分组</span>
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-[9px] font-600 tracking-widest uppercase text-[#3a3a3a]">GROUP</span>
           <GroupByToggle value={groupMode} onChange={setGroupMode} />
         </div>
       </div>
 
-      {/* Subtle divider */}
-      <div className="mx-3 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+      {/* No divider — border-b on header does the job */}
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 py-2 scrollbar-thin">
@@ -248,39 +240,36 @@ export default function SessionsContent() {
         )}
 
         {((groupMode === 'time' && timeGroups.length === 0) || (groupMode === 'directory' && directoryGroups.length === 0)) && (
-          <div className="flex h-40 flex-col items-center justify-center gap-3 text-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/[0.06]">
-              <Sparkles size={18} className="text-gray-600" />
-            </div>
-            <p className="text-xs text-gray-600">{emptyStateMessage}</p>
+          <div className="flex h-40 flex-col items-center justify-center gap-3 text-center px-4">
+            <Sparkles size={14} className="text-[#2e2e2e]" />
+            <p className="text-[10px] text-[#333] uppercase tracking-wider font-600">{emptyStateMessage}</p>
           </div>
         )}
       </div>
 
       {/* Teams footer */}
       {teamInstances.length > 0 && (
-        <div className="border-t border-white/[0.06] px-3 py-2">
+        <div className="border-t border-[#1e1e1e] px-3 py-2">
           <button
             type="button"
             onClick={() => setActiveView('teams')}
-            className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs text-gray-500 hover:bg-white/[0.05] hover:text-gray-300 transition-all duration-150"
+            className="flex w-full items-center justify-between px-2 py-1.5 text-[10px] uppercase tracking-widest text-[#444] hover:bg-[#111] hover:text-[#888] transition-all duration-150"
           >
-            <span>Teams {runningTeams > 0 && <span className="text-emerald-400 font-medium">({runningTeams} 运行中)</span>}</span>
-            <span className="text-gray-600">{teamInstances.length}</span>
+            <span>TEAMS {runningTeams > 0 && <span className="text-[#3eb550]">({runningTeams} RUNNING)</span>}</span>
+            <span className="text-[#333]">{teamInstances.length}</span>
           </button>
         </div>
       )}
 
       {/* Bottom new session button */}
-      <div className="shrink-0 px-3 pb-3 pt-2">
+      <div className="shrink-0 px-3 pb-3 pt-2 border-t border-[#1e1e1e]">
         <button
           onClick={() => setShowNewSessionDialog(true)}
-          className="group/btn relative w-full overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 py-2.5 text-xs font-medium text-white shadow-lg shadow-blue-500/20 transition-all duration-200 hover:shadow-blue-500/30 hover:from-blue-500 hover:to-blue-400 active:scale-[0.98]"
+          className="w-full bg-[#ff4f1a] py-2 text-[10px] font-700 tracking-[0.12em] uppercase text-white transition-all duration-150 hover:bg-[#e63d06] active:scale-[0.99]"
         >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700" />
-          <span className="relative flex items-center justify-center gap-1.5">
-            <Plus size={14} strokeWidth={2.5} />
-            新建会话
+          <span className="flex items-center justify-center gap-1.5">
+            <Plus size={12} strokeWidth={2.5} />
+            NEW SESSION
           </span>
         </button>
       </div>

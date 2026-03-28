@@ -17,9 +17,9 @@ interface FileChange {
 }
 
 const changeConfig = {
-  create: { icon: Plus, color: 'text-green-400', bg: 'bg-green-900/20', label: '新建' },
-  modify: { icon: Edit3, color: 'text-yellow-400', bg: 'bg-yellow-900/20', label: '修改' },
-  delete: { icon: Minus, color: 'text-red-400', bg: 'bg-red-900/20', label: '删除' },
+  create: { icon: Plus, color: 'text-[#3eb550]', bg: 'bg-transparent', badge: '+', label: '新建' },
+  modify: { icon: Edit3, color: 'text-[#c4931a]', bg: 'bg-transparent', badge: '~', label: '修改' },
+  delete: { icon: Minus, color: 'text-[#e04040]', bg: 'bg-transparent', badge: '-', label: '删除' },
 } as const
 
 function getDirectory(filePath: string): string {
@@ -113,33 +113,33 @@ export default function FileManagerPanel() {
   const selectedSession = sessions.find(s => s.id === selectedSessionId)
 
   return (
-    <div className="flex flex-col h-full bg-dark-bg text-gray-200">
+    <div className="flex flex-col h-full bg-[#0c0c0c] text-[#e8e4de]">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-dark-border flex items-center gap-3">
-        <FileText size={16} className="text-blue-400" />
-        <h2 className="text-sm font-semibold flex-1">文件管理器</h2>
+      <div className="px-3 py-2.5 border-b border-[#1e1e1e] flex items-center gap-2">
+        <span className="text-[9px] font-700 tracking-[0.18em] uppercase text-[#555] flex-1">FILE MANAGER</span>
         <button
           onClick={handleRefresh}
           disabled={!selectedSessionId || refreshing}
-          className="p-1.5 rounded-md text-gray-500 hover:text-white hover:bg-dark-hover disabled:opacity-30 transition-colors"
+          className="p-1 text-[#444] hover:text-[#888] hover:bg-[#1a1a1a] disabled:opacity-30 transition-colors"
           title="刷新"
         >
-          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
         </button>
       </div>
 
       {/* Session selector */}
-      <div className="px-4 py-2.5 border-b border-dark-border">
-        <label className="block text-[10px] text-gray-500 mb-1">选择会话</label>
+      <div className="px-3 py-2 border-b border-[#1e1e1e]">
+        <label className="block text-[9px] font-600 tracking-widest uppercase text-[#3a3a3a] mb-1">SESSION</label>
         <select
           value={selectedSessionId ?? ''}
           onChange={e => setSelectedSessionId(e.target.value || null)}
-          className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-lg text-sm outline-none focus:border-dark-accent appearance-none cursor-pointer"
+          className="w-full px-2 py-1.5 bg-[#111] border border-[#2e2e2e] text-xs text-[#aaa] outline-none focus:border-[#ff4f1a] appearance-none cursor-pointer"
+          style={{ colorScheme: 'dark' }}
         >
-          <option value="">-- 请选择会话 --</option>
+          <option value="">-- 选择会话 --</option>
           {sessions.map(s => (
             <option key={s.id} value={s.id}>
-              {s.id.slice(0, 8)} - {(s as any).name || (s as any).model || '未命名'}
+              {s.id.slice(0, 8)} · {(s as any).name || (s as any).model || '未命名'}
             </option>
           ))}
         </select>
@@ -147,32 +147,31 @@ export default function FileManagerPanel() {
 
       {/* Search & controls */}
       {selectedSessionId && (
-        <div className="px-4 py-2 border-b border-dark-border flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-[#1e1e1e] flex items-center gap-1.5">
           <div className="flex-1 relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-[#3a3a3a]" />
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="搜索文件..."
-              className="w-full pl-8 pr-3 py-1.5 bg-dark-card border border-dark-border rounded-md text-xs outline-none focus:border-dark-accent"
+              placeholder="SEARCH..."
+              className="w-full pl-6 pr-2 py-1 bg-[#111] border border-[#2e2e2e] text-[11px] text-[#aaa] outline-none focus:border-[#ff4f1a] placeholder:text-[9px] placeholder:tracking-wider placeholder:text-[#333]"
             />
           </div>
           <button
             onClick={() => setSortMode(m => m === 'time' ? 'path' : 'time')}
-            className="px-2 py-1.5 text-[10px] bg-dark-card border border-dark-border rounded-md text-gray-400 hover:text-white"
-            title={sortMode === 'time' ? '按时间排序' : '按路径排序'}
+            className="px-1.5 py-1 text-[9px] font-600 uppercase tracking-wider bg-[#111] border border-[#2e2e2e] text-[#555] hover:text-[#888] hover:border-[#444]"
           >
-            {sortMode === 'time' ? '时间序' : '路径序'}
+            {sortMode === 'time' ? 'TIME' : 'PATH'}
           </button>
           <button
             onClick={() => setGroupByDir(g => !g)}
-            className={`px-2 py-1.5 text-[10px] border rounded-md ${
+            className={`px-1.5 py-1 text-[9px] font-600 uppercase tracking-wider border ${
               groupByDir
-                ? 'bg-blue-900/30 border-blue-800/40 text-blue-400'
-                : 'bg-dark-card border-dark-border text-gray-400 hover:text-white'
+                ? 'bg-[#1a1a1a] border-[#ff4f1a]/30 text-[#ff4f1a]'
+                : 'bg-[#111] border-[#2e2e2e] text-[#555] hover:text-[#888]'
             }`}
           >
-            分组
+            GROUP
           </button>
         </div>
       )}
@@ -186,22 +185,22 @@ export default function FileManagerPanel() {
             message={searchQuery ? '没有匹配的文件' : '该会话暂无文件变更记录'}
           />
         ) : groupByDir ? (
-          <div className="p-2 space-y-0.5">
+          <div className="space-y-0">
             {Array.from(grouped.entries()).map(([dir, items]) => {
               const collapsed = collapsedDirs.has(dir)
               return (
-                <div key={dir}>
+                <div key={dir} className="border-b border-[#1a1a1a]">
                   <button
                     onClick={() => toggleDir(dir)}
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-dark-hover rounded-md transition-colors"
+                    className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[10px] text-[#555] hover:text-[#888] hover:bg-[#111] transition-colors"
                   >
-                    {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                    <FolderOpen size={12} className="text-yellow-500/70" />
-                    <span className="font-mono truncate">{dir}</span>
-                    <span className="ml-auto text-[10px] text-gray-600">{items.length}</span>
+                    {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                    <FolderOpen size={10} className="text-[#c4931a]" />
+                    <span className="font-mono truncate text-[#777]">{dir}</span>
+                    <span className="ml-auto text-[9px] text-[#3a3a3a]">{items.length}</span>
                   </button>
                   {!collapsed && (
-                    <div className="ml-4 space-y-0.5">
+                    <div className="border-t border-[#1a1a1a]">
                       {items.map(c => (
                         <ChangeRow key={c.path + c.timestamp} change={c} showFullPath={false} />
                       ))}
@@ -222,16 +221,16 @@ export default function FileManagerPanel() {
 
       {/* Summary bar */}
       {selectedSessionId && summary.total > 0 && (
-        <div className="px-4 py-2 border-t border-dark-border flex items-center gap-4 text-[10px]">
-          <span className="text-gray-500">共 {summary.total} 项变更</span>
+        <div className="px-3 py-1.5 border-t border-[#1e1e1e] flex items-center gap-4 text-[9px] font-600 uppercase tracking-wider">
+          <span className="text-[#444]">TOTAL <span className="text-[#888]">{summary.total}</span></span>
           {summary.creates > 0 && (
-            <span className="text-green-400">+{summary.creates} 新建</span>
+            <span className="text-[#3eb550]">+{summary.creates}</span>
           )}
           {summary.modifies > 0 && (
-            <span className="text-yellow-400">~{summary.modifies} 修改</span>
+            <span className="text-[#c4931a]">~{summary.modifies}</span>
           )}
           {summary.deletes > 0 && (
-            <span className="text-red-400">-{summary.deletes} 删除</span>
+            <span className="text-[#e04040]">-{summary.deletes}</span>
           )}
         </div>
       )}
@@ -241,7 +240,6 @@ export default function FileManagerPanel() {
 
 function ChangeRow({ change, showFullPath }: { change: FileChange; showFullPath: boolean }) {
   const cfg = changeConfig[change.changeType]
-  const Icon = cfg.icon
   const displayName = showFullPath ? change.path : getFileName(change.path)
   const ts = change.timestamp
     ? new Date(change.timestamp).toLocaleTimeString('zh-CN', {
@@ -250,33 +248,30 @@ function ChangeRow({ change, showFullPath }: { change: FileChange; showFullPath:
     : ''
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-dark-hover group transition-colors">
-      <div className={`p-1 rounded ${cfg.bg}`}>
-        <Icon size={11} className={cfg.color} />
-      </div>
-      <File size={12} className="text-gray-600 shrink-0" />
-      <span className="flex-1 text-xs font-mono truncate" title={change.path}>
+    <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#111] group transition-colors border-b border-[#1a1a1a] last:border-0">
+      <span className={`text-[10px] font-800 w-3 shrink-0 ${cfg.color}`}>{cfg.badge}</span>
+      <span className="flex-1 text-[11px] font-mono truncate text-[#888]" title={change.path}>
         {displayName}
       </span>
       {change.concurrent && (
         <span
-          className="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] bg-orange-900/30 text-orange-400 rounded"
+          className="flex items-center gap-0.5 px-1 py-0.5 text-[9px] border border-[#c4931a]/30 text-[#c4931a]"
           title="多会话并发修改"
         >
-          <AlertTriangle size={9} />
-          并发
+          <AlertTriangle size={8} />
+          CONCURRENT
         </span>
       )}
-      {ts && <span className="text-[10px] text-gray-600 shrink-0">{ts}</span>}
+      {ts && <span className="text-[9px] text-[#3a3a3a] shrink-0 tabular-nums">{ts}</span>}
     </div>
   )
 }
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-gray-500 py-16">
-      <FileText size={36} className="mb-3 opacity-20" />
-      <p className="text-sm">{message}</p>
+    <div className="flex flex-col items-center justify-center h-full py-16 gap-2">
+      <FileText size={24} className="text-[#2e2e2e]" />
+      <p className="text-[10px] font-600 uppercase tracking-wider text-[#333]">{message}</p>
     </div>
   )
 }

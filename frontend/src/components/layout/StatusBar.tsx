@@ -65,70 +65,53 @@ export default function StatusBar() {
   }, [])
 
   return (
-    <div className="h-7 bg-bg-secondary/80 backdrop-blur-sm border-t border-white/[0.06] flex items-center justify-between px-4 text-[11px] text-text-secondary">
-      {/* 左侧：活跃会话数 */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5">
-          <div
-            className={`w-1.5 h-1.5 rounded-full transition-colors ${
-              activeSessions > 0 ? 'bg-accent-green shadow-[0_0_4px_rgba(63,185,80,0.5)]' : 'bg-text-muted'
+    <div className="h-7 bg-[#0c0c0c] border-t border-[#2e2e2e] flex items-center justify-between px-4 text-[10px] font-500 tracking-[0.08em] uppercase">
+      {/* Left: active session count */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <div className={`w-[5px] h-[5px] ${activeSessions > 0 ? 'bg-[#3eb550]' : 'bg-[#333]'}`} />
+          <span className="text-[#555]">
+            ACTIVE <span className={activeSessions > 0 ? 'text-[#3eb550]' : 'text-[#888]'}>{activeSessions}</span>
+            <span className="mx-1 text-[#333]">/</span>
+            TOTAL <span className="text-[#888]">{totalSessions}</span>
+          </span>
+        </div>
+
+        <div className="hidden md:flex items-center gap-4">
+          <span className="text-[#555]">RUN <span className="text-[#3eb550]">{runningSessions}</span></span>
+          <span className="text-[#555]">WAIT <span className="text-[#c4931a]">{waitingSessions}</span></span>
+          {errorSessions > 0 && (
+            <span className="text-[#555]">ERR <span className="text-[#e04040]">{errorSessions}</span></span>
+          )}
+        </div>
+      </div>
+
+      {/* Center: view mode */}
+      <div className="flex items-center gap-1 border border-[#2e2e2e]">
+        {([
+          { mode: 'grid' as ViewMode, icon: Grid3x3, label: 'GRID' },
+          { mode: 'tabs' as ViewMode, icon: Columns2, label: 'TABS' },
+        ]).map(({ mode, icon: Icon, label }) => (
+          <button
+            key={mode}
+            onClick={() => setViewMode(mode)}
+            className={`flex items-center gap-1 px-2 py-0.5 btn-transition ${
+              viewMode === mode
+                ? 'bg-[#1a1a1a] text-[#ff4f1a]'
+                : 'text-[#555] hover:text-[#888] hover:bg-[#111]'
             }`}
-          />
-          <span title="活跃会话 / 历史总会话" className="cursor-default">
-            活跃 {activeSessions}
-            <span className="mx-0.5 text-text-muted/50">/</span>
-            共 {totalSessions}
-          </span>
-        </div>
+            title={label}
+          >
+            <Icon className="w-3 h-3" />
+            <span className="text-[9px]">{label}</span>
+          </button>
+        ))}
       </div>
 
-      {/* 中间：视图模式切换 */}
-      <div className="flex items-center gap-1">
-        <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-md px-0.5 py-0.5 border border-white/[0.04]">
-          {([
-            { mode: 'grid' as ViewMode, icon: Grid3x3, label: '网格视图' },
-            { mode: 'tabs' as ViewMode, icon: Columns2, label: '标签页视图' },
-          ]).map(({ mode, icon: Icon, label }) => (
-            <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              className={`p-1 rounded btn-transition ${
-                viewMode === mode
-                  ? 'bg-accent-blue/20 text-accent-blue shadow-sm'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-white/[0.04]'
-              }`}
-              title={label}
-            >
-              <Icon className="w-3 h-3" />
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 右侧：会话统计 + 运行时长 */}
-      <div className="flex items-center gap-3">
-        <div className="hidden md:flex items-center gap-2.5 cursor-default" title="会话统计">
-          <span className="text-text-muted">
-            总 <span className="font-medium text-text-primary">{totalSessions}</span>
-          </span>
-          <span className="text-white/[0.08]">|</span>
-          <span className="text-text-muted">
-            运行 <span className="font-medium text-accent-green">{runningSessions}</span>
-          </span>
-          <span className="text-text-muted">
-            等待 <span className="font-medium text-accent-yellow">{waitingSessions}</span>
-          </span>
-          <span className="text-text-muted">
-            异常 <span className="font-medium text-accent-red">{errorSessions}</span>
-          </span>
-        </div>
-
-        <span className="text-white/[0.08]">|</span>
-
-        <span title="应用本次启动运行时长" className="cursor-default tabular-nums">
-          运行 {formatDuration(elapsed * 1000)}
-        </span>
-      </div>
+      {/* Right: uptime */}
+      <span className="text-[#444] tabular-nums">
+        UP <span className="text-[#666]">{formatDuration(elapsed * 1000)}</span>
+      </span>
     </div>
   )
 }

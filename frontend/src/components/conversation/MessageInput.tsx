@@ -336,7 +336,7 @@ function MessageInput({
 
   return (
     <div
-      className="relative shrink-0 border-t border-white/[0.06] bg-[#0b1019]/85 px-4 py-3 backdrop-blur-sm"
+      className="relative shrink-0 border-t border-[#2e2e2e] bg-[#0c0c0c] px-4 py-3"
       data-file-drop-target="message-input"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -542,7 +542,7 @@ function MessageInput({
             type="button"
             disabled={disabled || !hasContent}
             onClick={() => void submit()}
-            className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-blue-500 text-white shadow-lg shadow-blue-500/20 transition-all duration-200 hover:bg-blue-400 hover:shadow-blue-500/30 disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none active:scale-95"
+            className="flex h-[42px] w-[42px] shrink-0 items-center justify-center bg-[#ff4f1a] text-white transition-all duration-150 hover:bg-[#e63d06] disabled:cursor-not-allowed disabled:opacity-30 active:scale-95"
             aria-label="发送消息"
           >
             <SendHorizonal size={16} />

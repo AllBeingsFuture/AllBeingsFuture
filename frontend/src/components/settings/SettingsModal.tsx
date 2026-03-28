@@ -180,14 +180,14 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
     >
       <div className="flex min-h-0 flex-1 h-full overflow-hidden">
         {/* Compact sidebar */}
-        <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/10 bg-slate-950/70">
+        <aside className="flex w-[200px] shrink-0 flex-col border-r border-[#2e2e2e] bg-[#0c0c0c]">
           <div className="flex-1 overflow-y-auto px-2 py-3">
             {(['core', 'integrations', 'security', 'support', 'botmanagement'] as const).map((group) => {
               const groupTabs = TABS.filter((tab) => tab.group === group)
 
               return (
                 <section key={group} className="mb-2 last:mb-0">
-                  <p className="mb-0.5 px-2 pt-1 text-[10px] uppercase tracking-[0.18em] text-slate-500 font-medium">
+                  <p className="mb-0.5 px-2 pt-1 text-[9px] uppercase tracking-[0.18em] text-[#3a3a3a] font-600">
                     {GROUP_LABELS[group]}
                   </p>
                   <div>
@@ -199,18 +199,18 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
                           key={tab.id}
                           aria-label={tab.label}
                           className={[
-                            'flex w-full items-center gap-2 rounded-md px-2.5 py-[6px] text-left transition duration-100',
+                            'flex w-full items-center gap-2 px-2.5 py-[6px] text-left transition duration-100 border-l-2',
                             selected
-                              ? 'bg-blue-500/15 text-white'
-                              : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                              ? 'bg-[#1a1a1a] text-[#ff4f1a] border-l-[#ff4f1a]'
+                              : 'text-[#666] hover:bg-[#111] hover:text-[#aaa] border-l-transparent',
                           ].join(' ')}
                           onClick={() => setActiveTab(tab.id)}
                           type="button"
                         >
-                          <span className={selected ? 'text-blue-300' : 'text-slate-500'}>
+                          <span className={selected ? 'text-[#ff4f1a]' : 'text-[#3a3a3a]'}>
                             {tab.icon}
                           </span>
-                          <span className="text-[13px] truncate">{tab.label}</span>
+                          <span className="text-[12px] truncate">{tab.label}</span>
                         </button>
                       )
                     })}
@@ -223,10 +223,10 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
 
         {/* Content area */}
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className="border-b border-white/10 px-5 py-2.5 flex items-center gap-2">
-            <span className="text-blue-300">{activeDefinition.icon}</span>
-            <h3 className="text-sm font-medium text-white">{activeDefinition.label}</h3>
-            <span className="text-xs text-slate-500">{activeDefinition.description}</span>
+          <div className="border-b border-[#2e2e2e] px-5 py-2.5 flex items-center gap-2">
+            <span className="text-[#ff4f1a]">{activeDefinition.icon}</span>
+            <h3 className="text-[12px] font-600 uppercase tracking-widest text-[#e8e4de]">{activeDefinition.label}</h3>
+            <span className="text-[10px] text-[#444]">{activeDefinition.description}</span>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

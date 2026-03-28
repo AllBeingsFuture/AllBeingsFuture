@@ -28,45 +28,37 @@ export default function SessionItem({ session, selected, onSelect, onResume, onE
   return (
     <div
       className={[
-        'group relative rounded-xl border p-2.5 transition-all duration-200 cursor-pointer',
+        'group relative border-b border-[#1e1e1e] px-3 py-2.5 transition-all duration-150 cursor-pointer',
         selected
-          ? 'border-blue-500/25 bg-blue-500/[0.08] shadow-[0_2px_12px_rgba(59,130,246,0.12)]'
-          : 'border-white/[0.04] bg-white/[0.015] hover:border-white/[0.1] hover:bg-white/[0.04] hover:shadow-[0_2px_8px_rgba(0,0,0,0.15)]',
+          ? 'bg-[#171717] border-l-2 border-l-[#ff4f1a]'
+          : 'hover:bg-[#111]',
       ].join(' ')}
       data-session-id={session.id}
       onClick={() => onSelect(session.id)}
     >
-      {/* Selected indicator bar */}
-      {selected && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 rounded-r-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)] animate-scale-in origin-left" />
-      )}
+      {/* No selected indicator — handled by left border on container */}
 
       {/* Main content */}
       <div className="flex items-stretch gap-2">
         <div className="flex min-w-0 flex-1 items-start gap-2.5 px-1 py-0.5">
           {/* Status indicator */}
           <div className="relative mt-1 shrink-0">
-            <div className={['h-2.5 w-2.5 rounded-full ring-2', isActive ? 'bg-emerald-400 ring-emerald-400/20' : 'bg-gray-600 ring-gray-600/20'].join(' ')} />
-            {isActive && <div className="absolute inset-0 h-2.5 w-2.5 rounded-full bg-emerald-400 animate-ping opacity-30" />}
+            <div className={['w-[6px] h-[6px]', isActive ? 'bg-[#3eb550]' : 'bg-[#333]'].join(' ')} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <Bot size={13} className={`shrink-0 ${selected ? 'text-blue-400' : 'text-blue-400/50'}`} />
-              <p className={`truncate text-[13px] font-medium leading-tight ${selected ? 'text-gray-100' : 'text-gray-300'}`}>{session.name}</p>
+              <p className={`truncate text-[12px] font-500 leading-tight ${selected ? 'text-[#e8e4de]' : 'text-[#aaa]'}`}>{session.name}</p>
             </div>
             <p className="mt-1 truncate text-[11px] text-gray-500 leading-tight">{getShortPath(session.workingDirectory)}</p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
-              <span className="rounded-md border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 uppercase tracking-wider text-gray-400 font-medium">
+              <span className="border border-[#2e2e2e] bg-[#171717] px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-[#666] font-600">
                 {session.providerId}
               </span>
-              <span className={[
-                'rounded-md px-1.5 py-0.5 font-medium',
-                isActive ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' : 'bg-white/[0.03] text-gray-500'
-              ].join(' ')}>
+              <span className={`text-[9px] uppercase tracking-widest font-600 ${isActive ? 'text-[#3eb550]' : 'text-[#444]'}`}>
                 {STATUS_LABELS[session.status] || session.status}
               </span>
-              <span className="text-gray-600">{modeLabels[session.mode] || session.mode}</span>
-              <span className="text-gray-600 tabular-nums">{formatSessionTime(session)}</span>
+              <span className="text-[#3a3a3a] text-[9px] tabular-nums">{formatSessionTime(session)}</span>
               {parentBinding && (
                 <button
                   type="button"

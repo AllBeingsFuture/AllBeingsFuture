@@ -57,11 +57,15 @@ export default function TitleBar() {
 
   return (
     <div
-      className="flex items-center h-9 bg-bg-secondary border-b border-border flex-shrink-0 select-none"
+      className="flex items-center h-9 bg-[#0c0c0c] border-b border-[#2e2e2e] flex-shrink-0 select-none"
       style={dragStyle}
       onDoubleClick={handleToggleMaximise}
     >
       {isMac && <div className="w-[72px] flex-shrink-0" />}
+
+      <div className="flex items-center gap-3 px-4">
+        <span className="text-[10px] font-800 tracking-[0.2em] uppercase text-[#444]">ALLBEINGSFUTURE</span>
+      </div>
 
       <div className="flex-1" />
 

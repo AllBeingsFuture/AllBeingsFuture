@@ -1,34 +1,30 @@
 import { memo, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, User, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { AppAPI } from '../../../bindings/electron-api'
 import ImageViewer from './ImageViewer'
 
-// Module-level cached regex to avoid re-creation on each render
 const THINKING_RE = /<thinking>([\s\S]*?)<\/thinking>/
 const THINKING_STRIP_RE = /<thinking>[\s\S]*?<\/thinking>/
 
-/** Format a number with comma separators (e.g. 68714 → "68,714") */
 function formatNumber(n: number): string {
   return n.toLocaleString('en-US')
 }
 
-/** Format a timestamp as relative time (e.g. "刚刚", "3分钟前", "2小时前") */
 function formatRelativeTime(timestamp: string): string {
   const diff = Date.now() - new Date(timestamp).getTime()
   if (diff < 0 || isNaN(diff)) return ''
   const seconds = Math.floor(diff / 1000)
-  if (seconds < 10) return '刚刚'
-  if (seconds < 60) return `${seconds}秒前`
+  if (seconds < 10) return 'JUST NOW'
+  if (seconds < 60) return `${seconds}S AGO`
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}分钟前`
+  if (minutes < 60) return `${minutes}M AGO`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时前`
+  if (hours < 24) return `${hours}H AGO`
   const days = Math.floor(hours / 24)
-  return `${days}天前`
+  return `${days}D AGO`
 }
 
 interface Props {
@@ -41,177 +37,142 @@ type ImageMessage = ChatMessage & { images?: string[] }
 function MessageBubble({ message, isStreaming }: Props) {
   const isUser = message.role === 'user'
   const isPartial = message.partial
-  const [thinkingExpanded, setThinkingExpanded] = useState(true)
+  const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const userImages = isUser ? (message as ImageMessage).images : undefined
 
-  // Extract thinking text if embedded in content (format: <thinking>...</thinking>)
   const thinkingMatch = !isUser ? message.content?.match(THINKING_RE) : null
   const thinkingText = thinkingMatch?.[1]?.trim()
   const displayContent = thinkingMatch
     ? message.content.replace(THINKING_STRIP_RE, '').trim()
     : message.content
 
+  const usage = (message as any).usage
+  const timestamp = (message as any).timestamp
+  const provider = (message as any).provider || (message as any).providerId
+
   return (
     <>
-    <motion.div
-      className={`flex gap-3 ${isUser ? 'justify-end' : ''}`}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, ease: 'easeOut' }}
-    >
-      {!isUser && (
-        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-purple-500/10 text-purple-300 shadow-sm">
-          <Bot size={15} />
-        </div>
-      )}
-
-      <div className="max-w-[80%] min-w-0 flex flex-col gap-1.5">
-        {/* Thinking block (collapsible) */}
-        {thinkingText && (
-          <button
-            onClick={() => setThinkingExpanded(!thinkingExpanded)}
-            className="group flex items-center gap-1.5 text-xs text-purple-400/50 hover:text-purple-300 transition-colors self-start py-0.5"
-          >
-            {thinkingExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <Sparkles size={11} className="opacity-70 group-hover:opacity-100" />
-            <span className="font-medium">思考过程</span>
-            <span className="text-gray-600 text-[10px]">({formatNumber(thinkingText.length)} 字符)</span>
-          </button>
-        )}
-        <AnimatePresence>
-          {thinkingText && thinkingExpanded && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="rounded-xl border border-purple-500/10 bg-gradient-to-br from-purple-500/[0.04] to-blue-500/[0.02] px-3.5 py-2.5 text-xs text-text-muted/70 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500/10"
-            >
-              <div className="prose prose-invert prose-xs max-w-none
-                prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-text-muted/70
-                prose-headings:text-purple-300/80 prose-headings:mt-2 prose-headings:mb-0.5 prose-headings:text-xs
-                prose-strong:text-purple-200/80
-                prose-em:text-gray-400
-                prose-code:text-purple-300/70 prose-code:bg-purple-500/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[10px] prose-code:before:content-none prose-code:after:content-none
-                prose-li:my-0 prose-li:text-text-muted/70
-                prose-ol:my-0.5 prose-ul:my-0.5
-                prose-a:text-purple-300/60 prose-a:no-underline
-              ">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {thinkingText}
-                </ReactMarkdown>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Main message bubble */}
-        <div
-          className={[
-            'rounded-2xl px-4 py-3 text-sm leading-relaxed',
-            isUser
-              ? 'bg-blue-500/15 text-text-primary border border-blue-500/10'
-              : 'bg-white/[0.03] text-text-primary border border-white/[0.06]',
-          ].join(' ')}
-        >
-          {isUser ? (
-            <div>
-              {userImages && userImages.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {userImages.map((url: string, i: number) => (
-                    <img
-                      key={i}
-                      src={url}
-                      alt={`附件 ${i + 1}`}
-                      className="max-w-[280px] max-h-[200px] rounded-xl border border-white/10 object-contain cursor-pointer hover:opacity-90 transition-opacity"
-                      onClick={() => setPreviewIndex(i)}
-                    />
-                  ))}
-                </div>
-              )}
-              <p className="whitespace-pre-wrap break-words">{message.content}</p>
-            </div>
-          ) : isPartial ? (
-            /* Streaming: use monospace to avoid Markdown flicker */
-            <div className="font-mono text-xs whitespace-pre-wrap break-words text-gray-200">
-              {displayContent || (
-                <span className="text-gray-500 italic">等待响应...</span>
-              )}
-            </div>
-          ) : displayContent ? (
-            /* Completed: render Markdown */
-            <div className="prose prose-invert prose-sm max-w-none
-              prose-p:my-1 prose-p:leading-relaxed
-              prose-headings:mt-3 prose-headings:mb-1
-              prose-code:text-purple-300 prose-code:bg-purple-500/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-xs prose-code:before:content-none prose-code:after:content-none
-              prose-pre:bg-[#0d1117] prose-pre:border prose-pre:border-white/[0.06] prose-pre:rounded-xl prose-pre:my-2
-              prose-a:text-accent-blue prose-a:no-underline hover:prose-a:underline
-              prose-li:my-0.5
-              prose-table:text-xs
-              prose-th:px-2 prose-th:py-1 prose-th:border prose-th:border-white/[0.06]
-              prose-td:px-2 prose-td:py-1 prose-td:border prose-td:border-white/[0.06]
-              prose-strong:text-gray-100
-              prose-em:text-gray-300
-              prose-blockquote:border-purple-500/20 prose-blockquote:text-gray-400 prose-blockquote:bg-purple-500/[0.03] prose-blockquote:rounded-r-lg prose-blockquote:py-1
-            ">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  a: ({ href, children }) => (
-                    <a
-                      href={href}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        if (href) void AppAPI.openInExplorer(href)
-                      }}
-                      title={href}
-                    >
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
-                {displayContent}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            <span className="text-gray-500 italic text-xs">空回复</span>
-          )}
-        </div>
-
-        {/* Usage / cache hit info + relative timestamp */}
-        {!isUser && !isPartial && ((message as any).usage || (message as any).timestamp) && (
-          <div className="flex items-center gap-2 px-1 mt-0.5">
-            {(message as any).usage?.cacheReadTokens > 0 && (
-              <span className="text-[10px] text-gray-600 font-mono">
-                cache hit {formatNumber((message as any).usage.cacheReadTokens)}
+      <div className="border-t border-[#1e1e1e] px-5 py-4">
+        {/* Header row: speaker label + metadata */}
+        <div className="flex items-baseline justify-between mb-2.5">
+          <span className={`text-[10px] font-700 tracking-[0.15em] uppercase ${
+            isUser ? 'text-[#ff4f1a]' : 'text-[#555]'
+          }`}>
+            {isUser ? 'YOU' : (provider ? provider.toUpperCase() : 'AI')}
+          </span>
+          <div className="flex items-center gap-3">
+            {!isUser && usage?.cacheReadTokens > 0 && (
+              <span className="text-[9px] font-600 tracking-widest uppercase text-[#3eb550]">
+                CACHE +{formatNumber(usage.cacheReadTokens)}
               </span>
             )}
-            {(message as any).timestamp && (
-              <span className="text-[10px] text-gray-600">
-                {formatRelativeTime((message as any).timestamp)}
+            {!isUser && !isPartial && usage?.inputTokens && (
+              <span className="text-[9px] tracking-wider text-[#3a3a3a] tabular-nums font-mono">
+                {formatNumber(usage.inputTokens + (usage.outputTokens || 0))} tok
+              </span>
+            )}
+            {timestamp && (
+              <span className="text-[9px] tracking-widest text-[#333] tabular-nums">
+                {formatRelativeTime(timestamp)}
               </span>
             )}
           </div>
+        </div>
+
+        {/* Thinking block */}
+        {thinkingText && (
+          <div className="mb-3">
+            <button
+              onClick={() => setThinkingExpanded(!thinkingExpanded)}
+              className="flex items-center gap-1.5 text-[9px] font-600 uppercase tracking-[0.15em] text-[#3a3a3a] hover:text-[#555] transition-colors"
+            >
+              {thinkingExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              THINKING PROCESS · {formatNumber(thinkingText.length)} CHARS
+            </button>
+            {thinkingExpanded && (
+              <div className="mt-2 pl-3 border-l-2 border-[#2e2e2e] text-[11px] text-[#4a4a4a] leading-relaxed max-h-[180px] overflow-y-auto">
+                {thinkingText}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Message content */}
+        {isUser ? (
+          <div>
+            {userImages && userImages.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {userImages.map((url: string, i: number) => (
+                  <img
+                    key={i}
+                    src={url}
+                    alt={`Attachment ${i + 1}`}
+                    className="max-w-[280px] max-h-[200px] object-contain cursor-pointer border border-[#2e2e2e] hover:border-[#444] transition-colors"
+                    onClick={() => setPreviewIndex(i)}
+                  />
+                ))}
+              </div>
+            )}
+            <p className="text-[#e8e4de] text-sm leading-relaxed whitespace-pre-wrap break-words font-400">
+              {message.content}
+            </p>
+          </div>
+        ) : isPartial ? (
+          <div className="text-[#ccc] text-sm leading-relaxed whitespace-pre-wrap break-words font-300">
+            {displayContent || <span className="text-[#3a3a3a] italic text-xs">Waiting for response…</span>}
+          </div>
+        ) : displayContent ? (
+          <div className="prose max-w-none text-sm leading-relaxed
+            [&>p]:my-1.5 [&>p]:text-[#ccc] [&>p]:leading-relaxed [&>p]:font-300
+            [&>h1]:text-[#e8e4de] [&>h1]:font-700 [&>h1]:text-base [&>h1]:mt-4 [&>h1]:mb-1 [&>h1]:tracking-tight
+            [&>h2]:text-[#e8e4de] [&>h2]:font-600 [&>h2]:text-sm [&>h2]:mt-3 [&>h2]:mb-1
+            [&>h3]:text-[#aaa] [&>h3]:font-600 [&>h3]:text-xs [&>h3]:mt-2 [&>h3]:mb-0.5 [&>h3]:uppercase [&>h3]:tracking-wider
+            [&>ul]:my-1.5 [&>ul]:pl-4 [&>ul>li]:text-[#aaa] [&>ul>li]:text-sm [&>ul>li]:my-0.5
+            [&>ol]:my-1.5 [&>ol]:pl-4 [&>ol>li]:text-[#aaa] [&>ol>li]:text-sm [&>ol>li]:my-0.5
+            [&>blockquote]:border-l-2 [&>blockquote]:border-[#2e2e2e] [&>blockquote]:pl-3 [&>blockquote]:text-[#666] [&>blockquote]:italic [&>blockquote]:my-2
+            [&_strong]:text-[#e8e4de] [&_strong]:font-600
+            [&_em]:text-[#888] [&_em]:italic
+            [&_a]:text-[#ff4f1a] [&_a]:no-underline hover:[&_a]:underline
+            [&_code]:text-[#ff7044] [&_code]:bg-[#1a1a1a] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-mono
+            [&_pre]:bg-[#111] [&_pre]:border [&_pre]:border-[#2e2e2e] [&_pre]:p-3 [&_pre]:my-2 [&_pre]:overflow-x-auto
+            [&_pre_code]:bg-transparent [&_pre_code]:text-[#ccc] [&_pre_code]:p-0 [&_pre_code]:text-xs
+            [&_table]:border-collapse [&_table]:text-xs [&_table]:my-2 [&_table]:w-full
+            [&_th]:text-[9px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:font-700 [&_th]:text-[#555] [&_th]:border [&_th]:border-[#2e2e2e] [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:bg-[#111]
+            [&_td]:text-[#aaa] [&_td]:border [&_td]:border-[#2e2e2e] [&_td]:px-2 [&_td]:py-1.5
+          ">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ href, children }) => (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      if (href) void AppAPI.openInExplorer(href)
+                    }}
+                    title={href}
+                  >
+                    {children}
+                  </a>
+                ),
+              }}
+            >
+              {displayContent}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <span className="text-[#333] text-xs italic">empty reply</span>
         )}
       </div>
 
-      {isUser && (
-        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/10 text-blue-300 shadow-sm">
-          <User size={15} />
-        </div>
+      {previewIndex !== null && userImages && (
+        <ImageViewer
+          images={userImages}
+          initialIndex={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+        />
       )}
-    </motion.div>
-
-    {/* Image viewer (WeChat-style full-screen preview) */}
-    {previewIndex !== null && userImages && (
-      <ImageViewer
-        images={userImages}
-        initialIndex={previewIndex}
-        onClose={() => setPreviewIndex(null)}
-      />
-    )}
     </>
   )
 }

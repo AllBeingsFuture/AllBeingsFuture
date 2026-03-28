@@ -57,7 +57,7 @@ export default function DraggableDialog({
       {/* Backdrop */}
       {showBackdrop && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 bg-black/70"
           style={{ zIndex: zIndex - 1 }}
           onClick={closeOnBackdropClick ? onClose : undefined}
         />
@@ -71,7 +71,7 @@ export default function DraggableDialog({
         aria-labelledby={testId ? `${testId}-title` : undefined}
         data-testid={testId}
         className={[
-          'fixed flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d1117]/98 shadow-[0_24px_64px_rgba(0,0,0,0.5)] backdrop-blur-xl',
+          'fixed flex flex-col overflow-hidden border border-[#2e2e2e] bg-[#111]',
           widthClass,
           heightClass,
           className,
@@ -86,24 +86,24 @@ export default function DraggableDialog({
         {/* Title bar - drag handle */}
         <div
           className={[
-            'flex shrink-0 items-center justify-between border-b border-white/[0.06] px-5 py-3',
+            'flex shrink-0 items-center justify-between border-b border-[#2e2e2e] px-5 py-3',
             isDragging ? 'cursor-grabbing' : 'cursor-grab',
           ].join(' ')}
           onMouseDown={handleMouseDown}
         >
           <div className="flex items-center gap-3">
             {icon && (
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.08] bg-blue-500/10 text-blue-300">
+              <span className="flex h-7 w-7 items-center justify-center border border-[#2e2e2e] bg-[#1a1a1a] text-[#ff4f1a]">
                 {icon}
               </span>
             )}
             <div>
               {subtitle && (
-                <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500">{subtitle}</p>
+                <p className="text-[9px] uppercase tracking-[0.25em] text-[#444]">{subtitle}</p>
               )}
               <h2
                 id={testId ? `${testId}-title` : undefined}
-                className="text-base font-semibold text-white"
+                className="text-[13px] font-600 text-[#e8e4de]"
               >
                 {title}
               </h2>
@@ -112,10 +112,10 @@ export default function DraggableDialog({
           <button
             type="button"
             aria-label="关闭"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-all duration-200 hover:bg-white/[0.08] hover:text-white"
+            className="flex h-7 w-7 items-center justify-center text-[#444] transition-colors hover:bg-[#1a1a1a] hover:text-[#888]"
             onClick={onClose}
           >
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
 

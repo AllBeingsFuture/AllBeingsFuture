@@ -44,8 +44,8 @@ function DropZone({ side, draggingId, dropZone, panelSides, onDragOver, onDragLe
   return (
     <div
       className={[
-        'flex flex-col items-center gap-1 w-full px-1 rounded-lg py-0.5 transition-all duration-200 min-h-[2rem]',
-        isTarget ? 'bg-accent-blue/10 ring-1 ring-inset ring-accent-blue/30 shadow-[0_0_12px_rgba(88,166,255,0.1)]' : '',
+        'flex flex-col items-center gap-1 w-full px-1 py-0.5 transition-all duration-150 min-h-[2rem]',
+        isTarget ? 'bg-[#1a1a1a] border border-[#ff4f1a]/30' : '',
       ].join(' ')}
       onDragOver={(e) => { e.preventDefault(); onDragOver(side) }}
       onDragLeave={onDragLeave}
@@ -146,19 +146,19 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
           if (!disabled) setContextMenu({ id, x: e.clientX, y: e.clientY })
         }}
         className={[
-          'relative w-full h-10 flex items-center justify-center rounded-lg transition-all duration-200 select-none',
+          'relative w-full h-10 flex items-center justify-center transition-all duration-150 select-none',
           isDragging ? 'opacity-30' : '',
           isActive
-            ? 'text-accent-blue bg-accent-blue/10'
+            ? 'text-[#ff4f1a] bg-[#1a1a1a]'
             : disabled
             ? 'text-text-muted opacity-30 cursor-not-allowed'
-            : 'text-text-muted hover:text-text-secondary hover:bg-white/[0.06] cursor-grab active:cursor-grabbing',
+            : 'text-[#555] hover:text-[#888] hover:bg-[#171717] cursor-grab active:cursor-grabbing',
         ].join(' ')}
       >
         {isActive && (
           <span
             className={[
-              'absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-accent-blue shadow-[0_0_6px_rgba(88,166,255,0.4)]',
+              'absolute top-0 bottom-0 w-[2px] bg-[#ff4f1a]',
               side === 'left' ? 'left-0' : 'right-0',
             ].join(' ')}
           />
@@ -169,7 +169,7 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
   }
 
   return (
-    <div className="flex flex-col items-center w-12 shrink-0 h-full bg-bg-secondary border-r border-border py-2 z-10">
+    <div className="flex flex-col items-center w-12 shrink-0 h-full bg-[#0c0c0c] border-r border-[#2e2e2e] py-2 z-10">
       {/* 上半区：控制左侧边栏 */}
       <DropZone
         side="left"
@@ -190,8 +190,8 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
 
       {/* 分隔线 */}
       <div className={[
-        'w-5 my-2 transition-colors',
-        draggingId ? 'border-t border-accent-blue/40' : 'border-t border-white/[0.06]',
+        'w-5 my-2 border-t transition-colors',
+        draggingId ? 'border-[#ff4f1a]/30' : 'border-[#2e2e2e]',
       ].join(' ')} />
 
       {/* 下半区：控制右侧面板 */}
@@ -220,14 +220,14 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
           title="终端 (Ctrl+`)"
           onClick={toggleShellPanel}
           className={[
-            'relative w-full h-10 flex items-center justify-center rounded-lg transition-all duration-200',
+            'relative w-full h-10 flex items-center justify-center transition-all duration-150',
             shellPanelVisible
-              ? 'bg-accent-green/10 text-accent-green'
-              : 'text-text-muted hover:text-text-secondary hover:bg-white/[0.06]',
+              ? 'bg-[#1a1a1a] text-[#3eb550]'
+              : 'text-[#555] hover:text-[#888] hover:bg-[#171717]',
           ].join(' ')}
         >
           {shellPanelVisible && (
-            <span className="absolute top-1.5 bottom-1.5 left-0 w-[3px] bg-accent-green rounded-full shadow-[0_0_6px_rgba(63,185,80,0.4)]" />
+            <span className="absolute top-0 bottom-0 left-0 w-[2px] bg-[#3eb550]" />
           )}
           <TerminalSquare className="w-[18px] h-[18px]" />
         </button>
@@ -239,28 +239,28 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
           title="Agent Teams — 多 AI 协作"
           onClick={() => setTeamsMode(!teamsMode)}
           className={[
-            'relative w-full h-10 flex items-center justify-center rounded-lg transition-all duration-200',
+            'relative w-full h-10 flex items-center justify-center transition-all duration-150',
             teamsMode
-              ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/30'
-              : 'text-text-muted hover:text-indigo-400 hover:bg-indigo-500/10',
+              ? 'bg-[#1a1a1a] text-[#ff4f1a]'
+              : 'text-[#555] hover:text-[#ff7044] hover:bg-[#171717]',
           ].join(' ')}
         >
           {teamsMode && (
-            <span className="absolute top-1.5 bottom-1.5 left-0 w-[3px] bg-indigo-400 rounded-full shadow-[0_0_6px_rgba(129,140,248,0.4)]" />
+            <span className="absolute top-0 bottom-0 left-0 w-[2px] bg-[#ff4f1a]" />
           )}
           <Users className="w-[18px] h-[18px]" />
         </button>
       </div>
 
       {/* 分隔线 */}
-      <div className="w-5 border-t border-white/[0.06] mb-1" />
+      <div className="w-5 border-t border-[#2e2e2e] mb-1" />
 
       {/* 设置按钮 */}
       <div className="px-1 w-full">
         <button
           title="设置"
           onClick={onOpenSettings}
-          className="w-full h-10 flex items-center justify-center rounded-lg text-text-muted hover:text-text-secondary hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
+          className="w-full h-10 flex items-center justify-center text-[#555] hover:text-[#888] hover:bg-[#171717] transition-all duration-150 cursor-pointer"
         >
           <Settings className="w-[18px] h-[18px]" />
         </button>
@@ -269,12 +269,12 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
       {/* 右键菜单 */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-bg-secondary/95 backdrop-blur-md border border-white/[0.08] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] py-1.5 text-xs min-w-[148px] animate-fade-in-up"
+          className="fixed z-50 bg-[#111] border border-[#2e2e2e] py-1 text-xs min-w-[148px] animate-fade-in-up"
           style={{ top: contextMenu.y, left: contextMenu.x + 4 }}
           onClick={e => e.stopPropagation()}
         >
           <button
-            className="w-full px-3 py-2 text-left text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-colors"
+            className="w-full px-3 py-2 text-left text-[#888] hover:bg-[#1a1a1a] hover:text-[#e8e4de] transition-colors"
             onClick={() => {
               const cur = panelSides[contextMenu.id]
               setPanelSide(contextMenu.id, cur === 'left' ? 'right' : 'left')
@@ -284,7 +284,7 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
             {panelSides[contextMenu.id] === 'left' ? '移到右侧面板 →' : '← 移到左侧边栏'}
           </button>
           <button
-            className="w-full px-3 py-2 text-left text-text-muted hover:bg-white/[0.06] hover:text-text-primary transition-colors"
+            className="w-full px-3 py-2 text-left text-[#555] hover:bg-[#1a1a1a] hover:text-[#888] transition-colors"
             onClick={() => setContextMenu(null)}
           >
             取消

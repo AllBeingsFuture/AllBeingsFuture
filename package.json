@@ -13,6 +13,7 @@
     "build:renderer": "cd frontend && npm run build",
     "build:electron": "tsc -p electron/tsconfig.json",
     "pack": "npm run build && electron-builder --win",
+    "pack:mac": "npm run build && electron-builder --mac",
     "postinstall": "cd frontend && npm install"
   },
   "dependencies": {
@@ -64,6 +65,21 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ],
+      "icon": "appicon.icns",
+      "category": "public.app-category.productivity",
+      "darkModeSupport": true
+    },
+    "dmg": {
+      "title": "AllBeingsFuture",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
     "npmRebuild": false,
     "asarUnpack": [
       "node_modules/better-sqlite3/build/Release/*.node",
@@ -91,6 +107,10 @@
       {
         "from": "appicon.ico",
         "to": "appicon.ico"
+      },
+      {
+        "from": "appicon.icns",
+        "to": "appicon.icns"
       }
     ]
   }

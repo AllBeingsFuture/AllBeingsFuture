@@ -69,23 +69,23 @@ export default function AppLayout() {
   const mainPanelResetKey = `${primaryPane}:${secondaryPane}`
 
   return (
-    <div className="flex flex-col h-screen bg-bg-primary">
+    <div className="flex flex-col h-screen bg-[#0c0c0c]">
       <TitleBar />
       <div className="flex-1 overflow-hidden flex">
         <ActivityBar onOpenSettings={() => setShowSettings(true)} />
 
         {teamsMode ? (
           <div className="flex-1 overflow-hidden flex flex-col">
-            <div className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 border-b border-indigo-500/20 shrink-0">
-              <Users className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="text-xs font-medium text-indigo-400">Agent Teams 模式</span>
+            <div className="flex items-center gap-2 px-4 py-1.5 bg-[#1a1a1a] border-b border-[#2e2e2e] shrink-0">
+              <div className="w-[6px] h-[6px] bg-[#ff4f1a]" />
+              <span className="text-[9px] font-700 tracking-[0.18em] uppercase text-[#ff4f1a]">AGENT TEAMS MODE</span>
               <div className="flex-1" />
               <button
                 onClick={() => setTeamsMode(false)}
-                className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary transition-colors"
+                className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-[#444] hover:text-[#888] transition-colors"
               >
                 <X className="w-3 h-3" />
-                返回普通模式
+                EXIT
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
@@ -138,7 +138,7 @@ export default function AppLayout() {
 
               {!detailPanelCollapsed && (
                 <Allotment.Pane preferredSize={300} minSize={220} maxSize={480}>
-                  <div className="h-full border-l border-border bg-bg-secondary overflow-hidden">
+                  <div className="h-full border-l border-[#2e2e2e] bg-[#0c0c0c] overflow-hidden">
                     <PanelErrorBoundary title="活动时间线">
                       <RightPanel />
                     </PanelErrorBoundary>
