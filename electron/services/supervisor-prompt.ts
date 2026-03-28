@@ -80,16 +80,8 @@ export function buildSupervisorPrompt(availableProviders: string[]): string {
 
 // ==================== 静态规则内容 ====================
 
-function buildArchitectureRules(): string {
-  return loadTemplate('abf-architecture.md')
-}
-
 function buildProviderRules(): string {
   return loadTemplate('abf-providers.md')
-}
-
-function buildTestingRules(): string {
-  return loadTemplate('abf-testing.md')
 }
 
 function buildGitWorkflowRules(): string {
@@ -241,16 +233,6 @@ export function cleanupSupervisorPrompt(workDir: string, cleanAgentsMd = false):
     } catch {
       // Ignore
     }
-  }
-
-  // 同时清理旧版 architecture/testing 规则文件（如果存在）
-  for (const oldFile of ['abf-architecture.md', 'abf-testing.md']) {
-    try {
-      const oldPath = path.join(rulesDir, oldFile)
-      if (fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath)
-      }
-    } catch {}
   }
 
   appLog('info', `[Supervisor] Cleaned up rule files from: ${workDir}`, 'supervisor-prompt')

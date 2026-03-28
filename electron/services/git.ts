@@ -5,6 +5,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { detectGitCmdPath } from '../bridge/runtime.js'
@@ -26,6 +27,10 @@ function getGitExecutable(): string {
 
   resolvedGitPath = 'git'
   return resolvedGitPath
+}
+
+function normalizeFilePath(target: string): string {
+  return path.resolve(target).replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
 export class GitService {
@@ -72,11 +77,37 @@ export class GitService {
   async getStatus(repoPath: string): Promise<any> {
     const branch = await this.getCurrentBranch(repoPath).catch(() => 'unknown')
     const statusRaw = await this.git(['status', '--porcelain', '-u'], repoPath).catch(() => '')
-    const files = statusRaw.split('\n').filter(Boolean).map(line => ({
-      status: line.substring(0, 2).trim(),
-      path: line.substring(3),
-    }))
-    return { branch, files, clean: files.length === 0 }
+    const staged: string[] = []
+    const unstaged: string[] = []
+    const untracked: string[] = []
+
+    for (const line of statusRaw.split('\n').filter(Boolean)) {
+      if (line.length < 3) continue
+
+      const state = line.slice(0, 2)
+      const filePath = line.slice(3).trim()
+      if (!filePath || state === '!!') continue
+
+      if (state === '??') {
+        untracked.push(filePath)
+        continue
+      }
+
+      if (state[0] && state[0] !== ' ') staged.push(filePath)
+      if (state[1] && state[1] !== ' ') unstaged.push(filePath)
+    }
+
+    const aheadBehindRaw = await this.git(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], repoPath).catch(() => '')
+    const [aheadRaw = '0', behindRaw = '0'] = aheadBehindRaw.trim().split(/\s+/)
+
+    return {
+      staged,
+      unstaged,
+      untracked,
+      branch,
+      ahead: parseInt(aheadRaw, 10) || 0,
+      behind: parseInt(behindRaw, 10) || 0,
+    }
   }
 
   async getDiff(repoPath: string, base: string, head: string): Promise<string> {
@@ -93,35 +124,40 @@ export class GitService {
   }
 
   async createWorktree(repoPath: string, branchName: string, taskId?: string): Promise<any> {
-    const safeName = branchName.replace(/[^a-zA-Z0-9_-]/g, '-')
-    const worktreePath = `${repoPath}/.allbeingsfuture-worktrees/${safeName}`
+    const safeName = branchName.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || `session-${Date.now()}`
+    const worktreePath = path.join(repoPath, '.allbeingsfuture-worktrees', safeName).replace(/\\/g, '/')
     const branch = `worktree-${safeName}`
 
+    await this.git(['worktree', 'prune'], repoPath).catch(() => {})
+    await mkdir(path.dirname(worktreePath), { recursive: true })
     await this.git(['worktree', 'add', worktreePath, '-b', branch], repoPath)
     const baseCommit = await this.git(['rev-parse', 'HEAD'], repoPath)
     const baseBranch = await this.getCurrentBranch(repoPath)
 
-    return { path: worktreePath, branch, baseCommit, baseBranch, taskId: taskId || '' }
+    return { worktreePath, branch, baseCommit, baseBranch, taskId: taskId || '' }
   }
 
   async removeWorktree(repoPath: string, worktreePath: string, deleteBranch: boolean = true): Promise<void> {
+    if (!worktreePath) return
+
     await this.git(['worktree', 'remove', worktreePath, '--force'], repoPath).catch(async () => {
-      const { rm } = await import('node:fs/promises')
       await rm(worktreePath, { recursive: true, force: true }).catch(() => {})
       await this.git(['worktree', 'prune'], repoPath)
     })
 
     if (deleteBranch) {
-      const worktreeName = worktreePath.split('/').pop() || ''
+      const worktreeName = path.basename(worktreePath)
       const branchName = `worktree-${worktreeName}`
       await this.git(['branch', '-D', branchName], repoPath).catch(() => {})
     }
   }
 
   async listWorktrees(repoPath: string): Promise<any[]> {
+    await this.git(['worktree', 'prune'], repoPath).catch(() => {})
     const output = await this.git(['worktree', 'list', '--porcelain'], repoPath).catch(() => '')
     if (!output) return []
 
+    const repoRoot = normalizeFilePath(repoPath)
     const worktrees: any[] = []
     let current: any = {}
 
@@ -130,9 +166,11 @@ export class GitService {
         if (current.path) worktrees.push(current)
         current = { path: line.slice(9) }
       } else if (line.startsWith('HEAD ')) {
-        current.head = line.slice(5)
+        current.headCommit = line.slice(5)
       } else if (line.startsWith('branch ')) {
         current.branch = line.slice(7).replace('refs/heads/', '')
+      } else if (line.startsWith('prunable ')) {
+        current.prunable = true
       } else if (line === 'bare') {
         current.bare = true
       } else if (line === 'detached') {
@@ -141,15 +179,42 @@ export class GitService {
     }
     if (current.path) worktrees.push(current)
     return worktrees
+      .filter(worktree => !worktree.prunable)
+      .map((worktree) => ({
+      path: worktree.path,
+      branch: worktree.branch || '',
+      headCommit: worktree.headCommit || '',
+      isMain: normalizeFilePath(worktree.path) === repoRoot,
+      }))
   }
 
   async checkMerge(repoPath: string, worktreeBranch: string, targetBranch: string): Promise<any> {
     try {
       const mergeBase = await this.git(['merge-base', targetBranch, worktreeBranch], repoPath)
-      const diff = await this.git(['diff', '--stat', `${mergeBase}..${worktreeBranch}`], repoPath)
-      return { canMerge: true, conflicts: [], diff, mergeBase }
+      const diff = await this.git(['diff', '--stat', `${mergeBase}..${worktreeBranch}`], repoPath).catch(() => '')
+      const message = diff
+        ? `可以将 ${worktreeBranch} 合并到 ${targetBranch}`
+        : `${worktreeBranch} 与 ${targetBranch} 没有待合并差异`
+
+      return {
+        success: true,
+        mergedBranch: worktreeBranch,
+        targetBranch,
+        hasConflicts: false,
+        conflictFiles: [],
+        autoResolved: false,
+        message,
+      }
     } catch (err: any) {
-      return { canMerge: false, conflicts: [err.message], diff: '', mergeBase: '' }
+      return {
+        success: false,
+        mergedBranch: worktreeBranch,
+        targetBranch,
+        hasConflicts: true,
+        conflictFiles: [],
+        autoResolved: false,
+        message: err.message || '合并检查失败',
+      }
     }
   }
 
@@ -161,10 +226,28 @@ export class GitService {
 
     try {
       const result = await this.git(['merge', worktreeBranch, '--no-ff'], repoPath)
-      return { success: true, output: result, conflicts: [] }
+      return {
+        success: true,
+        mergedBranch: worktreeBranch,
+        targetBranch,
+        hasConflicts: false,
+        conflictFiles: [],
+        autoResolved: false,
+        message: result || `已将 ${worktreeBranch} 合并到 ${targetBranch}`,
+      }
     } catch (err: any) {
+      const conflictOutput = await this.git(['diff', '--name-only', '--diff-filter=U'], repoPath).catch(() => '')
+      const conflictFiles = conflictOutput.split('\n').filter(Boolean)
       await this.git(['merge', '--abort'], repoPath).catch(() => {})
-      return { success: false, output: err.message, conflicts: [err.stderr || err.message] }
+      return {
+        success: false,
+        mergedBranch: worktreeBranch,
+        targetBranch,
+        hasConflicts: conflictFiles.length > 0,
+        conflictFiles,
+        autoResolved: false,
+        message: err.stderr || err.message || `合并 ${worktreeBranch} 失败`,
+      }
     }
   }
 

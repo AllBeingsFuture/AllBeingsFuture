@@ -16,6 +16,12 @@ type PatchedChatMessage = ChatMessage & {
 const ACTIVE_RUNTIME_STATUSES = new Set<Session['status']>(['starting', 'running'])
 type WorktreeCreateResult = CreateWorktreeResult & { baseBranch?: string }
 
+function resolveWorktreePath(worktree: WorktreeCreateResult | null | undefined): string {
+  if (!worktree) return ''
+  const legacyWorktree = worktree as WorktreeCreateResult & { path?: string }
+  return worktree.worktreePath || legacyWorktree.path || ''
+}
+
 function syncRuntimeStatus(sessions: Session[], sessionId: string, streaming: boolean): Session[] {
   let changed = false
   const nextSessions = sessions.map((session) => {
@@ -95,20 +101,21 @@ async function createSessionWithWorktree(config: SessionConfig): Promise<Session
 
   const { branchName, taskId } = buildWorktreeIdentifiers(config)
   const worktree = await GitService.CreateWorktree(repoPath, branchName, taskId) as WorktreeCreateResult | null
-  if (!worktree?.worktreePath || !worktree.branch) {
+  const worktreePath = resolveWorktreePath(worktree)
+  if (!worktreePath || !worktree?.branch) {
     throw new Error('创建 Worktree 失败')
   }
 
   try {
     const session = await SessionService.Create({
       ...config,
-      workingDirectory: worktree.worktreePath,
+      workingDirectory: worktreePath,
     })
     if (!session) return null
 
     await SessionService.SetWorktreeInfo(
       session.id,
-      worktree.worktreePath,
+      worktreePath,
       worktree.branch,
       worktree.baseCommit || '',
       worktree.baseBranch || '',
@@ -120,8 +127,8 @@ async function createSessionWithWorktree(config: SessionConfig): Promise<Session
 
     return {
       ...session,
-      workingDirectory: worktree.worktreePath,
-      worktreePath: worktree.worktreePath,
+      workingDirectory: worktreePath,
+      worktreePath,
       worktreeBranch: worktree.branch,
       worktreeBaseCommit: worktree.baseCommit || '',
       worktreeBaseBranch: worktree.baseBranch || '',
@@ -129,7 +136,7 @@ async function createSessionWithWorktree(config: SessionConfig): Promise<Session
       worktreeMerged: false,
     } as Session
   } catch (err) {
-    await GitService.RemoveWorktree(repoPath, worktree.worktreePath, true).catch(() => {})
+    await GitService.RemoveWorktree(repoPath, worktreePath, true).catch(() => {})
     throw err
   }
 }

@@ -151,6 +151,56 @@ describe('sessionStore runtime status sync', () => {
     expect(useSessionStore.getState().sessions[0]).toEqual(hydratedSession)
   })
 
+  it('accepts legacy worktree responses that only expose path', async () => {
+    const worktreePath = 'C:/repo/.allbeingsfuture-worktrees/fix-legacy-shape'
+    const createdSession = makeSession({
+      id: 'session-legacy',
+      workingDirectory: worktreePath,
+    })
+    const hydratedSession = makeSession({
+      id: 'session-legacy',
+      workingDirectory: worktreePath,
+      worktreePath,
+      worktreeBranch: 'worktree-fix-legacy-shape',
+      worktreeBaseCommit: 'def456',
+      worktreeBaseBranch: 'main',
+      worktreeSourceRepo: 'C:/repo',
+    })
+
+    serviceMocks.gitService.GetRepoRoot.mockResolvedValue('C:/repo')
+    serviceMocks.gitService.CreateWorktree.mockResolvedValue({
+      path: worktreePath,
+      branch: 'worktree-fix-legacy-shape',
+      baseCommit: 'def456',
+      baseBranch: 'main',
+    })
+    serviceMocks.sessionService.Create.mockResolvedValue(createdSession)
+    serviceMocks.sessionService.SetWorktreeInfo.mockResolvedValue(undefined)
+    serviceMocks.sessionService.GetByID.mockResolvedValue(hydratedSession)
+
+    const session = await useSessionStore.getState().create({
+      name: 'Legacy Shape',
+      workingDirectory: 'C:/repo',
+      providerId: 'codex',
+      worktreeEnabled: true,
+      gitRepoPath: 'C:/repo',
+      gitBranch: 'fix-legacy-shape',
+    } as any)
+
+    expect(serviceMocks.sessionService.Create).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: worktreePath,
+    }))
+    expect(serviceMocks.sessionService.SetWorktreeInfo).toHaveBeenCalledWith(
+      'session-legacy',
+      worktreePath,
+      'worktree-fix-legacy-shape',
+      'def456',
+      'main',
+      'C:/repo',
+    )
+    expect(session).toEqual(hydratedSession)
+  })
+
   it('marks a selected running session idle once polling reports streaming has stopped', async () => {
     serviceMocks.processService.GetChatState.mockResolvedValue({
       messages: [{ role: 'assistant', content: '[Error] timeout' }],
