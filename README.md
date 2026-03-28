@@ -393,4 +393,4 @@ release/AllBeingsFuture Setup <version>.exe
 
 ## 社区
 
-- LINUX DO: `https://linux.do/`
+- [LINUX DO](https://linux.do/)
