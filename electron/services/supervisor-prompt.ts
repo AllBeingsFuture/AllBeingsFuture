@@ -1,9 +1,9 @@
 /**
  * ABF 规则注入器
  *
- * 按 Provider 差异化注入规则，避免双重 token 消耗：
+ * 按 Provider 差异化注入规则：
  * - Claude:  写 .claude/rules/abf-*.md（自动发现，不用 appendSystemPrompt）
- * - Codex:   写 AGENTS.md（自动发现，不用 appendSystemPrompt）
+ * - Codex:   将 ABF 规则注入/合并到 AGENTS.md，确保 Codex 文件发现链路能拿到提示词
  * - 其他:    通过 appendSystemPrompt 注入
  *
  * 共享规则（abf-common.md）：中文要求、Windows 环境、开发规范
@@ -29,6 +29,8 @@ const ABF_RULES_FILES = [
 
 /** Codex: AGENTS.md 文件名 */
 const CODEX_AGENTS_FILE = 'AGENTS.md'
+const CODEX_INJECT_START = '<!-- ABF:CODEX-RULES:START -->'
+const CODEX_INJECT_END = '<!-- ABF:CODEX-RULES:END -->'
 
 // ==================== 模板加载 ====================
 
@@ -120,6 +122,29 @@ export function buildAllRulesContent(
   return parts.join('\n\n---\n\n')
 }
 
+/**
+ * 构建 Codex 专用规则内容。
+ * 直接通过 developerInstructions 注入，避免在仓库里生成或覆盖 AGENTS.md。
+ */
+export function buildCodexRulesContent(): string {
+  const parts = [
+    loadTemplate('abf-common.md'),
+    loadTemplate('codex-agents.md'),
+    buildProviderRules(),
+    buildGitWorkflowRules(),
+  ]
+  return parts.join('\n\n---\n\n')
+}
+
+function stripInjectedCodexRules(content: string): string {
+  if (!content.includes(CODEX_INJECT_START)) return content
+  const pattern = new RegExp(
+    `\\n?${CODEX_INJECT_START}[\\s\\S]*?${CODEX_INJECT_END}\\n?`,
+    'g',
+  )
+  return content.replace(pattern, '').replace(/\n{3,}/g, '\n\n').trimEnd()
+}
+
 // ==================== 文件操作 ====================
 
 /**
@@ -166,50 +191,36 @@ export function injectSupervisorPrompt(
 }
 
 /**
- * 注入 Codex AGENTS.md 到工作目录
- * Codex CLI 启动时自动读取项目根目录的 AGENTS.md
- *
- * @param workDir - 会话工作目录
- * @param availableProviders - 可用的 AI Provider 名称列表
+ * 注入 Codex AGENTS.md 到工作目录。
+ * 如果仓库原本就有 AGENTS.md，则保留原内容，只追加/更新 ABF 注入块。
  */
-export function injectCodexAgentsMd(
-  workDir: string,
-  availableProviders: string[],
-): void {
+export function injectCodexAgentsMd(workDir: string): void {
   const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
+  const injectedBlock = `${CODEX_INJECT_START}\n${buildCodexRulesContent()}\n${CODEX_INJECT_END}\n`
 
-  // 读取共享规则 + Codex 专用模板
-  let commonRules = ''
-  let codexTemplate = ''
+  let existing = ''
   try {
-    const promptsDir = getPromptsDir()
-    commonRules = fs.readFileSync(path.join(promptsDir, 'abf-common.md'), 'utf-8')
-    codexTemplate = fs.readFileSync(path.join(promptsDir, 'codex-agents.md'), 'utf-8')
+    existing = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf-8') : ''
   } catch {
-    appLog('warn', '[Supervisor] Failed to read template files for Codex', 'supervisor-prompt')
-    return
+    appLog('warn', '[Supervisor] Failed to read existing AGENTS.md for Codex', 'supervisor-prompt')
+    existing = ''
   }
 
-  // 拼接：共享规则 + Codex 专有 + providers + git-workflow
-  const parts = [
-    commonRules,
-    codexTemplate,
-    buildProviderRules(),
-    buildGitWorkflowRules(),
-  ]
+  const preserved = stripInjectedCodexRules(existing)
+  const nextContent = preserved
+    ? `${preserved}\n\n${injectedBlock}`
+    : injectedBlock
 
-  const content = parts.join('\n\n---\n\n')
-  fs.writeFileSync(agentsPath, content, 'utf-8')
-  appLog('info', `[Supervisor] Injected AGENTS.md to: ${agentsPath}`, 'supervisor-prompt')
+  fs.writeFileSync(agentsPath, nextContent, 'utf-8')
+  appLog('info', `[Supervisor] Injected Codex rules into: ${agentsPath}`, 'supervisor-prompt')
 }
 
 /**
  * 清理所有 ABF 规则文件（会话结束时调用）
  *
  * @param workDir - 会话工作目录
- * @param cleanAgentsMd - 是否同时清理 AGENTS.md（Codex 会话）
  */
-export function cleanupSupervisorPrompt(workDir: string, cleanAgentsMd = false): void {
+export function cleanupSupervisorPrompt(workDir: string): void {
   // 清理 .claude/rules/abf-*.md
   const rulesDir = path.join(workDir, '.claude', 'rules')
   for (const filename of ABF_RULES_FILES) {
@@ -223,16 +234,19 @@ export function cleanupSupervisorPrompt(workDir: string, cleanAgentsMd = false):
     }
   }
 
-  // 清理 Codex AGENTS.md
-  if (cleanAgentsMd) {
-    try {
-      const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
-      if (fs.existsSync(agentsPath)) {
+  try {
+    const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
+    if (fs.existsSync(agentsPath)) {
+      const existing = fs.readFileSync(agentsPath, 'utf-8')
+      const cleaned = stripInjectedCodexRules(existing)
+      if (cleaned.trim()) {
+        fs.writeFileSync(agentsPath, `${cleaned}\n`, 'utf-8')
+      } else {
         fs.unlinkSync(agentsPath)
       }
-    } catch {
-      // Ignore
     }
+  } catch {
+    // Ignore cleanup errors
   }
 
   appLog('info', `[Supervisor] Cleaned up rule files from: ${workDir}`, 'supervisor-prompt')

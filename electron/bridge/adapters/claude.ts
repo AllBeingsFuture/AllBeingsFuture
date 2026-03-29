@@ -82,6 +82,33 @@ function wrapUserMessage(text: string, images?: Array<{data: string, mimeType: s
   }
 }
 
+function resolveClaudeStartupIssue(text: string): string | null {
+  const normalized = (text || '').trim()
+  if (!normalized) return null
+
+  const requiresNativeInstall =
+    /switched from npm to native installer/i.test(normalized)
+    || /run ['"]?claude install/i.test(normalized)
+
+  const requiresLogin =
+    /not logged in/i.test(normalized)
+    || /please run \/login/i.test(normalized)
+
+  if (!requiresNativeInstall && !requiresLogin) {
+    return null
+  }
+
+  if (requiresNativeInstall && requiresLogin) {
+    return 'Claude Code 当前仍在使用旧版 npm 安装链，且未登录。请先在系统终端运行 `claude install --force`，再执行 `claude auth login`，完成后重新创建或恢复会话。'
+  }
+
+  if (requiresNativeInstall) {
+    return 'Claude Code 当前仍在使用旧版 npm 安装链。请先在系统终端运行 `claude install --force` 切换到原生安装，再重试。'
+  }
+
+  return 'Claude Code 当前未登录。请先在系统终端运行 `claude auth login` 完成登录后再重试。'
+}
+
 export class ClaudeAdapter {
   private config: Record<string, any>
   private emit: EmitFn
@@ -95,6 +122,7 @@ export class ClaudeAdapter {
   private _resultEmitted = false
   /** Number of sub-agents currently running (tracked to extend watchdog) */
   private activeSubAgents = 0
+  private startupIssueEmitted = false
   public envOverrides?: Record<string, string>
   public resumeFlag?: string
 
@@ -125,6 +153,7 @@ export class ClaudeAdapter {
     this.inputStream = null
     this.abortController = null
     this.activeSubAgents = 0
+    this.startupIssueEmitted = false
     if (clearConversationId) {
       this.conversationId = null
     }
@@ -180,7 +209,13 @@ export class ClaudeAdapter {
       includePartialMessages: true,
       stderr: (data: string) => {
         const trimmed = (data || '').trim()
-        if (trimmed) appLog('warn', trimmed, 'claude-stderr')
+        if (trimmed) {
+          appLog('warn', trimmed, 'claude-stderr')
+          const startupIssue = resolveClaudeStartupIssue(trimmed)
+          if (startupIssue) {
+            this.emitClaudeStartupIssue(startupIssue)
+          }
+        }
       },
     }
 
@@ -262,6 +297,13 @@ export class ClaudeAdapter {
     return resolved.command
   }
 
+  private emitClaudeStartupIssue(message: string): void {
+    if (this.startupIssueEmitted) return
+    this.startupIssueEmitted = true
+    this.emit({ id: this.currentRequestId, event: 'error', error: message })
+    this.stop().catch(() => {})
+  }
+
   private async consumeStream() {
     if (this.consuming) return
     this.consuming = true
@@ -312,6 +354,11 @@ export class ClaudeAdapter {
             if (msg.message?.content) {
               for (const block of msg.message.content) {
                 if (block.type === 'text' && block.text) {
+                  const startupIssue = resolveClaudeStartupIssue(block.text)
+                  if (startupIssue) {
+                    this.emitClaudeStartupIssue(startupIssue)
+                    continue
+                  }
                   if (currentText === '') {
                     this.emit({ id: requestId, event: 'delta', text: block.text })
                     currentText += block.text
@@ -338,6 +385,11 @@ export class ClaudeAdapter {
           case 'stream_event': {
             const event = msg.event
             if (event?.delta?.type === 'text_delta' && event.delta.text) {
+              const startupIssue = resolveClaudeStartupIssue(event.delta.text)
+              if (startupIssue) {
+                this.emitClaudeStartupIssue(startupIssue)
+                break
+              }
               this.emit({ id: requestId, event: 'delta', text: event.delta.text })
               currentText += event.delta.text
             } else if (event?.delta?.type === 'thinking_delta' && event.delta.thinking) {
@@ -356,6 +408,9 @@ export class ClaudeAdapter {
           }
 
           case 'result': {
+            if (this.startupIssueEmitted) {
+              break
+            }
             const finalText = msg.result || currentText
             appLog('info', `Query complete (${finalText.length} chars)`, 'claude')
             this.emit({

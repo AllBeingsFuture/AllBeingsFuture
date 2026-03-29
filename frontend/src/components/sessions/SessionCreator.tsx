@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { AppAPI } from '../../../bindings/electron-api'
-import { ProviderService } from '../../../bindings/allbeingsfuture/internal/services'
+import { GitService, ProviderService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useSessionStore } from '../../stores/sessionStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import DraggableDialog from '../common/DraggableDialog'
 import type { AIProvider, SessionConfig } from '../../../bindings/allbeingsfuture/internal/models/models'
 
@@ -77,6 +78,7 @@ export default function SessionCreator({ onClose }: Props) {
   const initProcess = useSessionStore(s => s.initProcess)
   const sendMessage = useSessionStore(s => s.sendMessage)
   const selectSession = useSessionStore(s => s.select)
+  const autoWorktree = useSettingsStore(s => s.settings.autoWorktree)
 
   const [name, setName] = useState(() => `会话 ${new Date().toLocaleTimeString('zh-CN')}`)
   const [workDir, setWorkDir] = useState('')
@@ -88,6 +90,7 @@ export default function SessionCreator({ onClose }: Props) {
   const autoAccept = true
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
+  const [worktreeState, setWorktreeState] = useState<'idle' | 'git' | 'plain'>('idle')
 
   // 常用目录
   const [recentDirs, setRecentDirs] = useState<RecentDir[]>([])
@@ -113,6 +116,34 @@ export default function SessionCreator({ onClose }: Props) {
       })
     return () => { cancelled = true }
   }, [providerId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const checkGitRepo = async () => {
+      const targetDir = workDir.trim()
+      if (!targetDir || !autoWorktree) {
+        if (!cancelled) setWorktreeState('idle')
+        return
+      }
+
+      try {
+        const repoPath = await GitService.GetRepoRoot(targetDir).catch(() => '')
+        if (!cancelled) {
+          setWorktreeState(repoPath ? 'git' : 'plain')
+        }
+      } catch {
+        if (!cancelled) {
+          setWorktreeState('plain')
+        }
+      }
+    }
+
+    void checkGitRepo()
+    return () => {
+      cancelled = true
+    }
+  }, [autoWorktree, workDir])
 
   const pinnedDirs = useMemo(() =>
     recentDirs.filter(d => d.isPinned).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt)),
@@ -191,15 +222,20 @@ export default function SessionCreator({ onClose }: Props) {
     setError('')
     setCreating(true)
     try {
+      const trimmedWorkDir = workDir.trim()
+      const gitRepoPath = autoWorktree
+        ? await GitService.GetRepoRoot(trimmedWorkDir).catch(() => '')
+        : ''
+
       const config = {
         name,
-        workingDirectory: workDir,
+        workingDirectory: trimmedWorkDir,
         providerId,
         mode: mode as any,
         initialPrompt: prompt,
         autoAccept,
         worktreeEnabled: false,
-        gitRepoPath: '',
+        gitRepoPath,
         gitBranch: '',
       } as SessionConfig
       const session = await create(config)
@@ -329,8 +365,15 @@ export default function SessionCreator({ onClose }: Props) {
             className="w-full px-3 py-2 bg-slate-900/60 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60 resize-none"
           />
           <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
-            Git Worktree 隔离按 ABF Git Workflow 执行。新建会话不会自动创建 worktree；
-            真正涉及代码修改时，模型会先通过 `enter_worktree` 进入隔离目录，再进行写入。
+            {autoWorktree
+              ? (
+                  worktreeState === 'git'
+                    ? '当前目录属于 Git 仓库。会话会先在当前目录启动；如果后续要修改代码，Agent 必须先进入独立 worktree，再进行写入、提交和合并。'
+                    : worktreeState === 'plain'
+                      ? '当前目录不是 Git 仓库。会话将直接在该目录启动；如果后续需要改代码，建议改用 Git 仓库目录。'
+                      : '已开启 Git worktree 规则。选择 Git 仓库目录后，会话先正常启动；真正改代码前，Agent 会被要求先进入独立 worktree。'
+                )
+              : '已关闭 Git worktree 规则。新会话会直接使用当前目录；如果你要做代码修改，建议在设置中重新开启。'}
           </p>
         </div>
 

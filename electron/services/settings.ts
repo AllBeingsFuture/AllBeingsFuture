@@ -44,7 +44,7 @@ export class SettingsService {
     return {
       theme: settings.theme || 'dark',
       fontSize: settings.fontSize || 14,
-      autoWorktree: settings.autoWorktree ?? false,
+      autoWorktree: settings.autoWorktree ?? true,
       alwaysReplyInChinese: settings.alwaysReplyInChinese ?? true,
       autoLaunch: settings.autoLaunch ?? false,
       notificationEnabled: settings.notificationEnabled ?? true,
@@ -85,6 +85,7 @@ export class SettingsService {
 
   setAutoWorktree(enabled: boolean): void {
     this.update('autoWorktree', String(enabled))
+    this.update('autoWorktreeUserConfigured', 'true')
   }
 
   setAutoLaunch(enabled: boolean): void {

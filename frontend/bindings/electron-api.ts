@@ -80,6 +80,25 @@ export const AppAPI = {
   openExternal: (url: string): Promise<void> => ipc('app:openExternal', url),
 }
 
+export interface GithubIssuePayload {
+  owner: string
+  repo: string
+  token: string
+  title: string
+  body: string
+}
+
+export interface GithubIssueResult {
+  number: number
+  url: string
+  title: string
+}
+
+export const FeedbackAPI = {
+  submitGithubIssue: (payload: GithubIssuePayload): Promise<GithubIssueResult> =>
+    ipc('FeedbackService.SubmitGithubIssue', payload),
+}
+
 export const ClipboardAPI = {
   writeText: (text: string): Promise<void> => ipc('clipboard:writeText', text),
   readText: (): Promise<string> => ipc('clipboard:readText'),

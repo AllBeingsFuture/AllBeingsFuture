@@ -326,7 +326,7 @@ export class ProcessService {
     // Inject ABF rules for non-child sessions.
     // Strategy: use file-based discovery per provider to avoid double injection.
     //   - Claude:  .claude/rules/abf-*.md (auto-discovered, NO appendSystemPrompt)
-    //   - Codex:   AGENTS.md in workDir   (auto-discovered, NO appendSystemPrompt)
+    //   - Codex:   AGENTS.md in repo root / workDir (auto-discovered, NO appendSystemPrompt)
     //   - Others:  appendSystemPrompt only (no file discovery mechanism)
     if (!session.parentSessionId) {
       try {
@@ -364,11 +364,12 @@ export class ProcessService {
             appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
           }
         } else if (isCodex) {
-          // Codex: write AGENTS.md only (Codex auto-discovers it)
-          // Do NOT inject via appendSystemPrompt to avoid reading rules twice
+          // Codex: inject ABF rules into AGENTS.md so Codex's file discovery
+          // sees them. Prefer repo root when we already know it.
           try {
-            injectCodexAgentsMd(workDir, providerNames)
-            this.supervisorPromptSessions.set(sessionId, workDir)
+            const promptWorkDir = session.worktreeSourceRepo || workDir
+            injectCodexAgentsMd(promptWorkDir)
+            this.supervisorPromptSessions.set(sessionId, promptWorkDir)
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err)
             appLog('warn', `Failed to inject Codex AGENTS.md: ${errMsg}`, 'process')
@@ -1094,11 +1095,7 @@ export class ProcessService {
   private cleanupSupervisorPromptForSession(sessionId: string): void {
     const workDir = this.supervisorPromptSessions.get(sessionId)
     if (workDir) {
-      // Check if this was a Codex session to also clean AGENTS.md
-      const session = this.sessionService.getById(sessionId)
-      const provider = session ? this.providerService.getById(session.providerId) : null
-      const isCodex = provider ? this.isCodexAdapter(provider.adapterType) : false
-      cleanupSupervisorPrompt(workDir, isCodex)
+      cleanupSupervisorPrompt(workDir)
       this.supervisorPromptSessions.delete(sessionId)
     }
   }

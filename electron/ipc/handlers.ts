@@ -49,6 +49,20 @@ import { QQBotService } from '../services/qqbot.js'
 import { QQOfficialService } from '../services/qqofficial.js'
 import { WorkspaceService } from '../services/workspace.js'
 
+type GithubIssuePayload = {
+  owner: string
+  repo: string
+  token: string
+  title: string
+  body: string
+}
+
+type GithubIssueResult = {
+  number: number
+  url: string
+  title: string
+}
+
 function normalizeManagedPath(target: string): string {
   if (!target) return ''
   return path.resolve(target).replace(/\\/g, '/').replace(/\/+$/, '')
@@ -59,6 +73,102 @@ function isManagedWorktreePath(repoPath: string, worktreePath: string): boolean 
   const candidate = normalizeManagedPath(worktreePath)
   return candidate.startsWith(`${repoRoot}/.allbeingsfuture-worktrees/`)
     || candidate.startsWith(`${repoRoot}/.abf-worktrees/`)
+}
+
+function normalizeGithubIssuePayload(payload: GithubIssuePayload): GithubIssuePayload {
+  return {
+    owner: payload.owner.trim(),
+    repo: payload.repo.trim(),
+    token: payload.token.trim(),
+    title: payload.title.trim(),
+    body: payload.body.trim(),
+  }
+}
+
+function formatGithubIssueError(status: number, message: string): string {
+  switch (status) {
+    case 400:
+      return `GitHub 请求无效：${message}`
+    case 401:
+      return 'GitHub Token 无效或已过期，请检查后重试'
+    case 403:
+      return `GitHub 拒绝了请求：${message}`
+    case 404:
+      return '目标仓库不存在，或当前 Token 没有访问该仓库的权限'
+    case 410:
+      return 'GitHub Issues 在该仓库上不可用'
+    case 422:
+      return `GitHub 校验失败或触发了反滥用限制：${message}`
+    case 503:
+      return 'GitHub 服务暂时不可用，请稍后再试'
+    default:
+      return `GitHub API ${status}：${message}`
+  }
+}
+
+async function submitGithubIssue(payload: GithubIssuePayload): Promise<GithubIssueResult> {
+  const normalized = normalizeGithubIssuePayload(payload)
+  if (!normalized.owner || !normalized.repo) {
+    throw new Error('缺少 GitHub 仓库信息')
+  }
+  if (!normalized.token) {
+    throw new Error('缺少 GitHub Token')
+  }
+  if (!normalized.title) {
+    throw new Error('缺少 Issue 标题')
+  }
+  if (!normalized.body) {
+    throw new Error('缺少 Issue 内容')
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 20_000)
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(normalized.owner)}/${encodeURIComponent(normalized.repo)}/issues`,
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${normalized.token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'AllBeingsFuture',
+          'X-GitHub-Api-Version': '2026-03-10',
+        },
+        body: JSON.stringify({
+          title: normalized.title,
+          body: normalized.body,
+        }),
+        signal: controller.signal,
+      },
+    )
+
+    const data = await response.json().catch(() => ({})) as Record<string, unknown>
+    if (!response.ok) {
+      const message = typeof data.message === 'string' && data.message
+        ? data.message
+        : response.statusText
+      throw new Error(formatGithubIssueError(response.status, message))
+    }
+
+    const number = Number(data.number ?? 0)
+    const url = typeof data.html_url === 'string' ? data.html_url : ''
+    const title = typeof data.title === 'string' ? data.title : normalized.title
+
+    if (!number || !url) {
+      throw new Error('GitHub 返回了异常响应，未拿到已创建 Issue 的编号或链接')
+    }
+
+    return { number, url, title }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('GitHub 请求超时，请检查网络后重试')
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export function registerAllIpcHandlers(
@@ -401,6 +511,11 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SystemSettingsService.Update', (_e, key: string, value: string) => systemSettingsService.update(key, value))
   ipcMain.handle('SystemSettingsService.UpdateBatch', (_e, settings: Record<string, string>) => systemSettingsService.updateBatch(settings))
   ipcMain.handle('SystemSettingsService.ValidateConfig', () => systemSettingsService.validateConfig())
+
+  // ==============================================================
+  // FeedbackService
+  // ==============================================================
+  ipcMain.handle('FeedbackService.SubmitGithubIssue', (_e, payload: GithubIssuePayload) => submitGithubIssue(payload))
 
   // ==============================================================
   // PolicyService

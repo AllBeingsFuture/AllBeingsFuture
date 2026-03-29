@@ -22,7 +22,7 @@ interface SettingsState {
 const defaultSettings = AppSettings.createFrom({
   proxyType: 'none' as AppSettings['proxyType'],
   voiceTranscriptionMode: 'openai' as AppSettings['voiceTranscriptionMode'],
-  autoWorktree: false,
+  autoWorktree: true,
   alwaysReplyInChinese: true,
   autoLaunch: false,
   notificationEnabled: true,

@@ -3,6 +3,11 @@ import SessionPanel from '../SessionPanel'
 import SessionCreator from '../SessionCreator'
 import { fireEvent, renderWithProviders, screen, waitFor } from '../../../test/render'
 
+const getProvidersMock = vi.fn()
+const getRepoRootMock = vi.fn()
+
+let settingsState = { autoWorktree: true }
+
 const sessionState = {
   sessions: [
     {
@@ -52,6 +57,11 @@ vi.mock('../../../stores/sessionStore', () => ({
     typeof selector === 'function' ? selector(sessionState) : sessionState,
 }))
 
+vi.mock('../../../stores/settingsStore', () => ({
+  useSettingsStore: (selector: (state: { settings: { autoWorktree: boolean } }) => unknown) =>
+    selector({ settings: settingsState }),
+}))
+
 vi.mock('../../../hooks/useIpcEvent', () => ({
   useIpcEvent: vi.fn(),
 }))
@@ -62,9 +72,31 @@ vi.mock('../../../bindings/electron-api', () => ({
   },
 }))
 
+vi.mock('../../../../bindings/allbeingsfuture/internal/services', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../bindings/allbeingsfuture/internal/services')>()
+  return {
+    ...actual,
+    ProviderService: {
+      ...actual.ProviderService,
+      GetAll: (...args: unknown[]) => getProvidersMock(...args),
+    },
+    GitService: {
+      ...actual.GitService,
+      GetRepoRoot: (...args: unknown[]) => getRepoRootMock(...args),
+    },
+  }
+})
+
 describe('Session workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    settingsState = { autoWorktree: true }
+    getProvidersMock.mockReset()
+    getRepoRootMock.mockReset()
+    getProvidersMock.mockResolvedValue([
+      { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'codex-appserver' },
+      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
+    ])
   })
 
   it('renders conversation view for selected session', async () => {
@@ -76,7 +108,9 @@ describe('Session workspace', () => {
     expect(await screen.findByPlaceholderText(/输入消息/i)).toBeInTheDocument()
   })
 
-  it('creates sessions without eager worktree isolation', async () => {
+  it('creates sessions in the selected directory while preserving git repo context for later worktree entry', async () => {
+    getRepoRootMock.mockResolvedValue('C:/repo/project')
+
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
 
     const inputs = screen.getAllByRole('textbox')
@@ -89,6 +123,8 @@ describe('Session workspace', () => {
     const promptInput = screen.getByPlaceholderText('创建后自动发送的指令...')
     fireEvent.change(promptInput, { target: { value: '检查仓库并按规则执行' } })
 
+    await screen.findByText('当前目录属于 Git 仓库。会话会先在当前目录启动；如果后续要修改代码，Agent 必须先进入独立 worktree，再进行写入、提交和合并。')
+
     const createButton = screen.getByRole('button', { name: '创建' })
     fireEvent.click(createButton)
 
@@ -96,7 +132,7 @@ describe('Session workspace', () => {
       expect(sessionState.create).toHaveBeenCalledWith(expect.objectContaining({
         workingDirectory: 'C:/repo/project',
         worktreeEnabled: false,
-        gitRepoPath: '',
+        gitRepoPath: 'C:/repo/project',
         gitBranch: '',
       }))
     })
