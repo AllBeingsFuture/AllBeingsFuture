@@ -8,6 +8,7 @@
  */
 
 import type { BrowserWindow } from 'electron'
+import { createRequire } from 'node:module'
 import { v4 as uuidv4 } from 'uuid'
 
 interface PTYInstance {
@@ -17,6 +18,7 @@ interface PTYInstance {
 }
 
 const PTY_FLUSH_INTERVAL_MS = 16
+const runtimeRequire = createRequire(import.meta.url)
 
 export class PTYService {
   private ptys = new Map<string, PTYInstance>()
@@ -61,10 +63,10 @@ export class PTYService {
       // Prefer @karinjs/node-pty (prebuilt, no compilation required).
       // Fall back to the original node-pty for backward compatibility.
       try {
-        this.nodePty = await import('@karinjs/node-pty')
+        this.nodePty = runtimeRequire('@karinjs/node-pty')
       } catch {
         try {
-          this.nodePty = await import('node-pty')
+          this.nodePty = runtimeRequire('node-pty')
         } catch {
           throw new Error(
             'PTY module not available. Please install: npm install @karinjs/node-pty',
