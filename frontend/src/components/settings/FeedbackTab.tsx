@@ -6,6 +6,7 @@ const GITHUB_REPO_URL = 'https://github.com/AllBeingsFuture/AllBeingsFuture'
 const GITHUB_ISSUES_URL = `${GITHUB_REPO_URL}/issues/new`
 const TELEGRAM_GROUP_URL = 'https://t.me/AllBeingsFuture'
 const WECHAT_GROUP_NAME = 'AllBeingsFuture'
+const WECHAT_GROUP_QR_URL = new URL('../../assets/wechat-group-qr.jpg', import.meta.url).href
 
 const FEEDBACK_TYPES = [
   { label: '功能建议', color: 'text-purple-400 border-purple-500/30 hover:border-purple-500/60' },
@@ -118,6 +119,11 @@ export default function FeedbackTab() {
             <div className="space-y-1">
               <p>微信群 — <span className="text-white">{WECHAT_GROUP_NAME}</span></p>
               <p className="text-[11px] text-gray-500">群二维码通常 7 天有效，请以 README 顶部或群运营最新发布的二维码为准。</p>
+              <img
+                src={WECHAT_GROUP_QR_URL}
+                alt={`${WECHAT_GROUP_NAME} 微信群二维码`}
+                className="mt-2 w-full max-w-[220px] rounded-xl border border-white/10 bg-white p-2"
+              />
             </div>
           </div>
           <button
