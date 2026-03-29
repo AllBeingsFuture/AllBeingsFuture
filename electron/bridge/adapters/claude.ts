@@ -14,6 +14,9 @@ import {
 import { appLog } from '../../services/log.js'
 
 type EmitFn = (event: any) => void
+type ClaudeSettingSource = 'user' | 'project' | 'local'
+
+const DEFAULT_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local']
 
 class AsyncIterableQueue<T> {
   private queue: T[] = []
@@ -109,6 +112,16 @@ function resolveClaudeStartupIssue(text: string): string | null {
   return 'Claude Code 当前未登录。请先在系统终端运行 `claude auth login` 完成登录后再重试。'
 }
 
+function resolveClaudeSettingSources(input: unknown): ClaudeSettingSource[] {
+  if (!Array.isArray(input)) {
+    return [...DEFAULT_CLAUDE_SETTING_SOURCES]
+  }
+
+  return input.filter((source): source is ClaudeSettingSource =>
+    source === 'user' || source === 'project' || source === 'local'
+  )
+}
+
 export class ClaudeAdapter {
   private config: Record<string, any>
   private emit: EmitFn
@@ -197,11 +210,15 @@ export class ClaudeAdapter {
     const appendPrompt = [this.config.customInstructions, this.config.appendSystemPrompt]
       .filter((part: unknown) => typeof part === 'string' && part.trim().length > 0)
       .join('\n\n')
+    const settingSources = resolveClaudeSettingSources(this.config.settingSources)
 
     const options: Record<string, any> = {
       cwd: this.config.workDir || process.cwd(),
       env: cleanEnv,
       abortController: this.abortController,
+      // Match Claude CLI behavior instead of the SDK's default isolation mode,
+      // so user auth/env settings and project CLAUDE.md files are loaded.
+      settingSources,
       allowedTools: [
         'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
         'WebSearch', 'WebFetch', 'Task', 'NotebookEdit',
