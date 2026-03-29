@@ -11,7 +11,6 @@ import ImageViewer from './ImageViewer'
 const THINKING_RE = /<thinking>([\s\S]*?)<\/thinking>/
 const THINKING_STRIP_RE = /<thinking>[\s\S]*?<\/thinking>/
 const MARKDOWN_HINT_RE = /(^|\n)(#{1,6}\s|[-*+]\s|> |\d+\.\s)|```|\[[^\]]+\]\([^)]+\)|\|.+\|/
-const COMMENTARY_HINT_RE = /^(我(?:先|会|已经|这边|刚刚|刚才|现在|再|把|先把|已经把)|先处理|先把|现在|接下来|下一步|我会|我已经|我这边|刚刚|刚才)/m
 const COMMENTARY_COLLAPSE_THRESHOLD = 320
 const ASSISTANT_COLLAPSE_THRESHOLD = 560
 const COMMENTARY_PREVIEW_HEIGHT = 220
@@ -33,13 +32,6 @@ function formatRelativeTime(timestamp: string): string {
   if (hours < 24) return `${hours}小时前`
   const days = Math.floor(hours / 24)
   return `${days}天前`
-}
-
-function resolveProviderFamily(providerId?: string): 'codex' | 'claude' | 'other' {
-  const normalized = (providerId || '').toLowerCase()
-  if (normalized.includes('codex')) return 'codex'
-  if (normalized.includes('claude')) return 'claude'
-  return 'other'
 }
 
 function looksLikeRichMarkdown(text: string): boolean {
@@ -72,7 +64,6 @@ export default function MessageBubble({ message, providerId }: Props) {
   const [plainExpanded, setPlainExpanded] = useState(true)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const providerInfo = useMemo(() => resolveProviderDisplayInfo(providerId), [providerId])
-  const providerFamily = useMemo(() => resolveProviderFamily(providerId), [providerId])
   const userImages = useMemo(() => (isUser ? extendedMessage.images : undefined), [extendedMessage.images, isUser])
 
   const thinkingMatch = !isUser ? message.content?.match(THINKING_RE) : null
@@ -86,15 +77,7 @@ export default function MessageBubble({ message, providerId }: Props) {
   const isCommentary = !isUser
     && !isPartial
     && !thinkingText
-    && (
-      extendedMessage.presentation === 'commentary'
-      || (
-        providerFamily === 'codex'
-        && !hasRichMarkdown
-        && (displayContent || '').trim().length <= 1200
-        && COMMENTARY_HINT_RE.test((displayContent || '').trim())
-      )
-    )
+    && extendedMessage.presentation === 'commentary'
 
   const assistantAvatarClass = isCommentary
     ? 'border border-white/[0.06] bg-white/[0.035] text-sky-100'
