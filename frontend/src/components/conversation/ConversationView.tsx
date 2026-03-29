@@ -924,6 +924,13 @@ export default function ConversationView({ session }: Props) {
 
     if (messages.length > previousCount) {
       scrollToBottom()
+      return
+    }
+
+    // 流式输出期间，消息内容通过 chat:patch (upsert_last) 持续更新，
+    // messages 引用变化但 length 不变，需要持续滚动到底部
+    if (streaming && messages.length > 0) {
+      scrollToBottom(true)
     }
   }, [messages, scrollToBottom, streaming])
 
