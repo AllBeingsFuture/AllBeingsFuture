@@ -4,6 +4,7 @@ import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore, type ChatUpdateEvent, type ChatPatchEvent, type AgentUpdateEvent } from '../../stores/sessionStore'
 import { useIpcEvent } from '../../hooks/useIpcEvent'
 import MessageBubble from './MessageBubble'
@@ -553,7 +554,6 @@ const ChildAgentBlock = memo(function ChildAgentBlock({ name, messages, childSes
   isActive: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const selectSession = useSessionStore((state) => state.select)
 
   // Count operations by type
   const toolCount = messages.filter(m => m.role === 'tool_use').length
@@ -590,7 +590,7 @@ const ChildAgentBlock = memo(function ChildAgentBlock({ name, messages, childSes
           )}
         </button>
         <button
-          onClick={() => selectSession(childSessionId)}
+          onClick={() => { void workbenchApi.navigation.openSession(childSessionId) }}
           className="px-3 py-2 text-[10px] text-blue-400/50 hover:text-blue-300 transition-colors"
           title="查看子Agent完整会话"
         >
@@ -723,25 +723,19 @@ export default function ConversationView({ session }: Props) {
     messages,
     streaming,
     chatError,
-    sendMessage,
     pollChat,
-    initProcess,
     handleChatUpdate,
     handleChatPatch,
     handleAgentUpdate,
-    stopProcess,
     childToParent,
   } = useSessionStore(useShallow((state) => ({
     messages: state.messages,
     streaming: state.streaming,
     chatError: state.chatError,
-    sendMessage: state.sendMessage,
     pollChat: state.pollChat,
-    initProcess: state.initProcess,
     handleChatUpdate: state.handleChatUpdate,
     handleChatPatch: state.handleChatPatch,
     handleAgentUpdate: state.handleAgentUpdate,
-    stopProcess: state.stopProcess,
     childToParent: state.childToParent,
   })))
 
@@ -891,7 +885,7 @@ export default function ConversationView({ session }: Props) {
     setReady(false)
     const boot = async () => {
       try {
-        await initProcess(session.id)
+        await workbenchApi.session.init(session.id)
       } catch {
         // initProcess may throw if session is already active — that's fine
       }
@@ -899,7 +893,7 @@ export default function ConversationView({ session }: Props) {
     }
     void boot()
     return () => { cancelled = true }
-  }, [initProcess, session.id])
+  }, [session.id])
 
   useEffect(() => {
     void pollChat(session.id)
@@ -962,12 +956,12 @@ export default function ConversationView({ session }: Props) {
     scrollTop: scrollMetrics.scrollTop,
     viewportHeight: scrollMetrics.viewportHeight,
   })
-  const handleSend = useCallback((text: string, images?: Array<{data: string; mimeType: string}>) => (
-    sendMessage(session.id, text, images)
-  ), [sendMessage, session.id])
+  const handleSend = useCallback(async (text: string, images?: Array<{data: string; mimeType: string}>) => {
+    await workbenchApi.chat.appendMessage(session.id, text, images)
+  }, [session.id])
   const handleStop = useCallback(() => {
-    void stopProcess(session.id)
-  }, [session.id, stopProcess])
+    void workbenchApi.chat.stop(session.id)
+  }, [session.id])
   const inputPlaceholder = ready ? '输入消息，Enter 发送' : '正在初始化...'
 
   useLayoutEffect(() => {
@@ -1164,11 +1158,17 @@ export default function ConversationView({ session }: Props) {
         </div>
       )}
 
-      {shellPanelVisible && (
-        <div className="h-[200px] shrink-0 border-t border-white/10">
+      <div
+        className={[
+          'shrink-0 overflow-hidden transition-[height,border-color] duration-150 ease-out',
+          shellPanelVisible ? 'h-[200px] border-t border-white/10' : 'h-0 border-t border-transparent',
+        ].join(' ')}
+        aria-hidden={!shellPanelVisible}
+      >
+        <div className="h-[200px]">
           <ShellTerminalView />
         </div>
-      )}
+      </div>
     </section>
   )
 }

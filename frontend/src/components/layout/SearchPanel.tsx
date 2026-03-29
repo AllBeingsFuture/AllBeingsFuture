@@ -1,8 +1,8 @@
 import { Search, Sparkles, X } from 'lucide-react'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useUIStore } from '../../stores/uiStore'
 
 interface SearchResult {
   id: string
@@ -12,20 +12,16 @@ interface SearchResult {
 }
 
 export default function SearchPanel() {
-  const { sessions, selectedId, messages, selectSession } = useSessionStore(
+  const { sessions, selectedId, messages } = useSessionStore(
     useShallow((state) => ({
       sessions: state.sessions,
       selectedId: state.selectedId,
       messages: state.messages,
-      selectSession: state.select,
     })),
   )
-  const { setActiveView, toggleSearchPanel } = useUIStore(
-    useShallow((state) => ({
-      setActiveView: state.setActiveView,
-      toggleSearchPanel: state.toggleSearchPanel,
-    })),
-  )
+  const closeSearchPanel = () => {
+    void workbenchApi.ui.toggleSearchPanel()
+  }
 
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -38,13 +34,13 @@ export default function SearchPanel() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        toggleSearchPanel()
+        closeSearchPanel()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [toggleSearchPanel])
+  }, [])
 
   const results = useMemo(() => {
     const trimmed = deferredQuery.trim().toLowerCase()
@@ -84,13 +80,12 @@ export default function SearchPanel() {
 
   const handleSelectResult = (resultId: string) => {
     const sessionId = resultId.includes('-message-') ? resultId.split('-message-')[0] : resultId
-    selectSession(sessionId)
-    setActiveView('sessions')
-    toggleSearchPanel()
+    void workbenchApi.navigation.openSession(sessionId)
+    closeSearchPanel()
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget && toggleSearchPanel()}>
+    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget && closeSearchPanel()}>
       <div className="flex max-h-[70vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/96 shadow-[0_28px_64px_rgba(15,23,42,0.42)]">
         <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
           <Search size={18} className="text-blue-200" />
@@ -101,7 +96,7 @@ export default function SearchPanel() {
             placeholder="搜索会话、目录、Provider 或当前会话消息..."
             className="flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
           />
-          <button type="button" onClick={toggleSearchPanel} className="titlebar-button" aria-label="关闭搜索">
+          <button type="button" onClick={closeSearchPanel} className="titlebar-button" aria-label="关闭搜索">
             <X size={16} />
           </button>
         </div>

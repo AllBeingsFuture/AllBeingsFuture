@@ -8,6 +8,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Clock, Zap, Search, Filter } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore } from '../../stores/sessionStore'
 import { ACTIVITY_CONFIG, STATUS_COLORS } from '../../constants/statusColors'
 
@@ -211,11 +212,10 @@ function messagesToEvents(
 // ─── Component ──────────────────────────────────────────
 
 export default function TimelinePanel() {
-  const { sessions, selectedId, selectSession, messages, streaming } = useSessionStore(
+  const { sessions, selectedId, messages, streaming } = useSessionStore(
     useShallow((state) => ({
       sessions: state.sessions,
       selectedId: state.selectedId,
-      selectSession: state.select,
       messages: state.messages,
       streaming: state.streaming,
     })),
@@ -233,8 +233,10 @@ export default function TimelinePanel() {
     const activeSession = sessions.find(
       s => s.status === 'running' || s.status === 'idle' || s.status === 'waiting_input'
     )
-    if (activeSession) selectSession(activeSession.id)
-  }, [sessions, selectedId, selectSession])
+    if (activeSession) {
+      void workbenchApi.navigation.openSession(activeSession.id)
+    }
+  }, [sessions, selectedId])
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedId),

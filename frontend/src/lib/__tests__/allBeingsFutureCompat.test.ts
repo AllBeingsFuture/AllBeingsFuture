@@ -37,6 +37,8 @@ describe('allBeingsFuture compatibility facade', () => {
     }))
     invokeMap.set('ProcessService.StopProcess', () => undefined)
     invokeMap.set('app:selectDirectory', () => 'C:/repo')
+    invokeMap.set('app:selectFile', () => ['C:/tools/codex.exe'])
+    invokeMap.set('ProviderService.TestExecutable', () => true)
     invokeMap.set('clipboard:writeText', () => undefined)
     invokeMap.set('clipboard:readText', () => 'copied')
     invokeMap.set('UpdateService.GetState', () => ({ status: 'idle' }))
@@ -48,6 +50,7 @@ describe('allBeingsFuture compatibility facade', () => {
     const allBeingsFuture = (window as typeof window & { allBeingsFuture: any }).allBeingsFuture
 
     await expect(allBeingsFuture.provider.getAll()).resolves.toEqual([{ id: 'codex', name: 'Codex' }])
+    await expect(allBeingsFuture.provider.testExecutable('codex', 'C:/tools/codex.exe')).resolves.toBe(true)
     await expect(allBeingsFuture.session.getAll()).resolves.toEqual([{ id: 'session-1' }])
     await expect(allBeingsFuture.session.create({ name: 'Test' })).resolves.toEqual({ id: 'session-2' })
     await expect(allBeingsFuture.session.getConversation('session-1')).resolves.toEqual([
@@ -60,6 +63,8 @@ describe('allBeingsFuture compatibility facade', () => {
 
     await expect(allBeingsFuture.app.selectDirectory()).resolves.toBe('C:/repo')
     expect(window.electronAPI.invoke).toHaveBeenCalledWith('app:selectDirectory')
+    await expect(allBeingsFuture.app.selectFile()).resolves.toEqual(['C:/tools/codex.exe'])
+    expect(window.electronAPI.invoke).toHaveBeenCalledWith('app:selectFile')
 
     await allBeingsFuture.clipboard.writeText('hello')
     expect(window.electronAPI.invoke).toHaveBeenCalledWith('clipboard:writeText', 'hello')

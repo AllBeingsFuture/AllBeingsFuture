@@ -8,8 +8,8 @@ import {
   Clock,
   FileJson,
   History,
-  Loader2,
 } from 'lucide-react'
+import { workbenchApi } from '../../app/api/workbench'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { statusColors, statusLabels, stepTypeLabels, stepTypeBadgeColors } from './workflowConstants'
@@ -17,16 +17,10 @@ import ActiveExecutionCard from './ActiveExecutionCard'
 import StartWorkflowDialog from './StartWorkflowDialog'
 
 export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; onEdit: () => void }) {
-  const { remove, stop, approveStep, getStatus, activeWorkflows, executions, loadExecutionHistory } =
-    useWorkflowStore(useShallow((state) => ({
-      remove: state.remove,
-      stop: state.stop,
-      approveStep: state.approveStep,
-      getStatus: state.getStatus,
-      activeWorkflows: state.activeWorkflows,
-      executions: state.executions,
-      loadExecutionHistory: state.loadExecutionHistory,
-    })))
+  const { activeWorkflows, executions } = useWorkflowStore(useShallow((state) => ({
+    activeWorkflows: state.activeWorkflows,
+    executions: state.executions,
+  })))
 
   const [tab, setTab] = useState<'overview' | 'active' | 'history'>('overview')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -49,7 +43,7 @@ export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; on
       const statuses: Record<string, any> = {}
       for (const exec of relatedActive) {
         try {
-          statuses[exec.id] = await getStatus(exec.id)
+          statuses[exec.id] = await workbenchApi.workflow.getStatus(exec.id)
         } catch { /* ignore */ }
       }
       setExecutionStatuses(statuses)
@@ -57,10 +51,10 @@ export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; on
     void poll()
     const timer = setInterval(() => void poll(), 3000)
     return () => clearInterval(timer)
-  }, [getStatus, relatedActive])
+  }, [relatedActive])
 
   const handleDelete = async () => {
-    await remove(workflow.id)
+    await workbenchApi.workflow.remove(workflow.id)
     setConfirmDelete(false)
   }
 
@@ -139,7 +133,7 @@ export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; on
               key={key}
               onClick={() => {
                 setTab(key)
-                if (key === 'history') void loadExecutionHistory()
+                if (key === 'history') void workbenchApi.workflow.loadHistory()
               }}
               className={`py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5 ${
                 tab === key
@@ -232,9 +226,9 @@ export default function WorkflowDetail({ workflow, onEdit }: { workflow: any; on
                   key={exec.id}
                   execution={exec}
                   status={executionStatuses[exec.id]}
-                  onStop={() => stop(exec.id)}
-                  onApprove={(stepId) => approveStep(exec.id, stepId, true)}
-                  onReject={(stepId) => approveStep(exec.id, stepId, false)}
+                  onStop={() => { void workbenchApi.workflow.stop(exec.id) }}
+                  onApprove={(stepId) => { void workbenchApi.workflow.approveStep(exec.id, stepId, true) }}
+                  onReject={(stepId) => { void workbenchApi.workflow.approveStep(exec.id, stepId, false) }}
                 />
               ))
             )}

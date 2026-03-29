@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react'
+import { workbenchApi } from '../app/api/workbench'
 import { useSessionStore } from '../stores/sessionStore'
 import type { ConversationMessage } from '../types/conversationTypes'
 
@@ -32,9 +33,6 @@ interface UseConversationReturn {
   isStreaming: boolean
   isLoading: boolean
   sendMessage: (text: string) => Promise<MessageDispatchResult | undefined>
-  respondPermission: (accept: boolean) => Promise<void>
-  respondQuestion: (answers: Record<string, string>) => Promise<void>
-  approvePlan: (approved: boolean) => Promise<void>
   abortSession: () => Promise<void>
 }
 
@@ -97,7 +95,7 @@ export function useConversation(sessionId: string): UseConversationReturn {
     if (!text.trim()) return undefined
 
     try {
-      await useSessionStore.getState().sendMessage(sessionIdRef.current, text)
+      await workbenchApi.chat.appendMessage(sessionIdRef.current, text)
       return { dispatched: true, scheduled: false } as MessageDispatchResult
     } catch (err) {
       console.error('[useConversation] Failed to send message:', err)
@@ -105,33 +103,9 @@ export function useConversation(sessionId: string): UseConversationReturn {
     }
   }, [])
 
-  const respondPermission = useCallback(async (accept: boolean) => {
-    try {
-      await (window.allBeingsFuture?.session as Record<string, (...args: unknown[]) => Promise<unknown>>)?.respondPermission?.(sessionIdRef.current, accept)
-    } catch (err) {
-      console.error('[useConversation] Failed to respond permission:', err)
-    }
-  }, [])
-
-  const respondQuestion = useCallback(async (answers: Record<string, string>) => {
-    try {
-      await (window.allBeingsFuture?.session as Record<string, (...args: unknown[]) => Promise<unknown>>)?.answerQuestion?.(sessionIdRef.current, answers)
-    } catch (err) {
-      console.error('[useConversation] Failed to answer question:', err)
-    }
-  }, [])
-
-  const approvePlan = useCallback(async (approved: boolean) => {
-    try {
-      await (window.allBeingsFuture?.session as Record<string, (...args: unknown[]) => Promise<unknown>>)?.approvePlan?.(sessionIdRef.current, approved)
-    } catch (err) {
-      console.error('[useConversation] Failed to approve plan:', err)
-    }
-  }, [])
-
   const abortSession = useCallback(async () => {
     try {
-      await useSessionStore.getState().stopProcess(sessionIdRef.current)
+      await workbenchApi.chat.stop(sessionIdRef.current)
     } catch (err) {
       console.error('[useConversation] Failed to abort session:', err)
     }
@@ -142,9 +116,6 @@ export function useConversation(sessionId: string): UseConversationReturn {
     isStreaming,
     isLoading: false,
     sendMessage,
-    respondPermission,
-    respondQuestion,
-    approvePlan,
     abortSession,
   }
 }

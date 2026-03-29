@@ -7,14 +7,14 @@
 
 import React, { useRef, useCallback } from 'react'
 import useShellTerminal from '../../hooks/useShellTerminal'
-import { useShellTerminalStore } from '../../stores/shellTerminalStore'
+import { type ShellTabLifecycle, useShellTerminalStore } from '../../stores/shellTerminalStore'
 
 interface Props {
   ptyId: string
-  visible: boolean
+  lifecycle: ShellTabLifecycle
 }
 
-const ShellTerminalTab: React.FC<Props> = ({ ptyId, visible }) => {
+const ShellTerminalTab: React.FC<Props> = ({ ptyId, lifecycle }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const markExited = useShellTerminalStore(s => s.markExited)
 
@@ -25,6 +25,7 @@ const ShellTerminalTab: React.FC<Props> = ({ ptyId, visible }) => {
   useShellTerminal({
     ptyId,
     containerRef: containerRef as React.RefObject<HTMLDivElement>,
+    lifecycle,
     onExit: handleExit,
   })
 
@@ -33,7 +34,7 @@ const ShellTerminalTab: React.FC<Props> = ({ ptyId, visible }) => {
       ref={containerRef}
       className="absolute inset-0"
       style={{
-        display: visible ? 'block' : 'none',
+        display: lifecycle === 'active' ? 'block' : 'none',
         padding: '4px 0 0 4px',
       }}
     />

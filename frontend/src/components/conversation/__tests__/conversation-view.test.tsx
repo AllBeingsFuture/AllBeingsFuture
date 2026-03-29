@@ -4,13 +4,14 @@ import type { ConversationMessage } from '../../../types/conversationTypes'
 import ConversationView, { extractFileChanges } from '../ConversationView'
 import { renderWithProviders, waitFor } from '../../../test/render'
 
+const initSessionMock = vi.fn().mockResolvedValue(undefined)
+
 const storeState = {
   messages: [] as ChatMessage[],
   streaming: false,
   chatError: '',
   sendMessage: vi.fn(),
   pollChat: vi.fn().mockResolvedValue(undefined),
-  initProcess: vi.fn().mockResolvedValue(undefined),
   handleChatUpdate: vi.fn(),
   handleChatPatch: vi.fn(),
   handleAgentUpdate: vi.fn(),
@@ -34,6 +35,18 @@ vi.mock('../../../stores/uiStore', () => ({
 
 vi.mock('../../../hooks/useIpcEvent', () => ({
   useIpcEvent: vi.fn(),
+}))
+
+vi.mock('../../../app/api/workbench', () => ({
+  workbenchApi: {
+    session: {
+      init: (...args: unknown[]) => initSessionMock(...args),
+    },
+    chat: {
+      appendMessage: vi.fn(),
+      stop: vi.fn(),
+    },
+  },
 }))
 
 vi.mock('../MessageBubble', () => ({
@@ -121,6 +134,8 @@ function restoreConversationContainerMetrics() {
 describe('ConversationView session boot', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    initSessionMock.mockReset()
+    initSessionMock.mockResolvedValue(undefined)
     storeState.messages = []
     storeState.streaming = false
     storeState.chatError = ''
@@ -135,7 +150,7 @@ describe('ConversationView session boot', () => {
 
     await waitFor(() => {
       expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
-      expect(storeState.initProcess).toHaveBeenCalledWith('session-1')
+      expect(initSessionMock).toHaveBeenCalledWith('session-1')
     })
   })
 
@@ -143,7 +158,7 @@ describe('ConversationView session boot', () => {
     renderWithProviders(<ConversationView session={makeSession('running')} />)
 
     await waitFor(() => {
-      expect(storeState.initProcess).toHaveBeenCalledWith('session-1')
+      expect(initSessionMock).toHaveBeenCalledWith('session-1')
     })
   })
 
@@ -158,7 +173,7 @@ describe('ConversationView session boot', () => {
     const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
 
     await waitFor(() => {
-      expect(storeState.initProcess).toHaveBeenCalledWith('session-1')
+      expect(initSessionMock).toHaveBeenCalledWith('session-1')
     })
 
     expect(scrollContainer.scrollTop).toBe(640)
@@ -170,7 +185,7 @@ describe('ConversationView session boot', () => {
     const composerShell = container.querySelector('[data-message-input-shell]') as HTMLDivElement
 
     await waitFor(() => {
-      expect(storeState.initProcess).toHaveBeenCalledWith('session-1')
+      expect(initSessionMock).toHaveBeenCalledWith('session-1')
     })
 
     expect(scrollContainer).toHaveStyle({ scrollPaddingBottom: '108px' })

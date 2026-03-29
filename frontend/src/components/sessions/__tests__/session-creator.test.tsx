@@ -7,19 +7,30 @@ import { renderWithProviders, screen } from '../../../test/render'
 const createMock = vi.fn()
 const initProcessMock = vi.fn()
 const sendMessageMock = vi.fn()
-const selectSessionMock = vi.fn()
+const openSessionMock = vi.fn()
 const getProvidersMock = vi.fn()
 const getRepoRootMock = vi.fn()
-
 let settingsState = { autoWorktree: true }
 
-vi.mock('../../../stores/sessionStore', () => ({
-  useSessionStore: (selector: (state: Record<string, unknown>) => unknown) => selector({
-    create: createMock,
-    initProcess: initProcessMock,
-    sendMessage: sendMessageMock,
-    select: selectSessionMock,
-  }),
+vi.mock('../../../app/api/workbench', () => ({
+  workbenchApi: {
+    provider: {
+      list: (...args: unknown[]) => getProvidersMock(...args),
+    },
+    session: {
+      create: (...args: unknown[]) => createMock(...args),
+      init: (...args: unknown[]) => initProcessMock(...args),
+    },
+    navigation: {
+      openSession: (...args: unknown[]) => openSessionMock(...args),
+    },
+    chat: {
+      appendMessage: (...args: unknown[]) => sendMessageMock(...args),
+    },
+    app: {
+      selectDirectory: vi.fn(),
+    },
+  },
 }))
 
 vi.mock('../../../stores/settingsStore', () => ({
@@ -27,16 +38,7 @@ vi.mock('../../../stores/settingsStore', () => ({
     selector({ settings: settingsState }),
 }))
 
-vi.mock('../../../../bindings/electron-api', () => ({
-  AppAPI: {
-    selectDirectory: vi.fn(),
-  },
-}))
-
 vi.mock('../../../../bindings/allbeingsfuture/internal/services', () => ({
-  ProviderService: {
-    GetAll: (...args: unknown[]) => getProvidersMock(...args),
-  },
   GitService: {
     GetRepoRoot: (...args: unknown[]) => getRepoRootMock(...args),
   },
@@ -57,7 +59,7 @@ describe('SessionCreator', () => {
     createMock.mockReset()
     initProcessMock.mockReset()
     sendMessageMock.mockReset()
-    selectSessionMock.mockReset()
+    openSessionMock.mockReset()
     getProvidersMock.mockReset()
     getRepoRootMock.mockReset()
 
@@ -69,7 +71,7 @@ describe('SessionCreator', () => {
     createMock.mockResolvedValue({ id: 'session-1' })
     initProcessMock.mockResolvedValue(undefined)
     sendMessageMock.mockResolvedValue(undefined)
-    selectSessionMock.mockResolvedValue(undefined)
+    openSessionMock.mockResolvedValue(undefined)
   })
 
   it('keeps session creation on the selected directory but records the git repo for later worktree entry', async () => {

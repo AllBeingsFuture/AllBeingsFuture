@@ -7,6 +7,11 @@ const getProvidersMock = vi.fn()
 const getRepoRootMock = vi.fn()
 
 let settingsState = { autoWorktree: true }
+const createSessionMock = vi.fn()
+const initSessionMock = vi.fn()
+const openSessionMock = vi.fn()
+const appendMessageMock = vi.fn()
+const initializeTerminalMock = vi.fn()
 
 const sessionState = {
   sessions: [
@@ -40,11 +45,9 @@ const sessionState = {
   childToParent: {},
   agents: {},
   sentImages: [],
-  create: vi.fn().mockResolvedValue({ id: 'session-new' }),
   select: vi.fn(),
   remove: vi.fn(),
   end: vi.fn(),
-  initProcess: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue(undefined),
   pollChat: vi.fn().mockResolvedValue(undefined),
   handleChatUpdate: vi.fn(),
@@ -57,6 +60,34 @@ vi.mock('../../../stores/sessionStore', () => ({
     typeof selector === 'function' ? selector(sessionState) : sessionState,
 }))
 
+vi.mock('../../../app/api/workbench', () => ({
+  workbenchApi: {
+    provider: {
+      list: (...args: unknown[]) => getProvidersMock(...args),
+    },
+    session: {
+      create: (...args: unknown[]) => createSessionMock(...args),
+      init: (...args: unknown[]) => initSessionMock(...args),
+      load: vi.fn(),
+    },
+    navigation: {
+      openSession: (...args: unknown[]) => openSessionMock(...args),
+    },
+    chat: {
+      appendMessage: (...args: unknown[]) => appendMessageMock(...args),
+    },
+    terminal: {
+      initialize: (...args: unknown[]) => initializeTerminalMock(...args),
+    },
+    app: {
+      selectDirectory: vi.fn(),
+    },
+    ui: {
+      setNewSessionDialogVisible: vi.fn(),
+    },
+  },
+}))
+
 vi.mock('../../../stores/settingsStore', () => ({
   useSettingsStore: (selector: (state: { settings: { autoWorktree: boolean } }) => unknown) =>
     selector({ settings: settingsState }),
@@ -66,20 +97,10 @@ vi.mock('../../../hooks/useIpcEvent', () => ({
   useIpcEvent: vi.fn(),
 }))
 
-vi.mock('../../../bindings/electron-api', () => ({
-  AppAPI: {
-    selectDirectory: vi.fn(),
-  },
-}))
-
 vi.mock('../../../../bindings/allbeingsfuture/internal/services', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../bindings/allbeingsfuture/internal/services')>()
   return {
     ...actual,
-    ProviderService: {
-      ...actual.ProviderService,
-      GetAll: (...args: unknown[]) => getProvidersMock(...args),
-    },
     GitService: {
       ...actual.GitService,
       GetRepoRoot: (...args: unknown[]) => getRepoRootMock(...args),
@@ -91,8 +112,18 @@ describe('Session workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     settingsState = { autoWorktree: true }
+    createSessionMock.mockReset()
+    initSessionMock.mockReset()
+    openSessionMock.mockReset()
+    appendMessageMock.mockReset()
+    initializeTerminalMock.mockReset()
     getProvidersMock.mockReset()
     getRepoRootMock.mockReset()
+    createSessionMock.mockResolvedValue({ id: 'session-new' })
+    initSessionMock.mockResolvedValue(undefined)
+    openSessionMock.mockResolvedValue(undefined)
+    appendMessageMock.mockResolvedValue(undefined)
+    initializeTerminalMock.mockResolvedValue(() => {})
     getProvidersMock.mockResolvedValue([
       { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'codex-appserver' },
       { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
@@ -129,7 +160,7 @@ describe('Session workspace', () => {
     fireEvent.click(createButton)
 
     await waitFor(() => {
-      expect(sessionState.create).toHaveBeenCalledWith(expect.objectContaining({
+      expect(createSessionMock).toHaveBeenCalledWith(expect.objectContaining({
         workingDirectory: 'C:/repo/project',
         worktreeEnabled: false,
         gitRepoPath: 'C:/repo/project',

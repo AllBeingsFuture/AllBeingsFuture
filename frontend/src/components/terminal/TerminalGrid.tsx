@@ -5,9 +5,8 @@
 
 import React, { useMemo } from 'react'
 import { Plus, Maximize2, Terminal } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useUIStore } from '../../stores/uiStore'
 
 /** 会话状态 → 指示灯颜色映射 */
 const STATUS_COLORS: Record<string, string> = {
@@ -78,14 +77,7 @@ const SessionCard = React.memo(function SessionCard({
 })
 
 const TerminalGrid: React.FC = () => {
-  const { sessions, select } = useSessionStore(useShallow((state) => ({
-    sessions: state.sessions,
-    select: state.select,
-  })))
-  const { setViewMode, toggleNewTaskDialog } = useUIStore(useShallow((state) => ({
-    setViewMode: state.setViewMode,
-    toggleNewTaskDialog: state.toggleNewTaskDialog,
-  })))
+  const sessions = useSessionStore((state) => state.sessions)
 
   const { activeSessions, cols, rows, placeholderCount } = useMemo(() => {
     const active = sessions.filter((session) => session.status !== 'completed' && session.status !== 'terminated')
@@ -100,13 +92,13 @@ const TerminalGrid: React.FC = () => {
 
   // 最大化：选中会话并切换到标签页视图
   const handleMaximize = (sessionId: string) => {
-    select(sessionId)
-    setViewMode('tabs')
+    void workbenchApi.navigation.openSession(sessionId)
+    void workbenchApi.ui.setViewMode('tabs')
   }
 
   // 新建会话
   const handleNewSession = () => {
-    toggleNewTaskDialog()
+    void workbenchApi.ui.setNewSessionDialogVisible(true)
   }
 
   // 无会话时显示占位

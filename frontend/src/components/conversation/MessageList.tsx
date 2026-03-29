@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
-import { useSessionStore } from '../../stores/sessionStore'
+import { workbenchApi } from '../../app/api/workbench'
 import MessageBubble from './MessageBubble'
 import ToolOperationGroup from './ToolOperationGroup'
 import FileChangeCard from './FileChangeCard'
@@ -249,7 +249,6 @@ function ChildAgentBlock({ name, messages, childSessionId, isActive }: {
   isActive: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const selectSession = useSessionStore((state) => state.select)
 
   const toolCount = messages.filter(m => m.role === 'tool_use').length
   const thinkingCount = messages.filter(m => m.role === 'thinking' || (m as any).isThinking).length
@@ -284,7 +283,7 @@ function ChildAgentBlock({ name, messages, childSessionId, isActive }: {
           )}
         </button>
         <button
-          onClick={() => selectSession(childSessionId)}
+          onClick={() => { void workbenchApi.navigation.openSession(childSessionId) }}
           className="px-3 py-2 text-[10px] text-blue-400/50 hover:text-blue-300 transition-colors"
           title={'\u67E5\u770B\u5B50Agent\u5B8C\u6574\u4F1A\u8BDD'}
         >

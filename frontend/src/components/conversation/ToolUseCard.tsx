@@ -12,7 +12,7 @@ import {
 import type { ConversationMessage, ToolResultStream, ToolStreamOutput } from '../../types/conversationTypes'
 import ContextMenu from '../common/ContextMenu'
 import type { MenuItem } from '../common/ContextMenu'
-import { useFileManagerStore } from '../../stores/fileManagerStore'
+import { workbenchApi } from '../../app/api/workbench'
 
 const TOOL_STYLES: Record<string, { icon: string; color: string; label: string }> = {
   Read: { icon: '📖', color: 'text-blue-400', label: 'Read' },
@@ -58,7 +58,6 @@ interface ToolUseCardProps {
 const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact = false }) => {
   const [expanded, setExpanded] = useState(() => Boolean(operation?.liveResult && !operation?.result))
   const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0 })
-  const openFileInTab = useFileManagerStore(s => s.openFileInTab)
 
   const resolvedOperation = useMemo(() => normalizeOperation(message, operation), [message, operation])
   const primaryMessage = resolvedOperation.result || resolvedOperation.liveResult || resolvedOperation.toolUse || message
@@ -169,7 +168,7 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
         key: 'open-file',
         label: '在编辑器中打开文件',
         icon: <ExternalLink size={14} />,
-        onClick: () => openFileInTab(filePath),
+        onClick: () => { void workbenchApi.editor.openFile(filePath) },
       })
       items.push({
         key: 'copy-path',
@@ -190,7 +189,7 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
     }
 
     return items
-  }, [command, effectiveToolInput, effectiveToolName, effectiveToolResult, expanded, filePath, openFileInTab])
+  }, [command, effectiveToolInput, effectiveToolName, effectiveToolResult, expanded, filePath])
 
   if (!primaryMessage) {
     return null

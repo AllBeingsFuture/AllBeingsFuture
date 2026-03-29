@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp } from 'lucide-react'
-import { AppAPI } from '../../../bindings/electron-api'
-import { GitService, ProviderService } from '../../../bindings/allbeingsfuture/internal/services'
-import { useSessionStore } from '../../stores/sessionStore'
+import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSettingsStore } from '../../stores/settingsStore'
 import DraggableDialog from '../common/DraggableDialog'
 import type { AIProvider, SessionConfig } from '../../../bindings/allbeingsfuture/internal/models/models'
@@ -74,10 +73,6 @@ const modes: { id: string; label: string; desc: string; icon: typeof Zap }[] = [
 // ─── Component ───
 
 export default function SessionCreator({ onClose }: Props) {
-  const create = useSessionStore(s => s.create)
-  const initProcess = useSessionStore(s => s.initProcess)
-  const sendMessage = useSessionStore(s => s.sendMessage)
-  const selectSession = useSessionStore(s => s.select)
   const autoWorktree = useSettingsStore(s => s.settings.autoWorktree)
 
   const [name, setName] = useState(() => `会话 ${new Date().toLocaleTimeString('zh-CN')}`)
@@ -102,7 +97,7 @@ export default function SessionCreator({ onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    ProviderService.GetAll()
+    workbenchApi.provider.list()
       .then(data => {
         if (cancelled) return
         const enabledProviders = (data || []).filter(provider => provider.isEnabled)
@@ -179,7 +174,7 @@ export default function SessionCreator({ onClose }: Props) {
 
   const handleAddDir = async () => {
     try {
-      const dir = await AppAPI.selectDirectory()
+      const dir = await workbenchApi.app.selectDirectory()
       if (dir) {
         const updated = addRecentDir(dir, true)
         setRecentDirs(updated)
@@ -203,7 +198,7 @@ export default function SessionCreator({ onClose }: Props) {
 
   const handleBrowse = async () => {
     try {
-      const dir = await AppAPI.selectDirectory()
+      const dir = await workbenchApi.app.selectDirectory()
       if (dir) {
         setWorkDir(dir)
         const updated = addRecentDir(dir)
@@ -238,14 +233,14 @@ export default function SessionCreator({ onClose }: Props) {
         gitRepoPath,
         gitBranch: '',
       } as SessionConfig
-      const session = await create(config)
+      const session = await workbenchApi.session.create(config)
       if (session) {
         // Init may fail transiently — still select the session so
         // ConversationView can retry on mount. sendMessage also auto-inits.
-        try { await initProcess(session.id) } catch {}
-        selectSession(session.id)
+        try { await workbenchApi.session.init(session.id) } catch {}
+        await workbenchApi.navigation.openSession(session.id)
         if (prompt.trim()) {
-          await sendMessage(session.id, prompt.trim())
+          await workbenchApi.chat.appendMessage(session.id, prompt.trim())
         }
       }
       onClose()

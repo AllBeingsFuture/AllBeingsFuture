@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Play, Loader2 } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { workbenchApi } from '../../app/api/workbench'
 
 export default function StartWorkflowDialog({
   workflow,
@@ -10,10 +9,6 @@ export default function StartWorkflowDialog({
   workflow: any
   onClose: () => void
 }) {
-  const { start, load } = useWorkflowStore(useShallow((state) => ({
-    start: state.start,
-    load: state.load,
-  })))
   const [variables, setVariables] = useState('{}')
   const [jsonError, setJsonError] = useState('')
   const [starting, setStarting] = useState(false)
@@ -33,8 +28,7 @@ export default function StartWorkflowDialog({
     if (!validate(variables)) return
     setStarting(true)
     try {
-      await start(workflow.id, variables)
-      await load()
+      await workbenchApi.workflow.run(workflow.id, variables)
       onClose()
     } catch (err: any) {
       setJsonError(err.message || '启动失败')

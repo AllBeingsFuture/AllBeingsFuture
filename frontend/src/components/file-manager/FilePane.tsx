@@ -5,10 +5,11 @@
 
 import { useState } from 'react'
 import { FolderOpen, Search, RefreshCw, ChevronRight, File, Folder } from 'lucide-react'
+import { workbenchApi } from '../../app/api/workbench'
 import { useFileManagerStore } from '../../stores/fileManagerStore'
 
 function FileTreeNode({ entry, depth = 0 }: { entry: any; depth?: number }) {
-  const { expandedDirs, toggleDir, setSelectedPath, selectedPath, dirCache } = useFileManagerStore()
+  const { expandedDirs, selectedPath, dirCache } = useFileManagerStore()
   const isDir = entry.isDirectory
   const isExpanded = expandedDirs.has(entry.path)
   const isSelected = selectedPath === entry.path
@@ -18,8 +19,10 @@ function FileTreeNode({ entry, depth = 0 }: { entry: any; depth?: number }) {
     <div>
       <button
         onClick={() => {
-          setSelectedPath(entry.path)
-          if (isDir) toggleDir(entry.path)
+          void workbenchApi.fileManager.setSelectedPath(entry.path)
+          if (isDir) {
+            void workbenchApi.fileManager.toggleDir(entry.path)
+          }
         }}
         className={`flex w-full items-center gap-1.5 px-2 py-1 text-xs hover:bg-white/5 ${
           isSelected ? 'bg-blue-500/15 text-blue-200' : 'text-slate-300'
@@ -47,7 +50,7 @@ function FileTreeNode({ entry, depth = 0 }: { entry: any; depth?: number }) {
 }
 
 export default function FilePane() {
-  const { currentDir, setCurrentDir, isLoading, error, dirCache, refreshCurrentDir } = useFileManagerStore()
+  const { currentDir, isLoading, error, dirCache } = useFileManagerStore()
   const [filterText, setFilterText] = useState('')
 
   const rootEntries = currentDir ? dirCache.get(currentDir) ?? [] : []
@@ -63,7 +66,7 @@ export default function FilePane() {
         <span className="text-xs font-medium text-white">文件管理器</span>
         <div className="flex-1" />
         <button
-          onClick={() => refreshCurrentDir()}
+          onClick={() => { void workbenchApi.fileManager.refreshCurrentDir() }}
           className="rounded p-1 text-slate-400 hover:bg-white/5 hover:text-white"
           title="刷新"
         >

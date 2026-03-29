@@ -6,6 +6,7 @@
 
 import React, { useCallback, useEffect } from 'react'
 import Editor, { useMonaco } from '@monaco-editor/react'
+import { workbenchApi } from '../../app/api/workbench'
 import { useFileTabStore } from '../../stores/fileTabStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 
@@ -17,7 +18,7 @@ interface CodeViewerProps {
 }
 
 export default function CodeViewer({ tabId }: CodeViewerProps) {
-  const { tabs, updateContent, saveTab, clearPendingReveal } = useFileTabStore()
+  const { tabs, updateContent, clearPendingReveal } = useFileTabStore()
   const tab = tabs.find(t => t.id === tabId)
   const monaco = useMonaco()
   const currentTheme = useSettingsStore(s => s.settings.theme)
@@ -68,9 +69,9 @@ export default function CodeViewer({ tabId }: CodeViewerProps) {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault()
-      saveTab(tabId)
+      void workbenchApi.editor.save(tabId)
     }
-  }, [tabId, saveTab])
+  }, [tabId])
 
   // 处理 pendingReveal（跳转到指定行列）
   useEffect(() => {

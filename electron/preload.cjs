@@ -31,6 +31,11 @@ const electronAPI = {
   send: (channel, ...args) => {
     ipcRenderer.send(channel, ...args)
   },
+
+  quickOpen: {
+    search: (rootDir, query) => ipcRenderer.invoke('QuickOpen.Search', rootDir, query),
+    openFile: (filePath) => ipcRenderer.invoke('QuickOpen.OpenFile', filePath),
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

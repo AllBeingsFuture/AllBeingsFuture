@@ -12,7 +12,7 @@ import {
 import type { ConversationMessage } from '../../types/conversationTypes'
 import ContextMenu from '../common/ContextMenu'
 import type { MenuItem } from '../common/ContextMenu'
-import { useFileManagerStore } from '../../stores/fileManagerStore'
+import { workbenchApi } from '../../app/api/workbench'
 
 const CHANGE_TYPE_STYLES = {
   edit:   { icon: FileEdit, color: 'text-yellow-400', label: '编辑', bgColor: 'bg-yellow-400/10' },
@@ -29,8 +29,6 @@ const FileChangeCard: React.FC<FileChangeCardProps> = ({ message }) => {
   const [expanded, setExpanded] = useState(false)
   const [activeTab, setActiveTab] = useState<'operation' | 'cumulative'>('operation')
   const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0 })
-
-  const openFileInTab = useFileManagerStore(s => s.openFileInTab)
 
   const fc = message.fileChange
   if (!fc) return null
@@ -59,7 +57,7 @@ const FileChangeCard: React.FC<FileChangeCardProps> = ({ message }) => {
       key: 'open-file',
       label: '在编辑器中打开',
       icon: <ExternalLink size={14} />,
-      onClick: () => openFileInTab(fc.filePath),
+      onClick: () => { void workbenchApi.editor.openFile(fc.filePath) },
     },
     {
       key: 'copy-path',
@@ -73,7 +71,7 @@ const FileChangeCard: React.FC<FileChangeCardProps> = ({ message }) => {
       icon: <Copy size={14} />,
       onClick: () => navigator.clipboard.writeText(fc.operationDiff),
     },
-  ], [expanded, fc, openFileInTab])
+  ], [expanded, fc])
 
   return (
     <div className="my-2 mx-2">

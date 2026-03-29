@@ -5,21 +5,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { File, Search, X } from 'lucide-react'
-import { useUIStore } from '../../stores/uiStore'
+import { workbenchApi } from '../../app/api/workbench'
+import type { QuickOpenSearchItem } from '../../app/api/workbench'
 import { useFileManagerStore } from '../../stores/fileManagerStore'
-import { useFileTabStore } from '../../stores/fileTabStore'
-
-interface QuickOpenItem {
-  path: string
-  name: string
-  dir: string
-}
 
 export default function QuickOpenDialog() {
-  const toggleQuickOpen = useUIStore((state) => state.toggleQuickOpen)
   const currentDir = useFileManagerStore((state) => state.currentDir)
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<QuickOpenItem[]>([])
+  const [results, setResults] = useState<QuickOpenSearchItem[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -27,10 +20,14 @@ export default function QuickOpenDialog() {
     inputRef.current?.focus()
   }, [])
 
+  const closeQuickOpen = () => {
+    void workbenchApi.ui.toggleQuickOpen()
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        toggleQuickOpen()
+        closeQuickOpen()
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
         setSelectedIndex((i) => Math.min(i + 1, results.length - 1))
@@ -38,13 +35,13 @@ export default function QuickOpenDialog() {
         e.preventDefault()
         setSelectedIndex((i) => Math.max(i - 1, 0))
       } else if (e.key === 'Enter' && results[selectedIndex]) {
-        useFileTabStore.getState().openFile(results[selectedIndex].path)
-        toggleQuickOpen()
+        void workbenchApi.editor.openFile(results[selectedIndex].path)
+        closeQuickOpen()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [results, selectedIndex, toggleQuickOpen])
+  }, [results, selectedIndex])
 
   useEffect(() => {
     if (!query.trim()) {
@@ -53,16 +50,16 @@ export default function QuickOpenDialog() {
     }
     if (!currentDir) return
     let cancelled = false
-    window.electronAPI.invoke('QuickOpen.Search', currentDir, query.trim()).then((items: QuickOpenItem[]) => {
+    workbenchApi.editor.searchFiles(currentDir, query.trim()).then((items) => {
       if (!cancelled) setResults(items ?? [])
     })
     return () => { cancelled = true }
-  }, [query])
+  }, [currentDir, query])
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" onClick={toggleQuickOpen} />
+      <div className="absolute inset-0 bg-black/60" onClick={closeQuickOpen} />
 
       {/* Dialog */}
       <div className="relative w-full max-w-lg rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
@@ -80,7 +77,7 @@ export default function QuickOpenDialog() {
             }}
             className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 outline-none"
           />
-          <button onClick={toggleQuickOpen} className="shrink-0 text-slate-400 hover:text-white">
+          <button onClick={closeQuickOpen} className="shrink-0 text-slate-400 hover:text-white">
             <X size={16} />
           </button>
         </div>
@@ -97,8 +94,8 @@ export default function QuickOpenDialog() {
             <button
               key={item.path}
               onClick={() => {
-                useFileTabStore.getState().openFile(item.path)
-                toggleQuickOpen()
+                void workbenchApi.editor.openFile(item.path)
+                closeQuickOpen()
               }}
               className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${
                 index === selectedIndex

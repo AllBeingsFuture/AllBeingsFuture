@@ -17,9 +17,8 @@ import {
   AlertCircle,
   CheckCircle,
 } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useUIStore } from '../../stores/uiStore'
 import { STATUS_COLORS } from '../../constants/statusColors'
 
 const statusBadge: Record<string, { label: string; cls: string }> = {
@@ -57,18 +56,11 @@ function shortPath(p: string | undefined): string {
 }
 
 export default function DashboardView() {
-  const { sessions, load: loadSessions, select: selectSession } = useSessionStore(
-    useShallow((state) => ({
-      sessions: state.sessions,
-      load: state.load,
-      select: state.select,
-    })),
-  )
-  const setShowCreator = useUIStore(s => s.setShowNewSessionDialog)
+  const sessions = useSessionStore((state) => state.sessions)
 
   const refresh = useCallback(async () => {
-    await loadSessions()
-  }, [loadSessions])
+    await workbenchApi.session.load()
+  }, [])
 
   useEffect(() => {
     refresh()
@@ -127,7 +119,7 @@ export default function DashboardView() {
             刷新
           </button>
           <button
-            onClick={() => setShowCreator(true)}
+            onClick={() => { void workbenchApi.ui.setNewSessionDialogVisible(true) }}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent-blue text-white rounded-lg hover:bg-accent-blue/90 transition-colors"
           >
             <Plus size={13} />
@@ -194,7 +186,7 @@ export default function DashboardView() {
             {recentSessions.map(session => (
               <div
                 key={session.id}
-                onClick={() => selectSession(session.id)}
+                onClick={() => { void workbenchApi.navigation.openSession(session.id) }}
                 className="flex items-center gap-4 px-5 py-3.5 hover:bg-bg-hover cursor-pointer transition-colors"
               >
                 <Circle

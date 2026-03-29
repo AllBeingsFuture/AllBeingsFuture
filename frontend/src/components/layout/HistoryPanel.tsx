@@ -1,20 +1,15 @@
 import { Clock3, History, Search, X } from 'lucide-react'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useUIStore } from '../../stores/uiStore'
 
 const HISTORY_STATUSES = new Set(['completed', 'terminated', 'error'])
 
 export default function HistoryPanel() {
-  const { sessions, selectSession } = useSessionStore(useShallow((state) => ({
-    sessions: state.sessions,
-    selectSession: state.select,
-  })))
-  const { setActiveView, toggleHistoryPanel } = useUIStore(useShallow((state) => ({
-    setActiveView: state.setActiveView,
-    toggleHistoryPanel: state.toggleHistoryPanel,
-  })))
+  const sessions = useSessionStore((state) => state.sessions)
+  const closeHistoryPanel = () => {
+    void workbenchApi.ui.toggleHistoryPanel()
+  }
 
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -27,13 +22,13 @@ export default function HistoryPanel() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        toggleHistoryPanel()
+        closeHistoryPanel()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [toggleHistoryPanel])
+  }, [])
 
   const historySessions = useMemo(() => {
     const trimmed = deferredQuery.trim().toLowerCase()
@@ -52,13 +47,12 @@ export default function HistoryPanel() {
   }, [deferredQuery, sessions])
 
   const handleOpenSession = (sessionId: string) => {
-    selectSession(sessionId)
-    setActiveView('sessions')
-    toggleHistoryPanel()
+    void workbenchApi.navigation.openSession(sessionId)
+    closeHistoryPanel()
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget && toggleHistoryPanel()}>
+    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget && closeHistoryPanel()}>
       <div className="flex max-h-[72vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/96 shadow-[0_28px_64px_rgba(15,23,42,0.42)]">
         <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
           <History size={18} className="text-blue-200" />
@@ -69,7 +63,7 @@ export default function HistoryPanel() {
             placeholder="搜索历史会话..."
             className="flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
           />
-          <button type="button" onClick={toggleHistoryPanel} className="titlebar-button" aria-label="关闭历史面板">
+          <button type="button" onClick={closeHistoryPanel} className="titlebar-button" aria-label="关闭历史面板">
             <X size={16} />
           </button>
         </div>

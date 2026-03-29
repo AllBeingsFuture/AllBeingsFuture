@@ -1,20 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, X, Loader2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useTaskStore } from '../../stores/taskStore'
 import { COLUMNS } from './kanbanConstants'
 import type { NewTaskFormProps } from './NewTaskForm'
 import KanbanColumn from './KanbanColumn'
 
 export default function KanbanBoard() {
-  const { tasks, loading, load, create, moveTask, remove } = useTaskStore(
+  const { tasks, loading } = useTaskStore(
     useShallow((state) => ({
       tasks: state.tasks,
       loading: state.loading,
-      load: state.load,
-      create: state.create,
-      moveTask: state.moveTask,
-      remove: state.remove,
     })),
   )
   const [showNewForm, setShowNewForm] = useState(false)
@@ -23,16 +20,16 @@ export default function KanbanBoard() {
 
   // Initial load
   useEffect(() => {
-    load()
-  }, [load])
+    void workbenchApi.task.load()
+  }, [])
 
   // Auto-refresh every 30s
   useEffect(() => {
     const interval = setInterval(() => {
-      load()
+      void workbenchApi.task.load()
     }, 30_000)
     return () => clearInterval(interval)
-  }, [load])
+  }, [])
 
   // Group tasks by status
   const tasksByStatus = useMemo(() => {
@@ -69,7 +66,7 @@ export default function KanbanBoard() {
       setSubmitting(true)
       setError(null)
       try {
-        await create({
+        await workbenchApi.task.create({
           title: data.title,
           description: data.description || undefined,
           priority: data.priority,
@@ -83,29 +80,29 @@ export default function KanbanBoard() {
         setSubmitting(false)
       }
     },
-    [create],
+    [],
   )
 
   const handleMove = useCallback(
     async (id: string, status: string) => {
       try {
-        await moveTask(id, status)
+        await workbenchApi.task.move(id, status)
       } catch (err: any) {
         setError(err?.message ?? '移动任务失败')
       }
     },
-    [moveTask],
+    [],
   )
 
   const handleDelete = useCallback(
     async (id: string) => {
       try {
-        await remove(id)
+        await workbenchApi.task.remove(id)
       } catch (err: any) {
         setError(err?.message ?? '删除任务失败')
       }
     },
-    [remove],
+    [],
   )
 
   return (
@@ -121,7 +118,7 @@ export default function KanbanBoard() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => load()}
+            onClick={() => { void workbenchApi.task.load() }}
             disabled={loading}
             className="rounded-md px-2.5 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-dark-border/50 transition-colors disabled:opacity-50"
           >

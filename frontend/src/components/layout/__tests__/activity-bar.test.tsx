@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent } from '@testing-library/react'
 import ActivityBar from '../ActivityBar'
 import { renderWithProviders, screen } from '../../../test/render'
+import { workbenchApi } from '../../../app/api/workbench'
 
 const panelState = {
   panelSides: {
@@ -34,6 +35,20 @@ vi.mock('../../../stores/uiStore', () => ({
     typeof selector === 'function' ? selector(uiState) : uiState,
 }))
 
+vi.mock('../../../app/api/workbench', () => ({
+  workbenchApi: {
+    panel: {
+      setSide: vi.fn(),
+      show: vi.fn(),
+      toggleShell: vi.fn(),
+    },
+    ui: {
+      setTeamsMode: vi.fn(),
+      setSettingsVisible: vi.fn(),
+    },
+  },
+}))
+
 describe('ActivityBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -42,18 +57,24 @@ describe('ActivityBar', () => {
   })
 
   it('switches panel when buttons are clicked', () => {
-    const onOpenSettings = vi.fn()
-    renderWithProviders(<ActivityBar onOpenSettings={onOpenSettings} />)
+    renderWithProviders(<ActivityBar />)
 
     fireEvent.click(screen.getByRole('button', { name: '文件资源管理器' }))
-    expect(panelState.setActivePanelLeft).toHaveBeenCalledWith('explorer')
+    expect(workbenchApi.panel.show).toHaveBeenCalledWith('explorer', 'left')
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
-    expect(onOpenSettings).toHaveBeenCalled()
+    expect(workbenchApi.ui.setSettingsVisible).toHaveBeenCalledWith(true)
+  })
+
+  it('routes shell toggle through workbench api', () => {
+    renderWithProviders(<ActivityBar />)
+
+    fireEvent.click(screen.getByRole('button', { name: '终端 (Ctrl+`)' }))
+    expect(workbenchApi.panel.toggleShell).toHaveBeenCalled()
   })
 
   it('renders panel buttons', () => {
-    renderWithProviders(<ActivityBar onOpenSettings={vi.fn()} />)
+    renderWithProviders(<ActivityBar />)
 
     expect(screen.getByRole('button', { name: '会话管理' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '内置工具' })).toBeInTheDocument()

@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Loader2, AlertTriangle } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { workbenchApi } from '../../app/api/workbench'
 import { DEFAULT_DEFINITION } from './workflowConstants'
 
 export default function WorkflowFormModal({
@@ -11,12 +10,6 @@ export default function WorkflowFormModal({
   workflow: any | null
   onClose: () => void
 }) {
-  const { create, update, load } = useWorkflowStore(useShallow((state) => ({
-    create: state.create,
-    update: state.update,
-    load: state.load,
-  })))
-
   const isEditing = !!workflow
   const [name, setName] = useState(workflow?.name ?? '')
   const [description, setDescription] = useState(workflow?.description ?? '')
@@ -58,11 +51,11 @@ export default function WorkflowFormModal({
     setSaving(true)
     try {
       if (isEditing) {
-        await update(workflow.id, name.trim(), description.trim(), definition)
+        await workbenchApi.workflow.update(workflow.id, name.trim(), description.trim(), definition)
       } else {
-        await create(name.trim(), description.trim(), definition)
+        await workbenchApi.workflow.create(name.trim(), description.trim(), definition)
       }
-      await load()
+      await workbenchApi.workflow.load()
       onClose()
     } catch (err: any) {
       setJsonError(err.message || '保存失败')

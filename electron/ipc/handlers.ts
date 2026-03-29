@@ -340,6 +340,7 @@ export function registerAllIpcHandlers(
   ipcMain.handle('ProviderService.Create', (_e, name: string, command: string, adapterType: string) => providerService.create(name, command, adapterType))
   ipcMain.handle('ProviderService.Update', (_e, id: string, updates: any) => providerService.update(id, updates))
   ipcMain.handle('ProviderService.Delete', (_e, id: string) => providerService.delete(id))
+  ipcMain.handle('ProviderService.TestExecutable', (_e, id: string, executablePath: string) => providerService.testExecutable(id, executablePath))
 
   // ==============================================================
   // SettingsService

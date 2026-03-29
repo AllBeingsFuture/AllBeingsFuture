@@ -23,6 +23,7 @@ import { useTeamStore } from '../../stores/teamStore'
 import SettingsModal from '../settings/SettingsModal'
 import SessionCreator from '../sessions/SessionCreator'
 import QuickOpenDialog from '../file-manager/QuickOpenDialog'
+import { workbenchApi } from '../../app/api/workbench'
 
 export default function AppLayout() {
   const {
@@ -30,21 +31,15 @@ export default function AppLayout() {
     showHistoryPanel,
     showQuickOpen,
     teamsMode,
-    setTeamsMode,
     showSettings,
-    setShowSettings,
     showNewSessionDialog,
-    setShowNewSessionDialog,
   } = useUIStore(useShallow((state) => ({
     showSearchPanel: state.showSearchPanel,
     showHistoryPanel: state.showHistoryPanel,
     showQuickOpen: state.showQuickOpen,
     teamsMode: state.teamsMode,
-    setTeamsMode: state.setTeamsMode,
     showSettings: state.showSettings,
-    setShowSettings: state.setShowSettings,
     showNewSessionDialog: state.showNewSessionDialog,
-    setShowNewSessionDialog: state.setShowNewSessionDialog,
   })))
 
   const {
@@ -72,7 +67,7 @@ export default function AppLayout() {
     <div className="flex flex-col h-screen bg-bg-primary">
       <TitleBar />
       <div className="flex-1 overflow-hidden flex">
-        <ActivityBar onOpenSettings={() => setShowSettings(true)} />
+        <ActivityBar />
 
         {teamsMode ? (
           <div className="flex-1 overflow-hidden flex flex-col">
@@ -81,7 +76,7 @@ export default function AppLayout() {
               <span className="text-xs font-medium text-indigo-400">Agent Teams 模式</span>
               <div className="flex-1" />
               <button
-                onClick={() => setTeamsMode(false)}
+                onClick={() => { void workbenchApi.ui.setTeamsMode(false) }}
                 className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary transition-colors"
               >
                 <X className="w-3 h-3" />
@@ -110,7 +105,7 @@ export default function AppLayout() {
                   </PanelErrorBoundary>
 
                   <button
-                    onClick={toggleSidebar}
+                    onClick={() => { void workbenchApi.panel.toggleSidebar() }}
                     className="panel-toggle-btn left-0 rounded-r-md"
                     title={sidebarCollapsed ? '展开左侧面板' : '收起左侧面板'}
                   >
@@ -122,7 +117,7 @@ export default function AppLayout() {
                   </button>
 
                   <button
-                    onClick={toggleDetailPanel}
+                    onClick={() => { void workbenchApi.panel.toggleDetail() }}
                     className="panel-toggle-btn right-0 rounded-l-md"
                     title={detailPanelCollapsed ? '展开活动时间线' : '收起活动时间线'}
                   >
@@ -153,10 +148,10 @@ export default function AppLayout() {
       {showSearchPanel && <SearchPanel />}
       {showHistoryPanel && <HistoryPanel />}
       {showQuickOpen && <QuickOpenDialog />}
-      {showNewSessionDialog && <SessionCreator onClose={() => setShowNewSessionDialog(false)} />}
+      {showNewSessionDialog && <SessionCreator onClose={() => { void workbenchApi.ui.setNewSessionDialogVisible(false) }} />}
 
       {showSettings && (
-        <SettingsModal onClose={() => setShowSettings(false)} />
+        <SettingsModal onClose={() => { void workbenchApi.ui.setSettingsVisible(false) }} />
       )}
     </div>
   )
