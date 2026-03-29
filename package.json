@@ -80,7 +80,7 @@
         { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
       ]
     },
-    "npmRebuild": false,
+    "npmRebuild": true,
     "asarUnpack": [
       "node_modules/better-sqlite3/build/Release/*.node",
       "node_modules/better-sqlite3/lib/**",
