@@ -4,10 +4,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 export default function GeneralSettings() {
-  const { settings, setProxy, setAutoLaunch, setNotification, setLanguage, setVoice } =
+  const { settings, setProxy, setAutoWorktree, setAutoLaunch, setNotification, setLanguage, setVoice } =
     useSettingsStore(useShallow((state) => ({
       settings: state.settings,
       setProxy: state.setProxy,
+      setAutoWorktree: state.setAutoWorktree,
       setAutoLaunch: state.setAutoLaunch,
       setNotification: state.setNotification,
       setLanguage: state.setLanguage,
@@ -174,13 +175,12 @@ export default function GeneralSettings() {
           Git Worktree 隔离
         </h4>
 
-        <div className="rounded-lg border border-emerald-800/30 bg-emerald-900/20 px-4 py-3">
-          <p className="text-sm text-emerald-300">当前按 ABF Git Workflow 规则进行隔离。</p>
-          <p className="mt-1 text-xs leading-relaxed text-emerald-400/90">
-            新建会话时不会直接创建 worktree。真正涉及代码修改时，Agent 应先调用 `enter_worktree`
-            进入隔离目录；在非 worktree 会话里，写文件工具会被拦截。
-          </p>
-        </div>
+        <Toggle
+          enabled={settings.autoWorktree}
+          onChange={setAutoWorktree}
+          label="Git 仓库中改代码前必须先进入 worktree"
+          description="开启后，新会话仍在你选择的目录启动；但只要后续涉及代码修改，注入到 Codex/Claude 的规则都会要求 Agent 先进入独立 worktree，再进行写入、提交和合并。"
+        />
       </section>
 
       {/* ---- 回复语言 ---- */}

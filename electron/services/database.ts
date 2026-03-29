@@ -248,7 +248,8 @@ export class Database {
       INSERT OR IGNORE INTO settings (key, value) VALUES
         ('theme', 'dark'),
         ('fontSize', '14'),
-        ('autoWorktree', 'false'),
+        ('autoWorktree', 'true'),
+        ('autoWorktreeUserConfigured', 'false'),
         ('alwaysReplyInChinese', 'true'),
         ('autoLaunch', 'false'),
         ('notificationEnabled', 'true'),
@@ -259,6 +260,18 @@ export class Database {
         ('proxyPassword', ''),
         ('voiceTranscriptionMode', 'openai'),
         ('voiceTranscriptionProviderId', '');
+
+      -- Migrate legacy installs: auto-enable worktree isolation until the user
+      -- explicitly changes the preference in Settings.
+      UPDATE settings
+      SET value = 'true'
+      WHERE key = 'autoWorktree'
+        AND EXISTS (
+          SELECT 1
+          FROM settings AS cfg
+          WHERE cfg.key = 'autoWorktreeUserConfigured'
+            AND cfg.value = 'false'
+        );
 
       -- File Changes (tracked by FileChangeTracker)
       CREATE TABLE IF NOT EXISTS file_changes (

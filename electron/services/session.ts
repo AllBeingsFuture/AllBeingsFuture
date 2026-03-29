@@ -10,6 +10,7 @@ export interface SessionConfig {
   name: string
   providerId: string
   workingDirectory: string
+  gitRepoPath?: string
   autoAccept?: boolean
   permissionMode?: string
   customInstructions?: string
@@ -93,8 +94,8 @@ export class SessionService {
     this.db.raw.prepare(`
       INSERT INTO sessions (id, name, provider_id, working_directory, status, started_at,
         auto_accept, permission_mode, custom_instructions, append_system_prompt,
-        max_turns, context_window, model, parent_session_id)
-      VALUES (?, ?, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        max_turns, context_window, model, parent_session_id, worktree_source_repo)
+      VALUES (?, ?, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       config.name || 'New Session',
@@ -109,6 +110,7 @@ export class SessionService {
       config.contextWindow || '',
       config.model || '',
       config.parentSessionId || '',
+      config.gitRepoPath || '',
     )
 
     return this.getById(id)!
