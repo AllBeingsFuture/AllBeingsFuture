@@ -2,7 +2,9 @@
  * PTYService - Terminal (pseudo-terminal) management
  * Replaces Go internal/services/pty.go
  *
- * Uses node-pty to create real terminal sessions.
+ * Uses @karinjs/node-pty (prebuilt, no compilation needed) to create
+ * real terminal sessions. Falls back to the original node-pty if
+ * @karinjs/node-pty is unavailable.
  */
 
 import type { BrowserWindow } from 'electron'
@@ -56,10 +58,18 @@ export class PTYService {
 
   private async ensureNodePty() {
     if (!this.nodePty) {
+      // Prefer @karinjs/node-pty (prebuilt, no compilation required).
+      // Fall back to the original node-pty for backward compatibility.
       try {
-        this.nodePty = await import('node-pty')
+        this.nodePty = await import('@karinjs/node-pty')
       } catch {
-        throw new Error('node-pty not available. Please install: npm install node-pty')
+        try {
+          this.nodePty = await import('node-pty')
+        } catch {
+          throw new Error(
+            'PTY module not available. Please install: npm install @karinjs/node-pty',
+          )
+        }
       }
     }
     return this.nodePty

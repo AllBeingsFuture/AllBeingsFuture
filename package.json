@@ -30,7 +30,7 @@
     "yauzl": "^3.2.1"
   },
   "optionalDependencies": {
-    "node-pty": "^1.0.0"
+    "@karinjs/node-pty": "^1.1.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
@@ -85,10 +85,9 @@
       "node_modules/better-sqlite3/build/Release/*.node",
       "node_modules/better-sqlite3/lib/**",
       "node_modules/better-sqlite3/package.json",
-      "node_modules/node-pty/prebuilds/**",
-      "node_modules/node-pty/third_party/**",
-      "node_modules/node-pty/lib/**",
-      "node_modules/node-pty/package.json",
+      "node_modules/@karinjs/node-pty/build/Release/**",
+      "node_modules/@karinjs/node-pty/dist/**",
+      "node_modules/@karinjs/node-pty/package.json",
       "node_modules/@anthropic-ai/claude-agent-sdk/vendor/**"
     ],
     "extraResources": [
