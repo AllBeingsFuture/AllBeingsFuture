@@ -1,9 +1,9 @@
 import { Command, FolderKanban, Search, Sparkles, X } from 'lucide-react'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTaskStore } from '../../stores/taskStore'
-import { useUIStore } from '../../stores/uiStore'
 
 interface QuickOpenItem {
   id: string
@@ -13,19 +13,16 @@ interface QuickOpenItem {
 }
 
 export default function QuickOpenDialog() {
-  const { sessions, selectSession } = useSessionStore(useShallow((state) => ({
-    sessions: state.sessions,
-    selectSession: state.select,
-  })))
+  const sessions = useSessionStore(useShallow((state) => state.sessions))
   const tasks = useTaskStore((state) => state.tasks)
-  const { setActiveView, toggleQuickOpen } = useUIStore(useShallow((state) => ({
-    setActiveView: state.setActiveView,
-    toggleQuickOpen: state.toggleQuickOpen,
-  })))
 
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
   const deferredQuery = useDeferredValue(query)
+
+  const closeQuickOpen = () => {
+    void workbenchApi.ui.toggleQuickOpen()
+  }
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -34,13 +31,13 @@ export default function QuickOpenDialog() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        toggleQuickOpen()
+        closeQuickOpen()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [toggleQuickOpen])
+  }, [])
 
   const items = useMemo(() => {
     const trimmed = deferredQuery.trim().toLowerCase()
@@ -66,17 +63,16 @@ export default function QuickOpenDialog() {
 
   const handleOpen = (item: QuickOpenItem) => {
     if (item.kind === 'session') {
-      selectSession(item.id)
-      setActiveView('sessions')
+      void workbenchApi.navigation.openSession(item.id)
     } else {
-      setActiveView('kanban')
+      void workbenchApi.navigation.openTaskBoard(item.id)
     }
 
-    toggleQuickOpen()
+    closeQuickOpen()
   }
 
   return (
-    <div className="fixed inset-0 z-[72] flex items-start justify-center bg-black/60 px-4 pt-[14vh] backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget && toggleQuickOpen()}>
+    <div className="fixed inset-0 z-[72] flex items-start justify-center bg-black/60 px-4 pt-[14vh] backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget && closeQuickOpen()}>
       <div className="flex max-h-[68vh] w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/96 shadow-[0_28px_64px_rgba(15,23,42,0.42)]">
         <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
           <Command size={18} className="text-blue-200" />
@@ -87,7 +83,7 @@ export default function QuickOpenDialog() {
             placeholder="Quick Open: 会话、任务、工作目录..."
             className="flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
           />
-          <button type="button" onClick={toggleQuickOpen} className="titlebar-button" aria-label="关闭快速打开">
+          <button type="button" onClick={closeQuickOpen} className="titlebar-button" aria-label="关闭快速打开">
             <X size={16} />
           </button>
         </div>

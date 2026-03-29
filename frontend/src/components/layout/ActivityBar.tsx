@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react'
 import { Bot, FolderTree, GitBranch, Settings, Users, TerminalSquare, Wrench } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import type { PanelId, PanelSide } from '../../stores/ui-helpers'
 import { usePanelStore } from '../../stores/panelStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -56,35 +57,20 @@ function DropZone({ side, draggingId, dropZone, panelSides, onDragOver, onDragLe
   )
 }
 
-interface ActivityBarProps {
-  onOpenSettings: () => void
-}
-
-export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
+export default function ActivityBar() {
   const {
     panelSides,
     activePanelLeft,
     activePanelRight,
-    setPanelSide,
-    setActivePanelLeft,
-    setActivePanelRight,
     shellPanelVisible,
-    toggleShellPanel,
   } = usePanelStore(useShallow((state) => ({
     panelSides: state.panelSides,
     activePanelLeft: state.activePanelLeft,
     activePanelRight: state.activePanelRight,
-    setPanelSide: state.setPanelSide,
-    setActivePanelLeft: state.setActivePanelLeft,
-    setActivePanelRight: state.setActivePanelRight,
     shellPanelVisible: state.shellPanelVisible,
-    toggleShellPanel: state.toggleShellPanel,
   })))
 
-  const { teamsMode, setTeamsMode } = useUIStore(useShallow((state) => ({
-    teamsMode: state.teamsMode,
-    setTeamsMode: state.setTeamsMode,
-  })))
+  const teamsMode = useUIStore((state) => state.teamsMode)
 
   const [draggingId, setDraggingId] = useState<PanelId | null>(null)
   const [dropZone, setDropZone]     = useState<PanelSide | null>(null)
@@ -102,7 +88,7 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
 
   const handleDrop = (targetSide: PanelSide) => {
     if (draggingId && panelSides[draggingId] !== targetSide) {
-      setPanelSide(draggingId, targetSide)
+      void workbenchApi.panel.setSide(draggingId, targetSide)
     }
     setDraggingId(null)
     setDropZone(null)
@@ -137,9 +123,8 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
         }}
         onClick={() => {
           if (disabled) return
-          setTeamsMode(false)
-          if (side === 'left') setActivePanelLeft(id)
-          else setActivePanelRight(id)
+          void workbenchApi.ui.setTeamsMode(false)
+          void workbenchApi.panel.show(id, side)
         }}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -218,7 +203,7 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
       <div className="px-1 w-full mb-0.5">
         <button
           title="终端 (Ctrl+`)"
-          onClick={toggleShellPanel}
+          onClick={() => { void workbenchApi.panel.toggleShell() }}
           className={[
             'relative w-full h-10 flex items-center justify-center rounded-lg transition-all duration-200',
             shellPanelVisible
@@ -237,7 +222,7 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
       <div className="px-1 w-full mb-0.5">
         <button
           title="Agent Teams — 多 AI 协作"
-          onClick={() => setTeamsMode(!teamsMode)}
+          onClick={() => { void workbenchApi.ui.setTeamsMode(!teamsMode) }}
           className={[
             'relative w-full h-10 flex items-center justify-center rounded-lg transition-all duration-200',
             teamsMode
@@ -259,7 +244,7 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
       <div className="px-1 w-full">
         <button
           title="设置"
-          onClick={onOpenSettings}
+          onClick={() => { void workbenchApi.ui.setSettingsVisible(true) }}
           className="w-full h-10 flex items-center justify-center rounded-lg text-text-muted hover:text-text-secondary hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
         >
           <Settings className="w-[18px] h-[18px]" />
@@ -277,7 +262,7 @@ export default function ActivityBar({ onOpenSettings }: ActivityBarProps) {
             className="w-full px-3 py-2 text-left text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-colors"
             onClick={() => {
               const cur = panelSides[contextMenu.id]
-              setPanelSide(contextMenu.id, cur === 'left' ? 'right' : 'left')
+              void workbenchApi.panel.setSide(contextMenu.id, cur === 'left' ? 'right' : 'left')
               setContextMenu(null)
             }}
           >

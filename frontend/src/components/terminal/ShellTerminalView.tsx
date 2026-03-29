@@ -6,6 +6,7 @@
 
 import React, { useRef, useCallback, useEffect } from 'react'
 import { Terminal, Plus, X } from 'lucide-react'
+import { workbenchApi } from '../../app/api/workbench'
 import { useShellTerminalStore } from '../../stores/shellTerminalStore'
 import '@xterm/xterm/css/xterm.css'
 import ShellTerminalTab from './ShellTerminalTab'
@@ -16,34 +17,43 @@ const ShellTerminalView: React.FC = () => {
   const tabs = useShellTerminalStore(s => s.tabs)
   const activeTabId = useShellTerminalStore(s => s.activeTabId)
   const availableShells = useShellTerminalStore(s => s.availableShells)
-  const createTab = useShellTerminalStore(s => s.createTab)
-  const closeTab = useShellTerminalStore(s => s.closeTab)
-  const activateTab = useShellTerminalStore(s => s.activateTab)
-  const fetchShells = useShellTerminalStore(s => s.fetchShells)
-  const initListeners = useShellTerminalStore(s => s.initListeners)
+  const panelVisible = useShellTerminalStore(s => s.panelVisible)
 
   const autoCreatedRef = useRef(false)
 
   useEffect(() => {
-    fetchShells()
-    const cleanup = initListeners()
-    return cleanup
-  }, [fetchShells, initListeners])
+    let disposed = false
+    let cleanup: (() => void) | undefined
+
+    void workbenchApi.terminal.initialize().then((nextCleanup) => {
+      if (disposed) {
+        nextCleanup?.()
+        return
+      }
+      cleanup = nextCleanup
+    })
+
+    return () => {
+      disposed = true
+      cleanup?.()
+    }
+  }, [])
 
   // Auto-create a default terminal (CMD) when panel is first shown with no tabs
   useEffect(() => {
     if (autoCreatedRef.current) return
+    if (!panelVisible) return
     if (availableShells.length === 0) return // Wait for shells to load
     if (tabs.length === 0) {
       autoCreatedRef.current = true
       const cmdShell = availableShells.find(s => s.id === 'cmd')
-      createTab(cmdShell?.path)
+      void workbenchApi.terminal.createTab(cmdShell?.path)
     }
-  }, [tabs.length, availableShells, createTab])
+  }, [availableShells, panelVisible, tabs.length])
 
   const handleCreateTab = useCallback((shell?: string) => {
-    createTab(shell)
-  }, [createTab])
+    void workbenchApi.terminal.createTab(shell)
+  }, [])
 
   return (
     <div className="flex flex-col h-full bg-gray-900">
@@ -53,7 +63,7 @@ const ShellTerminalView: React.FC = () => {
           {tabs.map(tab => (
             <button
               key={tab.id}
-              onClick={() => activateTab(tab.id)}
+              onClick={() => { void workbenchApi.terminal.activateTab(tab.id) }}
               className={[
                 'flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono whitespace-nowrap transition-colors',
                 tab.id === activeTabId
@@ -69,7 +79,7 @@ const ShellTerminalView: React.FC = () => {
                 </span>
               )}
               <button
-                onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
+                onClick={(e) => { e.stopPropagation(); void workbenchApi.terminal.closeTab(tab.id) }}
                 className="ml-1 text-gray-600 hover:text-gray-300 transition-colors"
               >
                 <X size={10} />
@@ -101,7 +111,7 @@ const ShellTerminalView: React.FC = () => {
           <ShellTerminalTab
             key={tab.id}
             ptyId={tab.id}
-            visible={tab.id === activeTabId}
+            lifecycle={tab.lifecycle}
           />
         ))}
 

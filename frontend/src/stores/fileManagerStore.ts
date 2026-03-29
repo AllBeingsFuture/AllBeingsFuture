@@ -5,9 +5,8 @@
  */
 
 import { create } from 'zustand'
+import { workbenchApi } from '../app/api/workbench'
 import type { FileEntry } from '../types/fileManagerTypes'
-import { useFileTabStore } from './fileTabStore'
-import { useLayoutStore } from './layoutStore'
 
 // 重新导出，方便组件直接从 store 引入
 export type { FileEntry }
@@ -236,16 +235,9 @@ export const useFileManagerStore = create<FileManagerState>((set, get) => ({
 
   /**
    * 在文件 Tab 窗格中打开指定路径的文件
-   * 单窗格模式下若当前显示的不是文件窗格，自动切换过去
    */
   openFileInTab: async (filePath: string) => {
-    await useFileTabStore.getState().openFile(filePath)
-
-    // 单窗格模式：若 primaryPane 不是 files，自动切换到文件视图
-    const { layoutMode, primaryPane, setPaneContent } = useLayoutStore.getState()
-    if (layoutMode === 'single' && primaryPane !== 'files') {
-      setPaneContent('primary', 'files')
-    }
+    await workbenchApi.editor.openFile(filePath)
   },
 
   /** 拉取指定会话的文件改动列表并更新 sessionChangedFiles */

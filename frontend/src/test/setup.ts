@@ -7,6 +7,10 @@ type TestElectronBridge = {
   off?: (...args: any[]) => unknown
   once?: (...args: any[]) => unknown
   removeListener?: (...args: any[]) => unknown
+  quickOpen?: {
+    search?: (...args: any[]) => Promise<any>
+    openFile?: (...args: any[]) => Promise<any>
+  }
 }
 
 type TestWindowBridge = Window & {

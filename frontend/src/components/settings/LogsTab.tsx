@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { RefreshCw, ExternalLink, Trash2 } from 'lucide-react'
 import { LogService } from '../../../bindings/allbeingsfuture/internal/services'
 import type { LogEntry } from '../../../bindings/allbeingsfuture/internal/services/logservice'
+import { workbenchApi } from '../../app/api/workbench'
 
 type LogLevel = 'all' | 'error' | 'warn' | 'info' | 'debug'
 
@@ -49,8 +50,7 @@ export default function LogsTab() {
 
   const handleOpenFile = useCallback(async () => {
     try {
-      const api = window.allBeingsFuture?.log
-      await api?.openFile()
+      await workbenchApi.log.openFile()
     } catch (err) {
       console.warn('[LogsTab] Failed to open log file:', err)
     }

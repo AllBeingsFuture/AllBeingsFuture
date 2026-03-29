@@ -7,16 +7,15 @@
 import React from 'react'
 import { MessageSquare, FolderOpen } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useLayoutStore } from '../../stores/layoutStore'
 import LayoutControls from './LayoutControls'
 
 export default function MainPanelHeader() {
-  const { layoutMode, primaryPane, setPaneContent, swapPanes } = useLayoutStore(
+  const { layoutMode, primaryPane } = useLayoutStore(
     useShallow((state) => ({
       layoutMode: state.layoutMode,
       primaryPane: state.primaryPane,
-      setPaneContent: state.setPaneContent,
-      swapPanes: state.swapPanes,
     })),
   )
 
@@ -24,17 +23,17 @@ export default function MainPanelHeader() {
 
   const handleSessionsClick = () => {
     if (!isSplit) {
-      setPaneContent('primary', 'sessions')
+      void workbenchApi.layout.setPaneContent('primary', 'sessions')
     } else if (primaryPane !== 'sessions') {
-      swapPanes()
+      void workbenchApi.layout.swapPanes()
     }
   }
 
   const handleFilesClick = () => {
     if (!isSplit) {
-      setPaneContent('primary', 'files')
+      void workbenchApi.layout.setPaneContent('primary', 'files')
     } else if (primaryPane !== 'files') {
-      swapPanes()
+      void workbenchApi.layout.swapPanes()
     }
   }
 

@@ -2,6 +2,7 @@ import { Bot, MessageSquarePlus, FolderGit2, Workflow, Keyboard, Image, GitBranc
 import { useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import ConversationView from '../conversation/ConversationView'
 import { useSessionStore } from '../../stores/sessionStore'
 
@@ -22,10 +23,9 @@ const viewTransition = {
 }
 
 export default function SessionPanel() {
-  const { sessions, selectedId, select } = useSessionStore(useShallow((state) => ({
+  const { sessions, selectedId } = useSessionStore(useShallow((state) => ({
     sessions: state.sessions,
     selectedId: state.selectedId,
-    select: state.select,
   })))
 
   const selectedSession = useMemo(
@@ -35,9 +35,9 @@ export default function SessionPanel() {
 
   useEffect(() => {
     if (!selectedId && sessions.length > 0) {
-      select(sessions[0].id)
+      void workbenchApi.navigation.openSession(sessions[0].id)
     }
-  }, [select, selectedId, sessions])
+  }, [selectedId, sessions])
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="session-workspace">

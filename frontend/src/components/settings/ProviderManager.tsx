@@ -3,7 +3,7 @@ import {
   Plus, Trash2, GripVertical, Pencil, ChevronDown, ChevronRight,
   Terminal, Folder, TestTube, Loader2, RotateCcw, Save,
 } from 'lucide-react'
-import { ProviderService } from '../../../bindings/allbeingsfuture/internal/services'
+import { workbenchApi } from '../../app/api/workbench'
 import type { AIProvider } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { AdapterType } from '../../types/models'
 
@@ -51,7 +51,7 @@ export default function ProviderManager() {
   const [showAddForm, setShowAddForm] = useState(false)
 
   const load = useCallback(async () => {
-    const data = await ProviderService.GetAll() ?? []
+    const data = await workbenchApi.provider.list() ?? []
     setProviders(data)
   }, [])
 
@@ -59,12 +59,12 @@ export default function ProviderManager() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('确定删除此 Provider？')) return
-    await ProviderService.Delete(id)
+    await workbenchApi.provider.remove(id)
     await load()
   }
 
   const handleToggle = async (p: AIProvider) => {
-    await ProviderService.Update(p.id, { isEnabled: p.isEnabled ? 0 : 1 })
+    await workbenchApi.provider.update(p.id, { isEnabled: p.isEnabled ? 0 : 1 })
     await load()
   }
 
@@ -260,7 +260,7 @@ function EditPanel({
   const handleSave = async () => {
     setSaving(true)
     try {
-      await ProviderService.Update(provider.id, {
+      await workbenchApi.provider.update(provider.id, {
         name: form.name,
         command: isApiProvider ? '' : form.command,
         adapterType: form.adapterType,
@@ -289,7 +289,7 @@ function EditPanel({
     setTestResult(null)
     try {
       const pathToTest = form.executablePath || form.command
-      const result = await (window as any).electron?.invoke?.('ProviderService.TestExecutable', provider.id, pathToTest)
+      const result = await workbenchApi.provider.testExecutable(provider.id, pathToTest)
       setTestResult(result ? 'ok' : 'fail')
     } catch {
       setTestResult('fail')
@@ -404,7 +404,11 @@ function EditPanel({
                 className={`flex-1 ${inputCls}`}
               />
               <button
-                onClick={() => (window as any).electron?.invoke?.('app:selectFile').then((paths: string[]) => paths?.[0] && set('executablePath', paths[0]))}
+                onClick={() => {
+                  void workbenchApi.app.selectFile().then((paths) => {
+                    if (paths?.[0]) set('executablePath', paths[0])
+                  })
+                }}
                 className="px-2.5 py-2 bg-dark-bg border border-dark-border rounded-md text-gray-400 hover:text-white hover:border-dark-accent/40 transition-colors"
                 title="Browse"
               >
@@ -577,9 +581,9 @@ function AddProviderForm({ onSave, onCancel }: { onSave: () => void; onCancel: (
   const handleSave = async () => {
     if (!name || (!isApiProvider && !command) || (isApiProvider && !defaultModel.trim())) return
 
-    const created = await ProviderService.Create(name, isApiProvider ? '' : command, adapterType as any)
+    const created = await workbenchApi.provider.create(name, isApiProvider ? '' : command, adapterType as any)
     if (created && isApiProvider) {
-      await ProviderService.Update(created.id, {
+      await workbenchApi.provider.update(created.id, {
         defaultModel: defaultModel.trim(),
         envOverrides: buildOpenAiEnvOverrides(baseUrl, apiKey),
       })

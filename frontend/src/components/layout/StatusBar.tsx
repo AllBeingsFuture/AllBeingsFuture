@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { Grid3x3, Columns2 } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useUIStore } from '../../stores/uiStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import type { ViewMode } from '../../stores/ui-helpers'
@@ -20,12 +20,7 @@ function formatDuration(ms: number): string {
 }
 
 export default function StatusBar() {
-  const { viewMode, setViewMode } = useUIStore(
-    useShallow((state) => ({
-      viewMode: state.viewMode,
-      setViewMode: state.setViewMode,
-    })),
-  )
+  const viewMode = useUIStore((state) => state.viewMode)
   const sessions = useSessionStore((state) => state.sessions)
   const [elapsed, setElapsed] = useState(0)
 
@@ -71,7 +66,7 @@ export default function StatusBar() {
           ]).map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
-              onClick={() => setViewMode(mode)}
+              onClick={() => { void workbenchApi.ui.setViewMode(mode) }}
               className={`p-1 rounded btn-transition ${viewMode === mode ? 'bg-accent-blue/20 text-accent-blue shadow-sm' : 'text-text-secondary hover:text-text-primary hover:bg-white/[0.04]'}`}
               title={label}
             >

@@ -1,21 +1,18 @@
 import { useMemo, useState } from 'react'
 import { ClipboardList, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../../app/api/workbench'
 import { useSessionStore } from '../../../stores/sessionStore'
-import { useTaskStore } from '../../../stores/taskStore'
-import { useUIStore } from '../../../stores/uiStore'
 
 interface NewTaskDialogProps {
   onClose: () => void
 }
 
 export default function NewTaskDialog({ onClose }: NewTaskDialogProps) {
-  const createTask = useTaskStore((state) => state.create)
   const { sessions, selectedId } = useSessionStore(useShallow((state) => ({
     sessions: state.sessions,
     selectedId: state.selectedId,
   })))
-  const setActiveView = useUIStore((state) => state.setActiveView)
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedId) ?? null,
@@ -37,7 +34,7 @@ export default function NewTaskDialog({ onClose }: NewTaskDialogProps) {
     setError('')
 
     try {
-      await createTask({
+      await workbenchApi.task.create({
         title: title.trim(),
         description: description.trim(),
         status: 'todo',
@@ -46,7 +43,7 @@ export default function NewTaskDialog({ onClose }: NewTaskDialogProps) {
         workingDirectory: selectedSession?.workingDirectory || '',
         providerId: selectedSession?.providerId || '',
       })
-      setActiveView('kanban')
+      await workbenchApi.navigation.openTaskBoard()
       onClose()
     } catch (reason: any) {
       setError(reason?.message || '创建任务失败')

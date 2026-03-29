@@ -4,13 +4,12 @@
  */
 
 import { Square, PanelsLeftRight, PanelsTopBottom, ArrowLeftRight, ArrowUpDown } from 'lucide-react'
+import { workbenchApi } from '../../app/api/workbench'
 import type { LayoutMode } from '../../stores/ui-helpers'
 import { useLayoutStore } from '../../stores/layoutStore'
 
 export default function LayoutControls() {
   const layoutMode = useLayoutStore((state) => state.layoutMode)
-  const setLayoutMode = useLayoutStore((state) => state.setLayoutMode)
-  const swapPanes = useLayoutStore((state) => state.swapPanes)
 
   const buttons: Array<{ mode: LayoutMode; icon: React.ElementType; title: string }> = [
     { mode: 'single',  icon: Square,           title: '单窗格' },
@@ -25,7 +24,7 @@ export default function LayoutControls() {
     <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.06] bg-white/[0.02] p-0.5 mr-1">
       {isSplit && (
         <button
-          onClick={swapPanes}
+          onClick={() => { void workbenchApi.layout.swapPanes() }}
           title={layoutMode === 'split-v' ? '交换上下内容' : '交换左右内容'}
           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-all duration-200 text-gray-500 hover:bg-white/[0.04] hover:text-gray-300"
         >
@@ -35,7 +34,7 @@ export default function LayoutControls() {
       {buttons.map(({ mode, icon: Icon, title }) => (
         <button
           key={mode}
-          onClick={() => setLayoutMode(mode)}
+          onClick={() => { void workbenchApi.layout.setMode(mode) }}
           title={title}
           className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-all duration-200 ${
             layoutMode === mode

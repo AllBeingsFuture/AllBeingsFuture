@@ -3,7 +3,7 @@ import {
   Plus, ChevronDown, ChevronRight,
   Terminal, Folder, TestTube, Loader2, RotateCcw, Save,
 } from 'lucide-react'
-import { ProviderService } from '../../../bindings/allbeingsfuture/internal/services'
+import { workbenchApi } from '../../app/api/workbench'
 import type { AIProvider } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { AdapterType } from '../../types/models'
 
@@ -57,7 +57,7 @@ export function EditPanel({
   const handleSave = async () => {
     setSaving(true)
     try {
-      await ProviderService.Update(provider.id, {
+      await workbenchApi.provider.update(provider.id, {
         name: form.name,
         command: form.command,
         adapterType: form.adapterType,
@@ -85,7 +85,7 @@ export function EditPanel({
     setTestResult(null)
     try {
       const pathToTest = form.executablePath || form.command
-      const result = await (window as any).electron?.invoke?.('ProviderService.TestExecutable', provider.id, pathToTest)
+      const result = await workbenchApi.provider.testExecutable(provider.id, pathToTest)
       setTestResult(result ? 'ok' : 'fail')
     } catch {
       setTestResult('fail')
@@ -183,7 +183,11 @@ export function EditPanel({
               className={`flex-1 ${inputCls}`}
             />
             <button
-              onClick={() => (window as any).electron?.invoke?.('app:selectFile').then((paths: string[]) => paths?.[0] && set('executablePath', paths[0]))}
+              onClick={() => {
+                void workbenchApi.app.selectFile().then((paths) => {
+                  if (paths?.[0]) set('executablePath', paths[0])
+                })
+              }}
               className="px-2.5 py-2 bg-dark-bg border border-dark-border rounded-md text-gray-400 hover:text-white hover:border-dark-accent/40 transition-colors"
               title="Browse"
             >
@@ -347,7 +351,7 @@ export function AddProviderForm({ onSave, onCancel }: { onSave: () => void; onCa
 
   const handleSave = async () => {
     if (!name || !command) return
-    await ProviderService.Create(name, command, adapterType as any)
+    await workbenchApi.provider.create(name, command, adapterType as any)
     onSave()
   }
 

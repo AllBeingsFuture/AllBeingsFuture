@@ -3,6 +3,8 @@
  * Replaces Go internal/services/provider.go
  */
 
+import fs from 'node:fs'
+import path from 'node:path'
 import { v4 as uuidv4 } from 'uuid'
 import type { Database } from './database.js'
 
@@ -62,6 +64,78 @@ function rowToProvider(row: any): AIProvider {
     createdAt: row.created_at || '',
     updatedAt: row.updated_at || '',
   }
+}
+
+function extractExecutableTarget(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+
+  if (trimmed.startsWith('"')) {
+    const endIndex = trimmed.indexOf('"', 1)
+    return endIndex > 1 ? trimmed.slice(1, endIndex) : trimmed.slice(1)
+  }
+
+  if (trimmed.startsWith("'")) {
+    const endIndex = trimmed.indexOf("'", 1)
+    return endIndex > 1 ? trimmed.slice(1, endIndex) : trimmed.slice(1)
+  }
+
+  const firstWhitespace = trimmed.search(/\s/)
+  return firstWhitespace === -1 ? trimmed : trimmed.slice(0, firstWhitespace)
+}
+
+function pathExists(targetPath: string): boolean {
+  try {
+    return fs.statSync(targetPath).isFile()
+  } catch {
+    return false
+  }
+}
+
+function executableExtensions(target: string): string[] {
+  if (process.platform !== 'win32') return ['']
+
+  const lowerTarget = target.toLowerCase()
+  const pathExts = (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM')
+    .split(';')
+    .map(ext => ext.trim())
+    .filter(Boolean)
+
+  const extensions = new Set<string>([''])
+  for (const ext of pathExts) {
+    if (!lowerTarget.endsWith(ext.toLowerCase())) {
+      extensions.add(ext)
+    }
+  }
+
+  return [...extensions]
+}
+
+function resolveExecutable(target: string): boolean {
+  const executable = extractExecutableTarget(target)
+  if (!executable) return false
+
+  const tryCandidate = (basePath: string) => executableExtensions(basePath).some((ext) => {
+    const candidate = ext ? `${basePath}${ext}` : basePath
+    return pathExists(candidate)
+  })
+
+  if (path.isAbsolute(executable) || executable.includes('/') || executable.includes('\\')) {
+    return tryCandidate(path.resolve(executable)) || tryCandidate(executable)
+  }
+
+  const pathEntries = (process.env.PATH || '')
+    .split(path.delimiter)
+    .map(entry => entry.trim())
+    .filter(Boolean)
+
+  for (const entry of pathEntries) {
+    if (tryCandidate(path.join(entry, executable))) {
+      return true
+    }
+  }
+
+  return false
 }
 
 export class ProviderService {
@@ -152,5 +226,15 @@ export class ProviderService {
     const provider = this.getById(id)
     if (provider?.isBuiltin) return
     this.db.raw.prepare('DELETE FROM providers WHERE id = ?').run(id)
+  }
+
+  testExecutable(id: string, executablePath: string): boolean {
+    const provider = this.getById(id)
+    const target = executablePath.trim()
+      || provider?.executablePath?.trim()
+      || provider?.command?.trim()
+      || ''
+
+    return resolveExecutable(target)
   }
 }

@@ -5,6 +5,7 @@ import {
   Workflow,
   Loader2,
 } from 'lucide-react'
+import { workbenchApi } from '../../app/api/workbench'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { statusColors, statusLabels } from './workflowConstants'
@@ -12,23 +13,19 @@ import WorkflowDetail from './WorkflowDetail'
 import WorkflowFormModal from './WorkflowFormModal'
 
 export default function WorkflowPanel() {
-  const { workflows, activeWorkflows, selectedId, loading, load, loadExecutionHistory, select } =
-    useWorkflowStore(useShallow((state) => ({
-      workflows: state.workflows,
-      activeWorkflows: state.activeWorkflows,
-      selectedId: state.selectedId,
-      loading: state.loading,
-      load: state.load,
-      loadExecutionHistory: state.loadExecutionHistory,
-      select: state.select,
-    })))
+  const { workflows, activeWorkflows, selectedId, loading } = useWorkflowStore(useShallow((state) => ({
+    workflows: state.workflows,
+    activeWorkflows: state.activeWorkflows,
+    selectedId: state.selectedId,
+    loading: state.loading,
+  })))
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingWorkflow, setEditingWorkflow] = useState<any | null>(null)
   const refreshWorkflows = useCallback(() => {
-    void load()
-    void loadExecutionHistory()
-  }, [load, loadExecutionHistory])
+    void workbenchApi.workflow.load()
+    void workbenchApi.workflow.loadHistory()
+  }, [])
 
   // 初始化加载
   useEffect(() => {
@@ -74,7 +71,7 @@ export default function WorkflowPanel() {
               {activeWorkflows.map((exec: any) => (
                 <button
                   key={exec.id}
-                  onClick={() => select(exec.workflowId)}
+                  onClick={() => { void workbenchApi.workflow.select(exec.workflowId) }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                     selectedId === exec.workflowId
                       ? 'bg-dark-accent/20 text-white'
@@ -114,7 +111,7 @@ export default function WorkflowPanel() {
               workflows.map((wf: any) => (
                 <button
                   key={wf.id}
-                  onClick={() => select(wf.id)}
+                  onClick={() => { void workbenchApi.workflow.select(wf.id) }}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors group ${
                     selectedId === wf.id
                       ? 'bg-dark-accent/20 text-white'

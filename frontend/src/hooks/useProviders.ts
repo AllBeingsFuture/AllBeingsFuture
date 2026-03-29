@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { workbenchApi } from '../app/api/workbench'
 import type { AIProvider } from '../types/models'
 
 let cachedProviders: AIProvider[] | null = null
@@ -13,7 +14,7 @@ let loadProvidersPromise: Promise<AIProvider[]> | null = null
 
 function loadProviders(): Promise<AIProvider[]> {
   if (!loadProvidersPromise) {
-    loadProvidersPromise = window.allBeingsFuture.provider.getAll()
+    loadProvidersPromise = workbenchApi.provider.list()
       .then((providerList) => {
         cachedProviders = (providerList as AIProvider[]) || []
         return cachedProviders

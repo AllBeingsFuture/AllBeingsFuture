@@ -22,6 +22,7 @@ type ShortcutHandler<T = unknown> = (payload: T) => void
 export interface AllBeingsFutureCompatAPI {
   provider: {
     getAll: () => Promise<unknown[]>
+    testExecutable: (providerId: string, executablePath: string) => Promise<boolean>
   }
   session: {
     getAll: () => Promise<unknown[]>
@@ -126,6 +127,8 @@ export function installAllBeingsFutureCompat() {
   window.allBeingsFuture = {
     provider: {
       getAll: async () => (await api().invoke('ProviderService.GetAll')) ?? [],
+      testExecutable: async (providerId, executablePath) =>
+        Boolean(await api().invoke('ProviderService.TestExecutable', providerId, executablePath)),
     },
     session: {
       getAll: async () => (await api().invoke('SessionService.GetAll')) ?? [],

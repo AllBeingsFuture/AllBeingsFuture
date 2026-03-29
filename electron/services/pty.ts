@@ -14,11 +14,45 @@ interface PTYInstance {
   pty: any
 }
 
+const PTY_FLUSH_INTERVAL_MS = 16
+
 export class PTYService {
   private ptys = new Map<string, PTYInstance>()
+  private bufferedOutput = new Map<string, string>()
+  private flushTimers = new Map<string, NodeJS.Timeout>()
   private nodePty: any = null
 
   constructor(private getWindow: () => BrowserWindow | null) {}
+
+  private flushOutput(id: string) {
+    const payload = this.bufferedOutput.get(id)
+    this.bufferedOutput.delete(id)
+
+    const timer = this.flushTimers.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      this.flushTimers.delete(id)
+    }
+
+    if (!payload) return
+
+    const win = this.getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('pty:data', { id, data: payload })
+    }
+  }
+
+  private scheduleOutput(id: string, data: string) {
+    const current = this.bufferedOutput.get(id) || ''
+    this.bufferedOutput.set(id, current + data)
+    if (this.flushTimers.has(id)) return
+
+    const timer = setTimeout(() => {
+      this.flushOutput(id)
+    }, PTY_FLUSH_INTERVAL_MS)
+
+    this.flushTimers.set(id, timer)
+  }
 
   private async ensureNodePty() {
     if (!this.nodePty) {
@@ -79,13 +113,11 @@ export class PTYService {
       this.ptys.set(id, { id, shell: shellPath, pty: ptyProcess })
 
       ptyProcess.onData((data: string) => {
-        const win = this.getWindow()
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('pty:data', { id, data })
-        }
+        this.scheduleOutput(id, data)
       })
 
       ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+        this.flushOutput(id)
         const win = this.getWindow()
         if (win && !win.isDestroyed()) {
           win.webContents.send('pty:exit', { id, exitCode })
@@ -110,6 +142,7 @@ export class PTYService {
   kill(id: string): void {
     const instance = this.ptys.get(id)
     if (instance) {
+      this.flushOutput(id)
       instance.pty.kill()
       this.ptys.delete(id)
     }

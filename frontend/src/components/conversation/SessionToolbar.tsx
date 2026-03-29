@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { FolderOpen, GitBranch, GitMerge, FileText, FilePlus, FileEdit, FileX, ChevronDown, ChevronRight, RefreshCw, ArrowUpLeft } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
+import { workbenchApi } from '../../app/api/workbench'
 import { useGitStore } from '../../stores/gitStore'
 import { useTrackerStore } from '../../stores/trackerStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -28,10 +29,9 @@ const modeLabel: Record<string, string> = {
 
 export default function SessionToolbar({ session }: Props) {
   const meta = statusMeta[session.status] || { color: 'bg-gray-500', label: session.status }
-  const { childToParent, sessions, selectSession } = useSessionStore(useShallow((state) => ({
+  const { childToParent, sessions } = useSessionStore(useShallow((state) => ({
     childToParent: state.childToParent,
     sessions: state.sessions,
-    selectSession: state.select,
   })))
   const parentBinding = childToParent[session.id]
   const parentSession = useMemo(
@@ -50,7 +50,7 @@ export default function SessionToolbar({ session }: Props) {
           </span>
           <button
             type="button"
-            onClick={() => selectSession(parentBinding.parentSessionId)}
+            onClick={() => { void workbenchApi.navigation.openSession(parentBinding.parentSessionId) }}
             className="rounded-md border border-purple-400/20 bg-purple-400/10 px-2 py-0.5 text-xs text-purple-200 font-medium transition-all hover:bg-purple-400/20 hover:text-white"
           >
             {parentSession?.name || parentBinding.parentSessionId.slice(0, 12)}

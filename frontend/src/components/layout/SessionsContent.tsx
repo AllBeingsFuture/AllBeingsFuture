@@ -1,9 +1,9 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { MessageSquarePlus, Search, FolderKanban, Plus, Sparkles } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTeamStore } from '../../stores/teamStore'
-import { useUIStore } from '../../stores/uiStore'
 import GroupByToggle from './sidebar/GroupByToggle'
 import NewTaskDialog from './sidebar/NewTaskDialog'
 import { DirectoryGroupCard, TimeGroupCard } from './sidebar/SessionGroupCards'
@@ -27,24 +27,12 @@ export default function SessionsContent() {
   const {
     sessions,
     selectedId,
-    selectSession,
-    endSession,
-    removeSession,
-    renameSession,
-    smartRenameSession,
-    resumeSession,
     agents,
     childToParent,
     fetchAllAgents,
   } = useSessionStore(useShallow((state) => ({
     sessions: state.sessions,
     selectedId: state.selectedId,
-    selectSession: state.select,
-    endSession: state.end,
-    removeSession: state.remove,
-    renameSession: state.rename,
-    smartRenameSession: state.smartRename,
-    resumeSession: state.resumeSession,
     agents: state.agents,
     childToParent: state.childToParent,
     fetchAllAgents: state.fetchAllAgents,
@@ -54,14 +42,6 @@ export default function SessionsContent() {
     teamInstances: state.instances,
     loadInstances: state.loadInstances,
   })))
-
-  const { setActiveView, toggleSearchPanel, setShowNewSessionDialog } = useUIStore(
-    useShallow((state) => ({
-      setActiveView: state.setActiveView,
-      toggleSearchPanel: state.toggleSearchPanel,
-      setShowNewSessionDialog: state.setShowNewSessionDialog,
-    })),
-  )
 
   const [groupMode, setGroupMode] = useState<SidebarGroupMode>(() => readInitialGroupMode())
   const [query, setQuery] = useState('')
@@ -118,8 +98,7 @@ export default function SessionsContent() {
   }
 
   const handleSelectSession = (id: string) => {
-    selectSession(id)
-    setActiveView('sessions')
+    void workbenchApi.navigation.openSession(id)
   }
 
   const runningTeams = useMemo(
@@ -149,7 +128,7 @@ export default function SessionsContent() {
           <div className="flex items-center gap-0.5">
             <button
               type="button"
-              onClick={() => setShowNewSessionDialog(true)}
+              onClick={() => { void workbenchApi.ui.setNewSessionDialogVisible(true) }}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
               title="新建会话"
             >
@@ -165,7 +144,7 @@ export default function SessionsContent() {
             </button>
             <button
               type="button"
-              onClick={toggleSearchPanel}
+              onClick={() => { void workbenchApi.ui.toggleSearchPanel() }}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
               title="搜索"
             >
@@ -219,11 +198,13 @@ export default function SessionsContent() {
                 collapsed={collapsedGroups[group.key]}
                 onToggleCollapse={() => toggleGroup(group.key)}
                 onSelect={handleSelectSession}
-                onResume={(id) => void resumeSession(id)}
-                onEnd={(id) => void endSession(id)}
-                onRemove={(id) => void removeSession(id)}
-                onRename={(id, name) => void renameSession(id, name)}
-                onSmartRename={(id) => void smartRenameSession(id)}
+                onResume={(id) => { void workbenchApi.session.resume(id) }}
+                onEnd={(id) => { void workbenchApi.session.end(id) }}
+                onRemove={(id) => { void workbenchApi.session.remove(id) }}
+                onRename={(id, name) => workbenchApi.session.rename(id, name)}
+                onSmartRename={async (id) => {
+                  await workbenchApi.session.smartRename(id)
+                }}
                 agents={agents}
               />
             ))}
@@ -240,11 +221,13 @@ export default function SessionsContent() {
                 collapsed={collapsedGroups[group.key]}
                 onToggleCollapse={() => toggleGroup(group.key)}
                 onSelect={handleSelectSession}
-                onResume={(id) => void resumeSession(id)}
-                onEnd={(id) => void endSession(id)}
-                onRemove={(id) => void removeSession(id)}
-                onRename={(id, name) => void renameSession(id, name)}
-                onSmartRename={(id) => void smartRenameSession(id)}
+                onResume={(id) => { void workbenchApi.session.resume(id) }}
+                onEnd={(id) => { void workbenchApi.session.end(id) }}
+                onRemove={(id) => { void workbenchApi.session.remove(id) }}
+                onRename={(id, name) => workbenchApi.session.rename(id, name)}
+                onSmartRename={async (id) => {
+                  await workbenchApi.session.smartRename(id)
+                }}
                 agents={agents}
               />
             ))}
@@ -265,7 +248,7 @@ export default function SessionsContent() {
         <div className="border-t border-white/[0.06] px-3 py-2">
           <button
             type="button"
-            onClick={() => setActiveView('teams')}
+            onClick={() => { void workbenchApi.navigation.openTeams() }}
             className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs text-gray-500 hover:bg-white/[0.05] hover:text-gray-300 transition-all duration-150"
           >
             <span>Teams {runningTeams > 0 && <span className="text-emerald-400 font-medium">({runningTeams} 运行中)</span>}</span>
@@ -276,7 +259,7 @@ export default function SessionsContent() {
 
       <div className="shrink-0 px-3 pb-3 pt-2">
         <button
-          onClick={() => setShowNewSessionDialog(true)}
+          onClick={() => { void workbenchApi.ui.setNewSessionDialogVisible(true) }}
           className="group/btn relative w-full overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 py-2.5 text-xs font-medium text-white shadow-lg shadow-blue-500/20 transition-all duration-200 hover:shadow-blue-500/30 hover:from-blue-500 hover:to-blue-400 active:scale-[0.98]"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700" />
