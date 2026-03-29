@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Globe, Mic, GitBranch, MessageSquare, Monitor, Bell, RefreshCw, Save, Info } from 'lucide-react'
+import { Globe, GitBranch, MessageSquare, Monitor, Bell, RefreshCw, Save, Info } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 export default function GeneralSettings() {
-  const { settings, setProxy, setAutoWorktree, setAutoLaunch, setNotification, setLanguage, setVoice } =
+  const { settings, setProxy, setAutoWorktree, setAutoLaunch, setNotification, setLanguage } =
     useSettingsStore(useShallow((state) => ({
       settings: state.settings,
       setProxy: state.setProxy,
@@ -12,7 +12,6 @@ export default function GeneralSettings() {
       setAutoLaunch: state.setAutoLaunch,
       setNotification: state.setNotification,
       setLanguage: state.setLanguage,
-      setVoice: state.setVoice,
     })))
 
   // Local proxy state (only saved on button click)
@@ -123,47 +122,6 @@ export default function GeneralSettings() {
             {proxyType === 'none'
               ? '未配置代理。程序将自动从系统环境变量或 PowerShell profile 读取代理（仅 Windows），AI 连接和 Telegram Bot 均适用。如果连接失败，请在此手动配置代理。'
               : `已配置 ${proxyType.toUpperCase()} 代理：${proxyHost}:${proxyPort}`}
-          </p>
-        </div>
-      </section>
-
-      {/* ---- 语音转文字 ---- */}
-      <section>
-        <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-          <Mic size={16} className="text-gray-400" />
-          语音转文字
-          <span className="text-xs text-gray-500">可单独指定语音转写 Provider</span>
-        </h4>
-
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">转写服务</label>
-            <select
-              value={settings.voiceTranscriptionMode}
-              onChange={e => setVoice(e.target.value as any, settings.voiceTranscriptionProviderId)}
-              className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-lg text-sm outline-none focus:border-dark-accent"
-            >
-              <option value="openai">OpenAI 兼容（Whisper 等）</option>
-              <option value="volcengine">火山引擎</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">转写 Provider</label>
-            <select
-              value={settings.voiceTranscriptionProviderId || ''}
-              onChange={e => setVoice(settings.voiceTranscriptionMode as any, e.target.value)}
-              className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-lg text-sm outline-none focus:border-dark-accent"
-            >
-              <option value="">自动选择（按当前规则匹配）</option>
-            </select>
-          </div>
-
-          <p className="text-xs text-gray-500 leading-relaxed">
-            这里只影响语音转文字，不影响普通聊天或子 Agent 使用的 Provider。仅展示已配置 API Key 的 OpenAI 兼容 Provider。
-          </p>
-          <p className="text-xs text-gray-500">
-            <span className="text-gray-400 font-medium">OpenAI 兼容</span>：直接填写 API Key，调用 /audio/transcriptions 端点。支持 Whisper、Groq 等兼容服务。
           </p>
         </div>
       </section>

@@ -2,42 +2,31 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Settings2,
-  UserCircle2,
   Palette,
-  Sparkles,
   Bot,
-  FolderKanban,
   Wrench,
   MessageSquareHeart,
   ScrollText,
   Shield,
-  ListTodo,
   Server,
 } from 'lucide-react'
 import GeneralSettings from './GeneralSettings'
 import ProviderManager from './ProviderManager'
-import AccountTab from './AccountTab'
 import ThemeTab from './ThemeTab'
 import AppearanceTab from './AppearanceTab'
-import WorkspaceTab from './WorkspaceTab'
 import ExtensionsTab from './ExtensionsTab'
 import FeedbackTab from './FeedbackTab'
 import LogsTab from './LogsTab'
 import BotManagementTab from './BotManagementTab'
 import PolicyTab from './PolicyTab'
-import QueueTab from './QueueTab'
 import SystemSettingsTab from './SystemSettingsTab'
 import DraggableDialog from '../common/DraggableDialog'
 
 type TabId =
   | 'general'
-  | 'account'
   | 'theme'
-  | 'appearance'
   | 'providers'
-  | 'workspace'
   | 'skills'
-  | 'queue'
   | 'system'
   | 'policy'
   | 'feedback'
@@ -66,25 +55,11 @@ const TABS: TabDefinition[] = [
     icon: <Settings2 size={15} />,
   },
   {
-    id: 'account',
-    label: '账号',
-    description: '身份、授权与连接状态',
-    group: 'core',
-    icon: <UserCircle2 size={15} />,
-  },
-  {
     id: 'theme',
-    label: '主题',
-    description: '色板、密度和界面氛围',
+    label: '主题与外观',
+    description: '配色方案、字体大小和显示选项',
     group: 'core',
     icon: <Palette size={15} />,
-  },
-  {
-    id: 'appearance',
-    label: '外观',
-    description: '布局细节和显示选项',
-    group: 'core',
-    icon: <Sparkles size={15} />,
   },
   {
     id: 'providers',
@@ -94,25 +69,11 @@ const TABS: TabDefinition[] = [
     icon: <Bot size={15} />,
   },
   {
-    id: 'workspace',
-    label: '工作区',
-    description: '仓库、目录和工作空间',
-    group: 'integrations',
-    icon: <FolderKanban size={15} />,
-  },
-  {
     id: 'skills',
     label: '扩展',
     description: 'MCP 服务器与技能管理',
     group: 'integrations',
     icon: <Wrench size={15} />,
-  },
-  {
-    id: 'queue',
-    label: '任务队列',
-    description: '后台任务管理与状态监控',
-    group: 'support',
-    icon: <ListTodo size={15} />,
   },
   {
     id: 'system',
@@ -250,20 +211,19 @@ function renderTab(activeTab: TabId) {
   switch (activeTab) {
     case 'general':
       return <GeneralSettings />
-    case 'account':
-      return <AccountTab />
     case 'theme':
-      return <ThemeTab />
-    case 'appearance':
-      return <AppearanceTab />
+      return (
+        <div className="space-y-8">
+          <ThemeTab />
+          <div className="border-t border-white/10 pt-6">
+            <AppearanceTab />
+          </div>
+        </div>
+      )
     case 'providers':
       return <ProviderManager />
-    case 'workspace':
-      return <WorkspaceTab />
     case 'skills':
       return <ExtensionsTab />
-    case 'queue':
-      return <QueueTab />
     case 'system':
       return <SystemSettingsTab />
     case 'policy':

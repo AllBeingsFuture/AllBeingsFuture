@@ -5,10 +5,8 @@ import { renderWithProviders, screen } from '../../../test/render'
 
 vi.mock('../GeneralSettings', () => ({ default: () => <div data-testid="general-tab" /> }))
 vi.mock('../ProviderManager', () => ({ default: () => <div data-testid="providers-tab" /> }))
-vi.mock('../AccountTab', () => ({ default: () => <div data-testid="account-tab" /> }))
 vi.mock('../ThemeTab', () => ({ default: () => <div data-testid="theme-tab" /> }))
 vi.mock('../AppearanceTab', () => ({ default: () => <div data-testid="appearance-tab" /> }))
-vi.mock('../WorkspaceTab', () => ({ default: () => <div data-testid="workspace-tab" /> }))
 vi.mock('../ExtensionsTab', () => ({ default: () => <div data-testid="extensions-tab" /> }))
 vi.mock('../FeedbackTab', () => ({ default: () => <div data-testid="feedback-tab" /> }))
 vi.mock('../LogsTab', () => ({ default: () => <div data-testid="logs-tab" /> }))
