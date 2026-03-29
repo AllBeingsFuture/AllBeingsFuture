@@ -1,6 +1,5 @@
 # AllBeingsFuture
-tg 交流群
-https://t.me/AllBeingsFuture
+> 社区入口：[`Telegram 交流群`](https://t.me/AllBeingsFuture) | `微信群：AllBeingsFuture`（二维码以最新群码为准）
 
 AllBeingsFuture 是一个面向多 Agent 协作场景的桌面 AI 工作台，基于 Electron + React 构建，聚焦于把不同 AI Provider、会话、子 Agent、MCP、Skill、Git Worktree 和本地开发环境整合到同一个应用里。
 

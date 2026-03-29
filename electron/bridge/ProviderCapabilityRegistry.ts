@@ -99,6 +99,17 @@ export class ProviderCapabilityRegistry {
         systemPrompt: true,
       },
     }],
+    ['openai-api', {
+      providerId: 'openai-api',
+      mcpSupport: {
+        native: false,
+        fallback: 'none',
+      },
+      skillSupport: {
+        slashCommands: false,
+        systemPrompt: true,
+      },
+    }],
   ])
 
   /** 获取指定 Provider 的完整能力描述 */

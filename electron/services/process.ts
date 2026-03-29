@@ -32,6 +32,8 @@ const STREAM_PATCH_INTERVAL_MS = 120
 
 export class ProcessService {
   private sessionStates = new Map<string, SessionState>()
+  /** Last workDir used to initialize each provider session. */
+  private initializedSessionWorkDirs = new Map<string, string>()
   /** Coalesces hot streaming updates so the renderer does not process every token event. */
   private chatPatchTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Sessions that had supervisor prompt injected — tracks workDir for cleanup */
@@ -238,11 +240,47 @@ export class ProcessService {
     }
   }
 
+  private resolveEffectiveWorkDir(session: { worktreePath?: string; workingDirectory?: string }): string {
+    return session.worktreePath || session.workingDirectory || process.cwd()
+  }
+
+  private normalizeWorkDir(workDir: string): string {
+    const value = (workDir || '').trim()
+    if (!value) {
+      const fallback = path.resolve(process.cwd())
+      return process.platform === 'win32' ? fallback.toLowerCase() : fallback
+    }
+    try {
+      const normalized = path.resolve(value)
+      return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+    } catch {
+      return process.platform === 'win32' ? value.toLowerCase() : value
+    }
+  }
+
   async initSession(sessionId: string): Promise<void> {
-    // Skip if session is already active — prevents destroying a running query
-    if (this.bridgeManager.isSessionActive(sessionId)) {
-      appLog('debug', `initSession skipped (already active): ${sessionId}`, 'process')
-      return
+    const session = this.sessionService.getById(sessionId)
+    if (!session) throw new Error(`Session not found: ${sessionId}`)
+    const effectiveWorkDir = this.resolveEffectiveWorkDir(session)
+    const desiredWorkDir = this.normalizeWorkDir(effectiveWorkDir)
+
+    const isActive = this.bridgeManager.isSessionActive(sessionId)
+    if (isActive) {
+      const currentWorkDir = this.normalizeWorkDir(this.initializedSessionWorkDirs.get(sessionId) || '')
+      if (currentWorkDir === desiredWorkDir) {
+        appLog('debug', `initSession skipped (already active): ${sessionId}`, 'process')
+        return
+      }
+
+      if (this.sessionStates.get(sessionId)?.streaming) {
+        appLog('info', `Deferring session reinit until current turn completes: ${sessionId} (${currentWorkDir} -> ${desiredWorkDir})`, 'process')
+        return
+      }
+
+      appLog('info', `Reinitializing session due to workDir change: ${sessionId} (${currentWorkDir} -> ${desiredWorkDir})`, 'process')
+      await this.bridgeManager.destroySession(sessionId)
+      this.concurrencyGuard.unregisterSession(sessionId)
+      this.cleanupSupervisorPromptForSession(sessionId)
     }
 
     // Check concurrency guard before creating session.
@@ -254,9 +292,6 @@ export class ProcessService {
       }
     }
 
-    const session = this.sessionService.getById(sessionId)
-    if (!session) throw new Error(`Session not found: ${sessionId}`)
-
     // Child agent sessions: use parent's provider for initialization
     // (they can be interacted with independently when the user clicks into them)
 
@@ -264,8 +299,6 @@ export class ProcessService {
     if (!provider) throw new Error(`Provider not found: ${session.providerId}`)
 
     // Initialize bridge adapter for this session
-    const effectiveWorkDir = session.worktreePath || session.workingDirectory || process.cwd()
-
     const config: Record<string, unknown> = {
       workDir: effectiveWorkDir,
       command: provider.command || undefined,
@@ -278,6 +311,8 @@ export class ProcessService {
       gitBashPath: provider.gitBashPath || undefined,
       model: session.model || provider.defaultModel || undefined,
       reasoningEffort: provider.reasoningEffort || undefined,
+      maxOutputTokens: provider.maxOutputTokens || undefined,
+      preferResponsesApi: provider.preferResponsesApi || undefined,
       envOverrides: provider.envOverrides ? this.parseEnvOverrides(provider.envOverrides) : undefined,
     }
 
@@ -364,9 +399,11 @@ export class ProcessService {
         config,
         (event) => this.handleBridgeEvent(sessionId, event)
       )
+      this.initializedSessionWorkDirs.set(sessionId, effectiveWorkDir)
       this.concurrencyGuard.registerSession(sessionId)
       this.sessionService.updateStatus(sessionId, 'idle')
     } catch (err: unknown) {
+      this.initializedSessionWorkDirs.delete(sessionId)
       this.sessionService.updateStatus(sessionId, 'error')
       throw err
     }
@@ -605,6 +642,7 @@ export class ProcessService {
       case 'error': {
         state.streaming = false
         state.error = event.error || 'Unknown error'
+        this.initializedSessionWorkDirs.delete(sessionId)
         this.sessionService.updateStatus(sessionId, 'error')
         this.emitChatUpdate(sessionId)
         // Free concurrency slot so the session can be re-initialized later
@@ -904,6 +942,7 @@ export class ProcessService {
     if (state) {
       state.streaming = false
     }
+    this.initializedSessionWorkDirs.delete(sessionId)
     // Clear pending messages for this session
     const scheduler = this.schedulers.get(sessionId)
     if (scheduler) scheduler.clear()

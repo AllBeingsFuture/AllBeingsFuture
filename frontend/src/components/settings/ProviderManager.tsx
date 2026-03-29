@@ -30,11 +30,18 @@ const ADAPTER_CAPABILITIES: Record<string, string[]> = {
   'codex-appserver': ['可恢复', '可自动接受', '确认检测'],
   'gemini-headless': ['可自动接受', '确认检测'],
   'opencode-sdk':    ['可自动接受'],
-  'openai-api':      [],
+  'openai-api':      ['API 兼容'],
 }
 
 const inputCls = 'w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-sm text-white placeholder-gray-500 outline-none focus:border-dark-accent/60 transition-colors'
 const labelCls = 'block text-xs text-gray-400 mb-1.5'
+
+function buildOpenAiEnvOverrides(baseUrl: string, apiKey: string): string {
+  const lines: string[] = []
+  if (baseUrl.trim()) lines.push(`OPENAI_BASE_URL=${baseUrl.trim()}`)
+  if (apiKey.trim()) lines.push(`OPENAI_API_KEY=${apiKey.trim()}`)
+  return lines.join('\n')
+}
 
 // ─── Main Component ───
 
@@ -161,7 +168,7 @@ function ProviderCard({
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            <code className="text-xs text-gray-500">{p.command}</code>
+            <code className="text-xs text-gray-500">{p.command || p.adapterType}</code>
             {p.defaultModel && (
               <>
                 <span className="text-gray-600">·</span>
@@ -248,26 +255,28 @@ function EditPanel({
     setForm(prev => ({ ...prev, [key]: val }))
 
   const hasChanges = JSON.stringify(form) !== JSON.stringify(provider)
+  const isApiProvider = form.adapterType === 'openai-api'
 
   const handleSave = async () => {
     setSaving(true)
     try {
       await ProviderService.Update(provider.id, {
         name: form.name,
-        command: form.command,
+        command: isApiProvider ? '' : form.command,
         adapterType: form.adapterType,
         defaultModel: form.defaultModel,
-        nodeVersion: form.nodeVersion,
+        nodeVersion: isApiProvider ? '' : form.nodeVersion,
         envOverrides: form.envOverrides,
-        executablePath: form.executablePath,
-        gitBashPath: form.gitBashPath,
-        defaultArgs: form.defaultArgs,
-        autoAcceptArg: form.autoAcceptArg,
-        resumeArg: form.resumeArg,
-        sessionIdPattern: form.sessionIdPattern,
-        resumeFormat: form.resumeFormat,
+        executablePath: isApiProvider ? '' : form.executablePath,
+        gitBashPath: isApiProvider ? '' : form.gitBashPath,
+        defaultArgs: isApiProvider ? '' : form.defaultArgs,
+        autoAcceptArg: isApiProvider ? '' : form.autoAcceptArg,
+        resumeArg: isApiProvider ? '' : form.resumeArg,
+        sessionIdPattern: isApiProvider ? '' : form.sessionIdPattern,
+        resumeFormat: isApiProvider ? '' : form.resumeFormat,
         maxOutputTokens: form.maxOutputTokens,
         reasoningEffort: form.reasoningEffort,
+        preferResponsesApi: form.preferResponsesApi,
       })
       onSave()
     } finally {
@@ -316,107 +325,124 @@ function EditPanel({
         </Field>
       </div>
 
-      <Field label="Command / Path">
-        <input
-          value={form.command}
-          onChange={e => set('command', e.target.value)}
-          placeholder="e.g. claude, codex, gemini"
-          className={inputCls}
-        />
-      </Field>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Default Model" hint="Specify model name, e.g. claude-sonnet-4-6">
+      {!isApiProvider && (
+        <Field label="Command / Path">
           <input
-            value={form.defaultModel || ''}
-            onChange={e => set('defaultModel', e.target.value)}
-            placeholder="Optional, e.g. claude-sonnet-4-6"
+            value={form.command}
+            onChange={e => set('command', e.target.value)}
+            placeholder="e.g. claude, codex, gemini"
             className={inputCls}
           />
         </Field>
-        <Field label="Node.js Version">
-          <select
-            value={form.nodeVersion || ''}
-            onChange={e => set('nodeVersion', e.target.value)}
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Default Model" hint={isApiProvider ? '例如 gpt-4o、deepseek-chat、qwen-max' : 'Specify model name, e.g. claude-sonnet-4-6'}>
+          <input
+            value={form.defaultModel || ''}
+            onChange={e => set('defaultModel', e.target.value)}
+            placeholder={isApiProvider ? 'Required for API providers' : 'Optional, e.g. claude-sonnet-4-6'}
             className={inputCls}
-          >
-            <option value="">System Default</option>
-            <option value="18">Node.js 18</option>
-            <option value="20">Node.js 20</option>
-            <option value="22">Node.js 22</option>
-          </select>
+          />
         </Field>
+        {!isApiProvider ? (
+          <Field label="Node.js Version">
+            <select
+              value={form.nodeVersion || ''}
+              onChange={e => set('nodeVersion', e.target.value)}
+              className={inputCls}
+            >
+              <option value="">System Default</option>
+              <option value="18">Node.js 18</option>
+              <option value="20">Node.js 20</option>
+              <option value="22">Node.js 22</option>
+            </select>
+          </Field>
+        ) : (
+          <Field label="API Mode" hint="OpenAI 兼容 Provider 通过 HTTP 请求访问，不依赖本地 CLI。">
+            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-300">
+              已启用 API 直连模式
+            </div>
+          </Field>
+        )}
       </div>
 
-      <Field label="Environment Overrides" hint="KEY=VALUE, one per line">
+      <Field
+        label="Environment Overrides"
+        hint={isApiProvider
+          ? '推荐至少配置 OPENAI_BASE_URL 和 OPENAI_API_KEY，一行一个。'
+          : 'KEY=VALUE, one per line'}
+      >
         <textarea
           value={form.envOverrides || ''}
           onChange={e => set('envOverrides', e.target.value)}
-          placeholder="KEY=VALUE&#10;ANOTHER=VAL"
-          rows={2}
+          placeholder={isApiProvider
+            ? 'OPENAI_BASE_URL=https://api.openai.com/v1&#10;OPENAI_API_KEY=sk-...&#10;OPENAI_CUSTOM_HEADERS={\"X-Title\":\"ABF\"}'
+            : 'KEY=VALUE&#10;ANOTHER=VAL'}
+          rows={isApiProvider ? 4 : 2}
           className={`${inputCls} resize-none font-mono`}
         />
       </Field>
 
-      {/* Executable & Git Bash */}
-      <div className="grid grid-cols-1 gap-3">
-        <div className="rounded-lg border border-dark-border/50 p-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <Terminal size={13} className="text-gray-500" />
-            <span className="text-xs font-medium text-gray-300">
-              Executable Path
-            </span>
-            <span className="text-[10px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded">
-              {form.adapterType === 'claude-sdk' ? 'claude-sdk' : 'command'}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={form.executablePath || ''}
-              onChange={e => set('executablePath', e.target.value)}
-              placeholder={form.adapterType === 'claude-sdk' ? 'Auto-detect if empty' : form.command || 'command'}
-              className={`flex-1 ${inputCls}`}
-            />
-            <button
-              onClick={() => (window as any).electron?.invoke?.('app:selectFile').then((paths: string[]) => paths?.[0] && set('executablePath', paths[0]))}
-              className="px-2.5 py-2 bg-dark-bg border border-dark-border rounded-md text-gray-400 hover:text-white hover:border-dark-accent/40 transition-colors"
-              title="Browse"
-            >
-              <Folder size={14} />
-            </button>
-            <button
-              onClick={handleTest}
-              disabled={testing}
-              className="px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-gray-400 hover:text-white hover:border-dark-accent/40 transition-colors flex items-center gap-1.5 text-xs disabled:opacity-50"
-              title="Test executable"
-            >
-              {testing ? <Loader2 size={13} className="animate-spin" /> : <TestTube size={13} />}
-              Test
-            </button>
-          </div>
-          {testResult && (
-            <div className={`text-xs px-2 py-1 rounded ${
-              testResult === 'ok' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
-            }`}>
-              {testResult === 'ok' ? 'Executable found and reachable' : 'Executable not found or not accessible'}
+      {!isApiProvider && (
+        <div className="grid grid-cols-1 gap-3">
+          <div className="rounded-lg border border-dark-border/50 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Terminal size={13} className="text-gray-500" />
+              <span className="text-xs font-medium text-gray-300">
+                Executable Path
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded">
+                {form.adapterType === 'claude-sdk' ? 'claude-sdk' : 'command'}
+              </span>
             </div>
-          )}
+            <div className="flex gap-2">
+              <input
+                value={form.executablePath || ''}
+                onChange={e => set('executablePath', e.target.value)}
+                placeholder={form.adapterType === 'claude-sdk' ? 'Auto-detect if empty' : form.command || 'command'}
+                className={`flex-1 ${inputCls}`}
+              />
+              <button
+                onClick={() => (window as any).electron?.invoke?.('app:selectFile').then((paths: string[]) => paths?.[0] && set('executablePath', paths[0]))}
+                className="px-2.5 py-2 bg-dark-bg border border-dark-border rounded-md text-gray-400 hover:text-white hover:border-dark-accent/40 transition-colors"
+                title="Browse"
+              >
+                <Folder size={14} />
+              </button>
+              <button
+                onClick={handleTest}
+                disabled={testing}
+                className="px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-gray-400 hover:text-white hover:border-dark-accent/40 transition-colors flex items-center gap-1.5 text-xs disabled:opacity-50"
+                title="Test executable"
+              >
+                {testing ? <Loader2 size={13} className="animate-spin" /> : <TestTube size={13} />}
+                Test
+              </button>
+            </div>
+            {testResult && (
+              <div className={`text-xs px-2 py-1 rounded ${
+                testResult === 'ok' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+              }`}>
+                {testResult === 'ok' ? 'Executable found and reachable' : 'Executable not found or not accessible'}
+              </div>
+            )}
 
-          {/* Git Bash (Windows only) */}
-          <div className="pt-2 border-t border-dark-border/30">
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-xs font-medium text-gray-300">Git Bash Path</span>
-              <span className="text-[10px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded">Windows</span>
+            <div className="pt-2 border-t border-dark-border/30">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs font-medium text-gray-300">Git Bash Path</span>
+                <span className="text-[10px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded">Windows</span>
+              </div>
+              <input
+                value={form.gitBashPath || ''}
+                onChange={e => set('gitBashPath', e.target.value)}
+                placeholder="e.g. C:\Program Files\Git\bin\bash.exe"
+                className={inputCls}
+              />
             </div>
-            <input
-              value={form.gitBashPath || ''}
-              onChange={e => set('gitBashPath', e.target.value)}
-              placeholder="e.g. C:\Program Files\Git\bin\bash.exe"
-              className={inputCls}
-            />
           </div>
         </div>
-      </div>
+      )}
 
       {/* Advanced settings (collapsible) */}
       <button
@@ -430,52 +456,56 @@ function EditPanel({
 
       {showAdvanced && (
         <div className="space-y-3 pl-0">
-          <Field label="Default Arguments" hint="Additional CLI flags passed on every invocation">
-            <input
-              value={form.defaultArgs || ''}
-              onChange={e => set('defaultArgs', e.target.value)}
-              placeholder="e.g. --verbose --no-cache"
-              className={inputCls}
-            />
-          </Field>
+          {!isApiProvider && (
+            <>
+              <Field label="Default Arguments" hint="Additional CLI flags passed on every invocation">
+                <input
+                  value={form.defaultArgs || ''}
+                  onChange={e => set('defaultArgs', e.target.value)}
+                  placeholder="e.g. --verbose --no-cache"
+                  className={inputCls}
+                />
+              </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Auto-Accept Arg" hint="Flag to enable auto-accept mode">
-              <input
-                value={form.autoAcceptArg || ''}
-                onChange={e => set('autoAcceptArg', e.target.value)}
-                placeholder="e.g. --dangerously-skip-permissions"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="Resume Arg" hint="Flag to resume a session">
-              <input
-                value={form.resumeArg || ''}
-                onChange={e => set('resumeArg', e.target.value)}
-                placeholder="e.g. --resume"
-                className={inputCls}
-              />
-            </Field>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Auto-Accept Arg" hint="Flag to enable auto-accept mode">
+                  <input
+                    value={form.autoAcceptArg || ''}
+                    onChange={e => set('autoAcceptArg', e.target.value)}
+                    placeholder="e.g. --dangerously-skip-permissions"
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Resume Arg" hint="Flag to resume a session">
+                  <input
+                    value={form.resumeArg || ''}
+                    onChange={e => set('resumeArg', e.target.value)}
+                    placeholder="e.g. --resume"
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Session ID Pattern" hint="Regex to extract session ID from output">
-              <input
-                value={form.sessionIdPattern || ''}
-                onChange={e => set('sessionIdPattern', e.target.value)}
-                placeholder="e.g. session_id:\\s*(.+)"
-                className={`${inputCls} font-mono`}
-              />
-            </Field>
-            <Field label="Resume Format" hint="Template for resume command">
-              <input
-                value={form.resumeFormat || ''}
-                onChange={e => set('resumeFormat', e.target.value)}
-                placeholder="e.g. --resume {sessionId}"
-                className={`${inputCls} font-mono`}
-              />
-            </Field>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Session ID Pattern" hint="Regex to extract session ID from output">
+                  <input
+                    value={form.sessionIdPattern || ''}
+                    onChange={e => set('sessionIdPattern', e.target.value)}
+                    placeholder="e.g. session_id:\\s*(.+)"
+                    className={`${inputCls} font-mono`}
+                  />
+                </Field>
+                <Field label="Resume Format" hint="Template for resume command">
+                  <input
+                    value={form.resumeFormat || ''}
+                    onChange={e => set('resumeFormat', e.target.value)}
+                    placeholder="e.g. --resume {sessionId}"
+                    className={`${inputCls} font-mono`}
+                  />
+                </Field>
+              </div>
+            </>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Max Output Tokens">
@@ -539,10 +569,21 @@ function AddProviderForm({ onSave, onCancel }: { onSave: () => void; onCancel: (
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [adapterType, setAdapterType] = useState<AdapterType>('claude-sdk')
+  const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1')
+  const [apiKey, setApiKey] = useState('')
+  const [defaultModel, setDefaultModel] = useState('')
+  const isApiProvider = adapterType === 'openai-api'
 
   const handleSave = async () => {
-    if (!name || !command) return
-    await ProviderService.Create(name, command, adapterType as any)
+    if (!name || (!isApiProvider && !command) || (isApiProvider && !defaultModel.trim())) return
+
+    const created = await ProviderService.Create(name, isApiProvider ? '' : command, adapterType as any)
+    if (created && isApiProvider) {
+      await ProviderService.Update(created.id, {
+        defaultModel: defaultModel.trim(),
+        envOverrides: buildOpenAiEnvOverrides(baseUrl, apiKey),
+      })
+    }
     onSave()
   }
 
@@ -572,14 +613,47 @@ function AddProviderForm({ onSave, onCancel }: { onSave: () => void; onCancel: (
         </Field>
       </div>
 
-      <Field label="Command / Path">
-        <input
-          value={command}
-          onChange={e => setCommand(e.target.value)}
-          placeholder="e.g. my-ai-cli"
-          className={inputCls}
-        />
-      </Field>
+      {!isApiProvider ? (
+        <Field label="Command / Path">
+          <input
+            value={command}
+            onChange={e => setCommand(e.target.value)}
+            placeholder="e.g. my-ai-cli"
+            className={inputCls}
+          />
+        </Field>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Base URL" hint="填写兼容服务的 API 根路径，默认官方 OpenAI。">
+              <input
+                value={baseUrl}
+                onChange={e => setBaseUrl(e.target.value)}
+                placeholder="https://api.openai.com/v1"
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Default Model" hint="新会话默认使用的模型名。">
+              <input
+                value={defaultModel}
+                onChange={e => setDefaultModel(e.target.value)}
+                placeholder="e.g. gpt-4o-mini"
+                className={inputCls}
+              />
+            </Field>
+          </div>
+
+          <Field label="API Key" hint="保存后会自动写入 OPENAI_API_KEY；留空则稍后在编辑面板补充。">
+            <input
+              type="password"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="sk-..."
+              className={inputCls}
+            />
+          </Field>
+        </>
+      )}
 
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className="px-4 py-1.5 text-xs text-gray-400 hover:text-white transition-colors">
@@ -587,7 +661,7 @@ function AddProviderForm({ onSave, onCancel }: { onSave: () => void; onCancel: (
         </button>
         <button
           onClick={handleSave}
-          disabled={!name || !command}
+          disabled={!name || (!isApiProvider && !command) || (isApiProvider && !defaultModel.trim())}
           className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-dark-accent text-white rounded-md hover:bg-blue-600 disabled:opacity-40 transition-colors"
         >
           <Plus size={12} /> 添加

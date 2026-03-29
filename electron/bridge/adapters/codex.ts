@@ -703,10 +703,22 @@ export class CodexAdapter {
   }
 
   async stop(): Promise<void> {
-    if (this.threadId && this.turnInFlight) {
+    if (!this.turnInFlight) return
+
+    const activeThreadId = this.threadId
+    if (activeThreadId) {
       try {
-        await this.processManager.rpcCall('turn/interrupt', { threadId: this.threadId })
-      } catch {}
+        await this.processManager.rpcCall('turn/interrupt', { threadId: activeThreadId })
+      } catch (err: any) {
+        log(`turn/interrupt failed for ${activeThreadId}: ${err?.message || String(err)}`)
+      }
+    }
+
+    await this.waitForTurnToFinish(1500)
+    if (this.turnInFlight) {
+      log(`turn/interrupt timed out for ${activeThreadId || 'unknown-thread'}, forcing local turn cleanup`)
+      this.finishTurn()
+      this.resetTurnState()
     }
   }
 

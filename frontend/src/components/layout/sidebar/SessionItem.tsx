@@ -125,6 +125,25 @@ export default function SessionItem({
   }
 
   const menuItems: MenuItem[] = []
+  if (!isActive && onResume) {
+    menuItems.push({
+      key: 'resume',
+      label: '恢复会话',
+      icon: <RotateCcw size={13} />,
+      onClick: () => onResume(session.id),
+    })
+  }
+  if (isActive && onEnd) {
+    menuItems.push({
+      key: 'end',
+      label: '结束会话',
+      icon: <Square size={13} />,
+      onClick: () => onEnd(session.id),
+    })
+  }
+  if (menuItems.length > 0 && (onRename || onSmartRename)) {
+    menuItems.push({ key: 'divider-session-actions', type: 'divider' })
+  }
   if (onRename) {
     menuItems.push({
       key: 'rename',
@@ -266,62 +285,6 @@ export default function SessionItem({
           </div>
         </div>
 
-        <div className="flex flex-col gap-1 opacity-100 md:opacity-0 md:transition-all md:duration-200 md:group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-          {onSmartRename && (
-            <button
-              type="button"
-              aria-label={`智能命名 ${session.name}`}
-              onClick={() => { void triggerSmartRename() }}
-              disabled={smartRenaming}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-gray-500 transition-all hover:bg-white/[0.08] hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
-              title="智能命名"
-            >
-              {smartRenaming ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-            </button>
-          )}
-          {onRename && !editingName && (
-            <button
-              type="button"
-              aria-label={`重命名 ${session.name}`}
-              onClick={startRename}
-              disabled={renaming}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-gray-500 transition-all hover:bg-white/[0.08] hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
-              title="重命名"
-            >
-              <Pencil size={11} />
-            </button>
-          )}
-          {!isActive && onResume && (
-            <button
-              type="button"
-              aria-label={`恢复 ${session.name}`}
-              onClick={() => onResume(session.id)}
-              className="inline-flex items-center gap-1 rounded-lg border border-blue-400/20 bg-blue-400/[0.08] px-2 py-1 text-[11px] text-blue-300 transition-all hover:bg-blue-400/15 hover:border-blue-400/30"
-            >
-              <RotateCcw size={11} />
-            </button>
-          )}
-          {isActive && onEnd && (
-            <button
-              type="button"
-              aria-label={`结束 ${session.name}`}
-              onClick={() => onEnd(session.id)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-gray-500 transition-all hover:bg-white/[0.08] hover:text-gray-300"
-            >
-              <Square size={11} />
-            </button>
-          )}
-          {onRemove && (
-            <button
-              type="button"
-              aria-label={`删除 ${session.name}`}
-              onClick={() => onRemove(session.id)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-gray-500 transition-all hover:bg-red-500/10 hover:border-red-400/20 hover:text-red-400"
-            >
-              <Trash2 size={11} />
-            </button>
-          )}
-        </div>
       </div>
 
       {agents && agents.length > 0 && (

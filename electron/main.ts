@@ -338,6 +338,12 @@ function registerAppIpcHandlers() {
     if (targetPath) shell.openPath(targetPath)
   })
 
+  ipcMain.handle('app:openExternal', async (_event, targetUrl: string) => {
+    if (targetUrl) {
+      await shell.openExternal(targetUrl)
+    }
+  })
+
   ipcMain.handle('clipboard:writeText', async (_event, text: string) => {
     clipboard.writeText(text)
   })

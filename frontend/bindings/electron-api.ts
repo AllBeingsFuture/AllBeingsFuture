@@ -77,6 +77,7 @@ export const AppAPI = {
   selectFile: (): Promise<string[]> => ipc('app:selectFile'),
   openInExplorer: (path: string): Promise<void> => ipc('app:openInExplorer', path),
   openInTerminal: (path: string): Promise<void> => ipc('app:openInTerminal', path),
+  openExternal: (url: string): Promise<void> => ipc('app:openExternal', url),
 }
 
 export const ClipboardAPI = {

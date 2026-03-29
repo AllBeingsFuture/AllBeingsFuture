@@ -436,6 +436,26 @@ describe('sessionStore runtime status sync', () => {
     expect(useSessionStore.getState().messages).toEqual([])
   })
 
+  it('localizes the codex busy-turn error after a stop-send race', async () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'idle' })],
+    })
+
+    serviceMocks.processService.SendMessage.mockRejectedValue(
+      new Error('Codex is still processing the previous turn'),
+    )
+
+    await expect(
+      useSessionStore.getState().sendMessage('session-1', 'retry'),
+    ).rejects.toThrow('Codex is still processing the previous turn')
+
+    const state = useSessionStore.getState()
+    expect(state.streaming).toBe(false)
+    expect(state.chatError).toBe('Codex 仍在处理上一轮请求，请稍候片刻再发送。')
+    expect(state.sessions[0]?.status).toBe('idle')
+  })
+
   it('cleans up managed worktrees when removing a parent session', async () => {
     const parentWorktree = 'C:/repo/.allbeingsfuture-worktrees/session-parent'
     const childWorktree = 'C:/repo/.allbeingsfuture-worktrees/session-child'

@@ -50,6 +50,17 @@ function syncRuntimeStatus(sessions: Session[], sessionId: string, streaming: bo
   return changed ? nextSessions : sessions
 }
 
+function localizeChatError(message: string): string {
+  const trimmed = message.trim()
+  if (!trimmed) return ''
+
+  if (trimmed === 'Codex is still processing the previous turn') {
+    return 'Codex 仍在处理上一轮请求，请稍候片刻再发送。'
+  }
+
+  return trimmed
+}
+
 function sameMessageIdentity(left: ChatMessage | undefined, right: ChatMessage): boolean {
   if (!left || left.role !== right.role) return false
   const leftAny = left as PatchedChatMessage
@@ -542,7 +553,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ),
       }))
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = localizeChatError(err instanceof Error ? err.message : String(err))
       set({ chatError: message })
       throw err
     }
@@ -562,7 +573,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     } catch (err: unknown) {
       set((state) => ({
-        chatError: err instanceof Error ? err.message : String(err),
+        chatError: localizeChatError(err instanceof Error ? err.message : String(err)),
         sessions: syncRuntimeStatus(state.sessions, id, false),
         ...(state.selectedId === id ? { streaming: false } : {}),
       }))
@@ -576,7 +587,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (state) {
         const current = get()
         const nextMessages = state.messages ?? []
-        const nextError = state.error || ''
+        const nextError = localizeChatError(state.error || '')
         const nextSessions = syncRuntimeStatus(current.sessions, id, state.streaming)
         const isSelected = current.selectedId === id
         const messagesChanged = isSelected && !sameMessages(current.messages, nextMessages)
@@ -602,7 +613,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         })
       }
     } catch (err: unknown) {
-      set({ chatError: err instanceof Error ? err.message : String(err) })
+      set({ chatError: localizeChatError(err instanceof Error ? err.message : String(err)) })
     }
   },
 
@@ -611,7 +622,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const nextSessions = syncRuntimeStatus(current.sessions, data.sessionId, data.streaming)
     const isSelected = data.sessionId === current.selectedId
     const nextMessages = data.messages ?? []
-    const nextError = data.error || ''
+    const nextError = localizeChatError(data.error || '')
     const messagesChanged = isSelected && !sameMessages(current.messages, nextMessages)
     const metaChanged = isSelected && (
       current.streaming !== data.streaming
@@ -657,7 +668,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
       next.messages = nextMessages
       next.streaming = data.streaming
-      next.chatError = data.error || ''
+      next.chatError = localizeChatError(data.error || '')
       return next
     })
   },

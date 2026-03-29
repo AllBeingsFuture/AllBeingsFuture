@@ -10,6 +10,7 @@ import { ClaudeAdapter } from './adapters/claude.js'
 import { CodexAdapter } from './adapters/codex.js'
 import { GeminiAdapter } from './adapters/gemini.js'
 import { OpenCodeAdapter } from './adapters/opencode.js'
+import { OpenAIAdapter } from './adapters/openai.js'
 
 type EventCallback = (event: any) => void
 
@@ -30,6 +31,8 @@ const ADAPTER_ALIASES = new Map<string, string>([
   ['gemini-cli', 'gemini-headless'],
   ['opencode', 'opencode-sdk'],
   ['opencode-cli', 'opencode-sdk'],
+  ['openai', 'openai-api'],
+  ['openai-api', 'openai-api'],
 ])
 
 function normalizeAdapterType(adapterType: string, config?: Record<string, any>): string {
@@ -41,6 +44,7 @@ function normalizeAdapterType(adapterType: string, config?: Record<string, any>)
   if (command.includes('codex')) return 'codex-appserver'
   if (command.includes('gemini')) return 'gemini-headless'
   if (command.includes('opencode')) return 'opencode-sdk'
+  if (command.includes('openai')) return 'openai-api'
   return adapterType
 }
 
@@ -55,6 +59,8 @@ function createAdapter(adapterType: string, config: Record<string, any>, emit: E
       return new GeminiAdapter(config, emit)
     case 'opencode-sdk':
       return new OpenCodeAdapter(config, emit)
+    case 'openai-api':
+      return new OpenAIAdapter(config, emit)
     default:
       throw new Error(`Unknown adapter: ${adapterType} (normalized: ${normalized})`)
   }

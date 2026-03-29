@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { AppAPI } from '../../../bindings/electron-api'
+import { ProviderService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useSessionStore } from '../../stores/sessionStore'
 import DraggableDialog from '../common/DraggableDialog'
-import type { SessionConfig } from '../../../bindings/allbeingsfuture/internal/models/models'
+import type { AIProvider, SessionConfig } from '../../../bindings/allbeingsfuture/internal/models/models'
 
 interface Props {
   onClose: () => void
@@ -50,39 +51,17 @@ function shortDirName(p: string): string {
 
 // ─── Providers ───
 
-const providers = [
-  { id: 'claude-code', name: 'Claude Code', icon: '🟣', desc: '综合推理能力最强' },
-  { id: 'codex', name: 'Codex CLI', icon: '🟢', desc: '代码生成专长' },
-  { id: 'gemini-cli', name: 'Gemini CLI', icon: '🔵', desc: '大上下文窗口' },
-  { id: 'opencode', name: 'OpenCode', icon: '🟠', desc: '多模型切换' },
-  { id: 'iflow', name: 'iFlow CLI', icon: '🟡', desc: 'ACP 协议适配' },
-]
-
-// 子 Agent 提供者描述（用于生成系统提示）
-const subAgentDescs: Record<string, string> = {
-  'claude-code': '综合推理、复杂分析、多步骤规划类任务',
-  'codex': '代码生成、重构、自动化执行类任务',
-  'gemini-cli': '长文档分析、大上下文窗口类任务',
-  'opencode': '多模型切换、灵活推理类任务',
-  'iflow': 'ACP 协议、流程编排类任务',
+const providerMetaByAdapter: Record<string, { icon: string; desc: string }> = {
+  'claude-sdk': { icon: '🟣', desc: '综合推理能力最强' },
+  'codex-appserver': { icon: '🟢', desc: '代码生成专长' },
+  'gemini-headless': { icon: '🔵', desc: '大上下文窗口' },
+  'opencode-sdk': { icon: '🟠', desc: '多模型切换' },
+  'openai-api': { icon: '🟩', desc: 'OpenAI 兼容中转与多模型接入' },
+  iflow: { icon: '🟡', desc: 'ACP 协议适配' },
 }
 
-function buildSubAgentSystemPrompt(ids: string[]): string {
-  if (ids.length === 0) return ''
-  const list = ids
-    .map(id => {
-      const p = providers.find(x => x.id === id)
-      return p ? `- ${p.name}（provider="${id}"，擅长：${subAgentDescs[id] || p.desc}）` : null
-    })
-    .filter(Boolean)
-    .join('\n')
-  return [
-    '## 可用子 Agent 提供者',
-    '当你需要 spawn_agent 时，可从以下提供者中选择（通过 provider 参数指定）：',
-    list,
-    '',
-    '**选择策略**：根据子任务的特点自主判断最合适的提供者。用户未指定时无需询问，直接选择最匹配任务类型的提供者即可。',
-  ].join('\n')
+function resolveProviderMeta(provider: Pick<AIProvider, 'adapterType'>): { icon: string; desc: string } {
+  return providerMetaByAdapter[provider.adapterType || ''] || { icon: '🤖', desc: '自定义 Provider' }
 }
 
 const modes: { id: string; label: string; desc: string; icon: typeof Zap }[] = [
@@ -102,6 +81,7 @@ export default function SessionCreator({ onClose }: Props) {
   const [name, setName] = useState(() => `会话 ${new Date().toLocaleTimeString('zh-CN')}`)
   const [workDir, setWorkDir] = useState('')
   const [providerId, setProviderId] = useState('claude-code')
+  const [providers, setProviders] = useState<AIProvider[]>([])
   const [mode, setMode] = useState<string>('normal')
   const [subAgentProviderIds, setSubAgentProviderIds] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
@@ -117,6 +97,23 @@ export default function SessionCreator({ onClose }: Props) {
     setRecentDirs(loadRecentDirs())
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    ProviderService.GetAll()
+      .then(data => {
+        if (cancelled) return
+        const enabledProviders = (data || []).filter(provider => provider.isEnabled)
+        setProviders(enabledProviders)
+        if (enabledProviders.length > 0 && !enabledProviders.some(provider => provider.id === providerId)) {
+          setProviderId(enabledProviders[0].id)
+        }
+      })
+      .catch(error => {
+        console.error('Failed to load providers:', error)
+      })
+    return () => { cancelled = true }
+  }, [providerId])
+
   const pinnedDirs = useMemo(() =>
     recentDirs.filter(d => d.isPinned).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt)),
     [recentDirs],
@@ -126,6 +123,12 @@ export default function SessionCreator({ onClose }: Props) {
     [recentDirs],
   )
   const visibleDirs = showAllDirs ? [...pinnedDirs, ...unpinnedDirs] : pinnedDirs
+  const providerCards = useMemo(() => (
+    providers.map(provider => ({
+      ...provider,
+      ...resolveProviderMeta(provider),
+    }))
+  ), [providers])
 
   const handleTogglePin = (path: string) => {
     const dirs = loadRecentDirs()
@@ -334,25 +337,31 @@ export default function SessionCreator({ onClose }: Props) {
         {/* ── 5. AI 提供者 ── */}
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-2">AI 提供者</label>
-          <div className="grid grid-cols-2 gap-2">
-            {providers.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setProviderId(p.id)}
-                className={`px-3 py-2 rounded-lg border text-left transition-colors ${
-                  providerId === p.id
-                    ? 'border-blue-400/40 bg-blue-500/10'
-                    : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">{p.icon}</span>
-                  <span className="text-xs font-medium text-white">{p.name}</span>
-                </div>
-                <p className="text-[10px] text-gray-500 mt-0.5 ml-6">{p.desc}</p>
-              </button>
-            ))}
-          </div>
+          {providerCards.length > 0 ? (
+            <div className="grid grid-cols-2 gap-2">
+              {providerCards.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setProviderId(p.id)}
+                  className={`px-3 py-2 rounded-lg border text-left transition-colors ${
+                    providerId === p.id
+                      ? 'border-blue-400/40 bg-blue-500/10'
+                      : 'border-white/10 hover:border-white/20 hover:bg-white/5'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{p.icon}</span>
+                    <span className="text-xs font-medium text-white">{p.name}</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-0.5 ml-6">{p.desc}</p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-white/10 bg-slate-900/40 px-3 py-2 text-xs text-gray-500">
+              没有可用 Provider，请先到设置里启用或创建 Provider。
+            </div>
+          )}
         </div>
 
         {/* ── 6. 会话模式 ── */}

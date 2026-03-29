@@ -6,6 +6,8 @@
 
 import { create } from 'zustand'
 import type { FileEntry } from '../types/fileManagerTypes'
+import { useFileTabStore } from './fileTabStore'
+import { useLayoutStore } from './layoutStore'
 
 // 重新导出，方便组件直接从 store 引入
 export type { FileEntry }
@@ -234,15 +236,12 @@ export const useFileManagerStore = create<FileManagerState>((set, get) => ({
 
   /**
    * 在文件 Tab 窗格中打开指定路径的文件
-   * 使用动态 import 避免与 fileTabStore/uiStore 产生循环依赖
    * 单窗格模式下若当前显示的不是文件窗格，自动切换过去
    */
   openFileInTab: async (filePath: string) => {
-    const { useFileTabStore } = await import('./fileTabStore')
     await useFileTabStore.getState().openFile(filePath)
 
     // 单窗格模式：若 primaryPane 不是 files，自动切换到文件视图
-    const { useLayoutStore } = await import('./layoutStore')
     const { layoutMode, primaryPane, setPaneContent } = useLayoutStore.getState()
     if (layoutMode === 'single' && primaryPane !== 'files') {
       setPaneContent('primary', 'files')
