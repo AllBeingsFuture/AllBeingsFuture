@@ -3,8 +3,7 @@
  * Replaces Go internal/services/pty.go
  *
  * Uses @karinjs/node-pty (prebuilt, no compilation needed) to create
- * real terminal sessions. Falls back to the original node-pty if
- * @karinjs/node-pty is unavailable.
+ * real terminal sessions.
  */
 
 import type { BrowserWindow } from 'electron'
@@ -58,18 +57,12 @@ export class PTYService {
 
   private async ensureNodePty() {
     if (!this.nodePty) {
-      // Prefer @karinjs/node-pty (prebuilt, no compilation required).
-      // Fall back to the original node-pty for backward compatibility.
       try {
         this.nodePty = await import('@karinjs/node-pty')
       } catch {
-        try {
-          this.nodePty = await import('node-pty')
-        } catch {
-          throw new Error(
-            'PTY module not available. Please install: npm install @karinjs/node-pty',
-          )
-        }
+        throw new Error(
+          'PTY module not available. Please install: npm install @karinjs/node-pty',
+        )
       }
     }
     return this.nodePty
