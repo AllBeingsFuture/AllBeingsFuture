@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - '**'
+  pull_request:
+    branches:
+      - '**'
   workflow_dispatch:
 
 permissions:
@@ -39,8 +42,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Setup Python (for node-gyp)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Rebuild Native Modules for Electron
+        run: npx @electron/rebuild --force --only better-sqlite3
+
       - name: Compute Release Metadata
         id: meta
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -102,28 +114,49 @@ jobs:
           ABF_PACKAGE_VERSION: ${{ steps.meta.outputs.package_version }}
         run: |
           npm run build
-          npx electron-builder --win "-c.extraMetadata.version=$env:ABF_PACKAGE_VERSION" "-c.win.artifactName=AllBeingsFuture Setup $env:ABF_DISPLAY_VERSION.`${ext}"
 
-      - name: Locate Installer Asset
-        id: installer
+          $builderArgs = @(
+            '--win', 'nsis', 'portable',
+            '-c.compression=store',
+            '-c.nsis.differentialPackage=false'
+          )
+
+          if ($env:ABF_PACKAGE_VERSION) {
+            $builderArgs += @(
+              "-c.extraMetadata.version=$env:ABF_PACKAGE_VERSION",
+              "-c.nsis.artifactName=AllBeingsFuture Setup $env:ABF_DISPLAY_VERSION.`${ext}",
+              "-c.portable.artifactName=AllBeingsFuture Portable $env:ABF_DISPLAY_VERSION.`${ext}"
+            )
+            npx electron-builder @builderArgs
+          } else {
+            npx electron-builder @builderArgs
+          }
+
+      - name: Locate Windows Assets
+        id: windows_assets
         shell: pwsh
         run: |
-          $installer = Get-ChildItem release -File -Filter '*Setup*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $installer) {
-            Write-Error 'No setup installer was produced under release/.'
+          $assets = Get-ChildItem release -File | Where-Object {
+            $_.Name -like '*Setup*.exe' -or $_.Name -like '*Portable*.exe'
+          } | Sort-Object Name
+          if (-not $assets) {
+            Write-Error 'No Windows setup or portable executable was produced under release/.'
             exit 1
           }
-          "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
-          "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value 'paths<<EOF'
+          $assets.FullName | ForEach-Object { Add-Content -Path $env:GITHUB_OUTPUT -Value $_ }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value 'EOF'
 
       - name: Upload Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.meta.outputs.artifact }}
-          path: ${{ steps.installer.outputs.path }}
+          name: ${{ steps.meta.outputs.artifact || format('pr-build-{0}', github.event.pull_request.number || github.run_id) }}
+          path: ${{ steps.windows_assets.outputs.paths }}
           if-no-files-found: error
 
       - name: Publish GitHub Pre-Release
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
@@ -131,4 +164,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: ${{ steps.installer.outputs.path }}
+          files: ${{ steps.windows_assets.outputs.paths }}
