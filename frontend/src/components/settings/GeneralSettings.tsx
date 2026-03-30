@@ -219,10 +219,15 @@ function Toggle({
   description: string
 }) {
   return (
-    <label className="flex items-start gap-3 cursor-pointer">
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      onClick={() => onChange(!enabled)}
+      className="flex w-full items-start gap-3 text-left"
+    >
       <div
         className={`w-9 h-5 rounded-full transition-colors relative shrink-0 mt-0.5 ${enabled ? 'bg-dark-accent' : 'bg-gray-600'}`}
-        onClick={() => onChange(!enabled)}
       >
         <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
       </div>
@@ -230,6 +235,6 @@ function Toggle({
         <span className="text-sm">{label}</span>
         <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{description}</p>
       </div>
-    </label>
+    </button>
   )
 }

@@ -130,26 +130,28 @@ function FileChangesPanel({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="mt-2 border-t border-white/[0.04] pt-2">
-      <button
-        type="button"
-        onClick={() => setExpanded(prev => !prev)}
-        className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-200 transition-colors w-full"
-      >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <FileText size={12} />
-        <span>文件改动</span>
-        <span className="rounded-full bg-blue-500/15 border border-blue-500/20 px-1.5 py-0 text-[10px] text-blue-300 font-medium">
-          {changes.length}
-        </span>
+      <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); void loadSessionChanges(sessionId) }}
-          className="ml-auto text-gray-500 hover:text-gray-300 transition-colors"
+          onClick={() => setExpanded(prev => !prev)}
+          className="flex flex-1 items-center gap-2 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <FileText size={12} />
+          <span>文件改动</span>
+          <span className="rounded-full bg-blue-500/15 border border-blue-500/20 px-1.5 py-0 text-[10px] text-blue-300 font-medium">
+            {changes.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { void loadSessionChanges(sessionId) }}
+          className="text-gray-500 hover:text-gray-300 transition-colors"
           title="刷新"
         >
           <RefreshCw size={11} />
         </button>
-      </button>
+      </div>
 
       {expanded && (
         <div className="mt-1.5 max-h-[200px] overflow-y-auto space-y-0.5">

@@ -12,10 +12,19 @@ const SUB_TABS: { id: SubTab; label: string; icon: React.ReactNode }[] = [
 
 export default function ExtensionsTab() {
   const [active, setActive] = useState<SubTab>('skills')
+  const [visitedTabs, setVisitedTabs] = useState<Record<SubTab, boolean>>({
+    skills: true,
+    mcp: false,
+  })
 
   const handleTabChange = (tabId: SubTab) => {
     startTransition(() => {
       setActive(tabId)
+      setVisitedTabs((current) => (
+        current[tabId]
+          ? current
+          : { ...current, [tabId]: true }
+      ))
     })
   }
 
@@ -40,7 +49,16 @@ export default function ExtensionsTab() {
         ))}
       </div>
 
-      {active === 'skills' ? <SkillsTab /> : <McpTab />}
+      {visitedTabs.skills ? (
+        <div aria-hidden={active !== 'skills'} className={active === 'skills' ? 'block' : 'hidden'}>
+          <SkillsTab />
+        </div>
+      ) : null}
+      {visitedTabs.mcp ? (
+        <div aria-hidden={active !== 'mcp'} className={active === 'mcp' ? 'block' : 'hidden'}>
+          <McpTab />
+        </div>
+      ) : null}
     </div>
   )
 }

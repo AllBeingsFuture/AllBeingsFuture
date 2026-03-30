@@ -61,9 +61,8 @@ const ShellTerminalView: React.FC = () => {
       <div className="flex items-center border-b border-white/10 bg-gray-900/80">
         <div className="flex items-center gap-0.5 flex-1 overflow-x-auto px-1 py-1">
           {tabs.map(tab => (
-            <button
+            <div
               key={tab.id}
-              onClick={() => { void workbenchApi.terminal.activateTab(tab.id) }}
               className={[
                 'flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono whitespace-nowrap transition-colors',
                 tab.id === activeTabId
@@ -71,20 +70,27 @@ const ShellTerminalView: React.FC = () => {
                   : 'text-gray-500 hover:text-gray-300 hover:bg-white/5',
               ].join(' ')}
             >
-              <Terminal size={12} className={tab.exitCode !== undefined ? 'text-gray-600' : 'text-green-400'} />
-              <span>{tab.title}</span>
-              {tab.exitCode !== undefined && (
-                <span className={`text-[10px] ${tab.exitCode === 0 ? 'text-gray-600' : 'text-red-400'}`}>
-                  [{tab.exitCode}]
-                </span>
-              )}
               <button
-                onClick={(e) => { e.stopPropagation(); void workbenchApi.terminal.closeTab(tab.id) }}
+                type="button"
+                onClick={() => { void workbenchApi.terminal.activateTab(tab.id) }}
+                className="flex min-w-0 flex-1 items-center gap-1.5"
+              >
+                <Terminal size={12} className={tab.exitCode !== undefined ? 'text-gray-600' : 'text-green-400'} />
+                <span className="truncate">{tab.title}</span>
+                {tab.exitCode !== undefined && (
+                  <span className={`text-[10px] ${tab.exitCode === 0 ? 'text-gray-600' : 'text-red-400'}`}>
+                    [{tab.exitCode}]
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => { void workbenchApi.terminal.closeTab(tab.id) }}
                 className="ml-1 text-gray-600 hover:text-gray-300 transition-colors"
               >
                 <X size={10} />
               </button>
-            </button>
+            </div>
           ))}
         </div>
 

@@ -148,6 +148,25 @@ export class ProviderService {
     return rows.map(rowToProvider)
   }
 
+  isRunnable(provider: AIProvider | null | undefined): boolean {
+    if (!provider?.isEnabled) return false
+
+    const adapterType = (provider.adapterType || '').toLowerCase()
+    if (adapterType === 'openai-api') {
+      return true
+    }
+
+    const target = provider.executablePath?.trim()
+      || provider.command?.trim()
+      || ''
+
+    return resolveExecutable(target)
+  }
+
+  getRunnable(): AIProvider[] {
+    return this.getAll().filter((provider) => this.isRunnable(provider))
+  }
+
   getById(id: string): AIProvider | null {
     const row = this.db.raw.prepare('SELECT * FROM providers WHERE id = ?').get(id)
     return row ? rowToProvider(row) : null
@@ -230,6 +249,9 @@ export class ProviderService {
 
   testExecutable(id: string, executablePath: string): boolean {
     const provider = this.getById(id)
+    const adapterType = (provider?.adapterType || '').toLowerCase()
+    if (adapterType === 'openai-api') return true
+
     const target = executablePath.trim()
       || provider?.executablePath?.trim()
       || provider?.command?.trim()

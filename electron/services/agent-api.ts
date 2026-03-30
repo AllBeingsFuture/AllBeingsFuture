@@ -163,14 +163,19 @@ export class AgentApi {
     // Resolve provider if specified by name/alias (e.g. "codex", "claude")
     let resolvedProviderId = providerId
     if (providerId && typeof providerId === 'string') {
-      const providers = this.providerService.getAll()
+      const providers = this.providerService.getRunnable()
       const match = providers.find((p: AIProvider) =>
         p.id === providerId ||
         p.name.toLowerCase().includes(providerId.toLowerCase()) ||
         (p.adapterType || '').toLowerCase().includes(providerId.toLowerCase()) ||
         (p.command || '').toLowerCase().includes(providerId.toLowerCase())
       )
-      if (match) resolvedProviderId = match.id
+      if (match) {
+        resolvedProviderId = match.id
+      } else {
+        appLog('warn', `Requested child provider "${providerId}" is not runnable; falling back to parent session provider`, 'agent-api')
+        resolvedProviderId = undefined
+      }
     }
 
     const { childSessionId, result } = await this.processService.spawnChildSessionAndWait(

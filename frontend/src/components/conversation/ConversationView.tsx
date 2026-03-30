@@ -24,9 +24,14 @@ interface Props {
 }
 
 /** Convert backend ChatMessage to ConversationMessage for tool components */
-function toConversationMessage(msg: ChatMessage, index: number, sessionId: string): ConversationMessage {
+function toConversationMessage(
+  msg: ChatMessage,
+  index: number,
+  sessionId: string,
+  idSuffix?: string,
+): ConversationMessage {
   return {
-    id: `${sessionId}-${index}`,
+    id: `${sessionId}-${index}${idSuffix ? `-${idSuffix}` : ''}`,
     sessionId,
     role: (msg.role as ConversationMessage['role']) || 'assistant',
     content: msg.content || '',
@@ -97,14 +102,14 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
   }
 
   /** Push a tool_use message into the current tool group (or start a new one) */
-  const pushToolMsg = (msg: ChatMessage, index: number) => {
+  const pushToolMsg = (msg: ChatMessage, index: number, idSuffix?: string) => {
     if (!currentToolGroup) {
       currentToolGroup = []
       currentToolConvMsgs = []
       toolGroupStartIndex = index
     }
     currentToolGroup.push(msg)
-    currentToolConvMsgs!.push(toConversationMessage(msg, index, sessionId))
+    currentToolConvMsgs!.push(toConversationMessage(msg, index, sessionId, idSuffix))
   }
 
   for (let i = 0; i < messages.length; i++) {
@@ -147,7 +152,7 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
           toolName: tool.name || 'unknown',
           toolInput: tool.input || {},
         } as unknown as ChatMessage
-        pushToolMsg(virtualMsg, i)
+        pushToolMsg(virtualMsg, i, `tool-${t}`)
       }
       // If the assistant message also has text content, emit it as a separate message
       if (msg.content?.trim()) {

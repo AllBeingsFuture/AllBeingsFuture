@@ -20,10 +20,17 @@ export default function AppearanceTab() {
     setFontSize(savedFontSize || 14)
   }, [savedFontSize])
 
-  const applySize = (size: number) => {
+  const previewSize = (size: number) => {
     setFontSize(size)
     document.documentElement.style.fontSize = `${size}px`
-    update('fontSize', String(size))
+  }
+
+  const persistSize = (size: number) => {
+    if (size === (savedFontSize || 14)) {
+      return
+    }
+
+    void update('fontSize', String(size))
   }
 
   return (
@@ -35,7 +42,10 @@ export default function AppearanceTab() {
           {presets.map(p => (
             <button
               key={p.size}
-              onClick={() => applySize(p.size)}
+              onClick={() => {
+                previewSize(p.size)
+                persistSize(p.size)
+              }}
               className={`px-4 py-2 text-xs rounded-lg border transition-colors ${
                 fontSize === p.size
                   ? 'border-blue-500 bg-blue-500/10 text-white'
@@ -55,7 +65,10 @@ export default function AppearanceTab() {
             min={10}
             max={24}
             value={fontSize}
-            onChange={e => applySize(Number(e.target.value))}
+            onChange={e => previewSize(Number(e.target.value))}
+            onBlur={() => persistSize(fontSize)}
+            onKeyUp={() => persistSize(fontSize)}
+            onPointerUp={() => persistSize(fontSize)}
             className="flex-1 accent-blue-500 h-1.5"
           />
           <span className="text-xs text-gray-500 w-8">24</span>

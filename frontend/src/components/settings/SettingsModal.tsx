@@ -121,14 +121,27 @@ const GROUP_LABELS: Record<TabDefinition['group'], string> = {
 
 export default function SettingsModal({ onClose, initialTab = 'general' }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab)
+  const [visitedTabs, setVisitedTabs] = useState<Record<TabId, boolean>>(() => ({
+    [initialTab]: true,
+  } as Record<TabId, boolean>))
 
   useEffect(() => {
     setActiveTab(initialTab)
+    setVisitedTabs((current) => (
+      current[initialTab]
+        ? current
+        : { ...current, [initialTab]: true }
+    ))
   }, [initialTab])
 
   const handleTabChange = (tabId: TabId) => {
     startTransition(() => {
       setActiveTab(tabId)
+      setVisitedTabs((current) => (
+        current[tabId]
+          ? current
+          : { ...current, [tabId]: true }
+      ))
     })
   }
 
@@ -194,9 +207,24 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" style={{ contain: 'layout paint' }}>
-            <div key={activeTab}>
-              {renderTab(activeTab)}
-            </div>
+            {TABS.map((tab) => {
+              const shouldKeepMounted = tab.id !== 'logs'
+              const shouldRender = shouldKeepMounted ? visitedTabs[tab.id] : activeTab === tab.id
+
+              if (!shouldRender) {
+                return null
+              }
+
+              return (
+                <div
+                  key={tab.id}
+                  aria-hidden={tab.id !== activeTab}
+                  className={tab.id === activeTab ? 'block' : 'hidden'}
+                >
+                  {renderTab(tab.id, tab.id === activeTab)}
+                </div>
+              )
+            })}
           </div>
         </section>
       </div>
@@ -204,7 +232,7 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
   )
 }
 
-function renderTab(activeTab: TabId) {
+function renderTab(activeTab: TabId, isActive: boolean) {
   switch (activeTab) {
     case 'general':
       return <GeneralSettings />
@@ -228,7 +256,7 @@ function renderTab(activeTab: TabId) {
     case 'feedback':
       return <FeedbackTab />
     case 'logs':
-      return <LogsTab />
+      return <LogsTab isActive={isActive} />
     case 'botmanagement':
       return <BotManagementTab />
     default:

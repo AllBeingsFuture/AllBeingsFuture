@@ -17,8 +17,9 @@ export default function App() {
   const loadTasks = useTaskStore((state) => state.load)
   const loadWorkflows = useWorkflowStore((state) => state.load)
   const loadMissions = useMissionStore((state) => state.load)
-  const settings = useSettingsStore((state) => state.settings)
   const settingsLoaded = useSettingsStore((state) => state.loaded)
+  const activeTheme = useSettingsStore((state) => state.settings.theme)
+  const activeFontSize = useSettingsStore((state) => state.settings.fontSize)
 
   useEffect(() => {
     loadDefinitions()
@@ -33,9 +34,9 @@ export default function App() {
   useEffect(() => {
     if (!settingsLoaded) return
 
-    applyTheme(settings.theme || 'dark')
-    document.documentElement.style.fontSize = `${settings.fontSize || 14}px`
-  }, [settingsLoaded, settings.theme, settings.fontSize])
+    applyTheme(activeTheme || 'dark')
+    document.documentElement.style.fontSize = `${activeFontSize || 14}px`
+  }, [activeFontSize, activeTheme, settingsLoaded])
 
   return (
     <RootErrorBoundary>

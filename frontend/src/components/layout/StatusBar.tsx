@@ -4,11 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import { Grid3x3, Columns2 } from 'lucide-react'
-import { workbenchApi } from '../../app/api/workbench'
-import { useUIStore } from '../../stores/uiStore'
 import { useSessionStore } from '../../stores/sessionStore'
-import type { ViewMode } from '../../stores/ui-helpers'
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000)
@@ -20,7 +16,6 @@ function formatDuration(ms: number): string {
 }
 
 export default function StatusBar() {
-  const viewMode = useUIStore((state) => state.viewMode)
   const sessions = useSessionStore((state) => state.sessions)
   const [elapsed, setElapsed] = useState(0)
 
@@ -58,23 +53,7 @@ export default function StatusBar() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1">
-        <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-md px-0.5 py-0.5 border border-white/[0.04]">
-          {([
-            { mode: 'grid' as ViewMode, icon: Grid3x3, label: '网格视图' },
-            { mode: 'tabs' as ViewMode, icon: Columns2, label: '标签页视图' },
-          ]).map(({ mode, icon: Icon, label }) => (
-            <button
-              key={mode}
-              onClick={() => { void workbenchApi.ui.setViewMode(mode) }}
-              className={`p-1 rounded btn-transition ${viewMode === mode ? 'bg-accent-blue/20 text-accent-blue shadow-sm' : 'text-text-secondary hover:text-text-primary hover:bg-white/[0.04]'}`}
-              title={label}
-            >
-              <Icon className="w-3 h-3" />
-            </button>
-          ))}
-        </div>
-      </div>
+      <div className="text-text-muted cursor-default">会话视图</div>
 
       <div className="flex items-center gap-3">
         <div className="hidden md:flex items-center gap-2.5 cursor-default" title="会话统计">
