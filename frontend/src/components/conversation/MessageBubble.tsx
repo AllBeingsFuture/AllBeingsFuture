@@ -92,10 +92,8 @@ export default function MessageBubble({ message, providerId }: Props) {
     : 'relative py-0.5'
 
   const assistantStateLabel = isPartial
-    ? '正在回复'
-    : isCommentary
-      ? '处理中'
-      : undefined
+    ? (isCommentary ? '处理中' : '正在回复')
+    : undefined
   const commentaryTextClass = 'whitespace-pre-wrap break-words text-[14px] leading-[1.85] tracking-[0.01em] text-slate-200/88'
   const assistantTextClass = 'whitespace-pre-wrap break-words text-[15px] leading-8 tracking-[0.01em] text-slate-100/94'
   const plainCollapseThreshold = isCommentary ? COMMENTARY_COLLAPSE_THRESHOLD : ASSISTANT_COLLAPSE_THRESHOLD
@@ -123,6 +121,31 @@ export default function MessageBubble({ message, providerId }: Props) {
           {paragraph}
         </p>
       ))}
+    </div>
+  )
+
+  const renderMarkdownAssistant = (className: string) => (
+    <div className={className}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(value) => value}
+        components={{
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              onClick={(event) => {
+                event.preventDefault()
+                if (href) void AppAPI.openInExplorer(href)
+              }}
+              title={href}
+            >
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {displayContent}
+      </ReactMarkdown>
     </div>
   )
 
@@ -172,7 +195,7 @@ export default function MessageBubble({ message, providerId }: Props) {
                   prose-ol:my-0.5 prose-ul:my-0.5
                   prose-a:text-sky-200/60 prose-a:no-underline
                 ">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(value) => value}>
                     {thinkingText}
                   </ReactMarkdown>
                 </div>
@@ -225,41 +248,36 @@ export default function MessageBubble({ message, providerId }: Props) {
               </div>
             ) : displayContent ? (
               <>
-                {hasRichMarkdown && !isCommentary ? (
-                  <div className="prose prose-invert prose-sm max-w-none
-                    prose-p:my-3 prose-p:leading-8 prose-p:text-slate-100/92
-                    prose-headings:mb-2 prose-headings:mt-6 prose-headings:text-slate-50
-                    prose-code:rounded-md prose-code:bg-sky-400/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:text-sky-200 prose-code:before:content-none prose-code:after:content-none
-                    prose-pre:my-2 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0d1117]
-                    prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline
-                    prose-li:my-0.5 prose-li:text-slate-100/90
-                    prose-table:text-xs
-                    prose-th:border prose-th:border-white/[0.06] prose-th:px-2 prose-th:py-1
-                    prose-td:border prose-td:border-white/[0.06] prose-td:px-2 prose-td:py-1
-                    prose-strong:text-white
-                    prose-em:text-slate-300
-                    prose-blockquote:rounded-r-xl prose-blockquote:border-sky-300/20 prose-blockquote:bg-sky-400/[0.03] prose-blockquote:py-1 prose-blockquote:text-slate-300
-                  ">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        a: ({ href, children }) => (
-                          <a
-                            href={href}
-                            onClick={(event) => {
-                              event.preventDefault()
-                              if (href) void AppAPI.openInExplorer(href)
-                            }}
-                            title={href}
-                          >
-                            {children}
-                          </a>
-                        ),
-                      }}
-                    >
-                      {displayContent}
-                    </ReactMarkdown>
-                  </div>
+                {hasRichMarkdown ? (
+                  renderMarkdownAssistant(
+                    isCommentary
+                      ? `prose prose-invert prose-sm max-w-none
+                        prose-p:my-2 prose-p:leading-7 prose-p:text-slate-200/88
+                        prose-headings:mb-1.5 prose-headings:mt-4 prose-headings:text-slate-100
+                        prose-code:rounded-md prose-code:bg-sky-400/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[11px] prose-code:text-sky-200 prose-code:before:content-none prose-code:after:content-none
+                        prose-pre:my-2 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0d1117]
+                        prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline
+                        prose-li:my-0.5 prose-li:text-slate-200/86
+                        prose-table:text-xs
+                        prose-th:border prose-th:border-white/[0.06] prose-th:px-2 prose-th:py-1
+                        prose-td:border prose-td:border-white/[0.06] prose-td:px-2 prose-td:py-1
+                        prose-strong:text-slate-50
+                        prose-em:text-slate-300
+                        prose-blockquote:rounded-r-xl prose-blockquote:border-sky-300/20 prose-blockquote:bg-sky-400/[0.03] prose-blockquote:py-1 prose-blockquote:text-slate-300`
+                      : `prose prose-invert prose-sm max-w-none
+                        prose-p:my-3 prose-p:leading-8 prose-p:text-slate-100/92
+                        prose-headings:mb-2 prose-headings:mt-6 prose-headings:text-slate-50
+                        prose-code:rounded-md prose-code:bg-sky-400/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:text-sky-200 prose-code:before:content-none prose-code:after:content-none
+                        prose-pre:my-2 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0d1117]
+                        prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline
+                        prose-li:my-0.5 prose-li:text-slate-100/90
+                        prose-table:text-xs
+                        prose-th:border prose-th:border-white/[0.06] prose-th:px-2 prose-th:py-1
+                        prose-td:border prose-td:border-white/[0.06] prose-td:px-2 prose-td:py-1
+                        prose-strong:text-white
+                        prose-em:text-slate-300
+                        prose-blockquote:rounded-r-xl prose-blockquote:border-sky-300/20 prose-blockquote:bg-sky-400/[0.03] prose-blockquote:py-1 prose-blockquote:text-slate-300`,
+                  )
                 ) : (
                   <>
                     {shouldCollapsePlainAssistant && !plainExpanded ? (

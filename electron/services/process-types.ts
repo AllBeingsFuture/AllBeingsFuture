@@ -28,6 +28,7 @@ export interface BridgeEvent {
   event: 'delta' | 'done' | 'error' | 'tool' | 'thinking' | 'agent_task'
   text?: string
   messageKind?: 'assistant' | 'agent'
+  itemId?: string
   error?: string
   name?: string
   input?: Record<string, unknown>
@@ -95,6 +96,8 @@ export interface ChatMessage {
   timestamp: string
   /** Visual hint for renderer; defaults to normal assistant message when omitted */
   presentation?: 'message' | 'commentary'
+  /** Provider-side item/message id so streaming deltas preserve message boundaries */
+  sourceItemId?: string
   toolUse?: ToolUseEntry[]
   thinking?: string
   images?: string[]
