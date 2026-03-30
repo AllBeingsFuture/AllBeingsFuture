@@ -56,8 +56,8 @@ const BOT_CATALOG: BotCatalogItem[] = [
     sourceLabel: 'OpenClaw UI 卡片',
     controlSurface: 'card',
     extensionId: 'telegram',
-    description: 'OpenClaw 与 ABF 都已有入口；当前 ABF 已接通测试推送。',
-    integrationLabel: '已接通测试推送',
+    description: 'OpenClaw 与 ABF 都已有入口；当前 ABF 已接通测试推送和基础远程控制。',
+    integrationLabel: '已接通推送 + 基础远程控制',
     supportsTestPush: true,
     hasDedicatedSettings: false,
     fields: [
