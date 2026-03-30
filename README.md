@@ -54,7 +54,7 @@ ABF 通过 `BridgeManager` 管理不同 Provider 适配器。当前内置 Provid
 | Provider | 内置 ID | Adapter | 通信方式 | MCP 支持 | 典型用途 |
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | `claude-code` | `claude-sdk` | in-process SDK | 原生支持 | 复杂任务、Supervisor 调度、多文件重构 |
-| Codex CLI | `codex` | `codex-appserver` | subprocess JSON-RPC | 通过 Prompt 降级注入 | 写代码、修 bug、实现功能 |
+| Codex CLI | `codex` | `codex-appserver` | subprocess JSON-RPC | 原生支持（CLI config 注入） | 写代码、修 bug、实现功能 |
 | Gemini CLI | `gemini-cli` | `gemini-headless` | CLI subprocess | 通过 Prompt 降级注入 | 大文件分析、代码审查、总结 |
 | OpenCode | `opencode` | `opencode-sdk` | CLI / SDK | 原生支持 | 代码生成与补全 |
 

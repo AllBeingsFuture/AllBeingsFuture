@@ -54,8 +54,9 @@ export class ProviderCapabilityRegistry {
     ['codex', {
       providerId: 'codex',
       mcpSupport: {
-        native: false,
-        fallback: 'prompt-injection',
+        native: true,
+        configFlag: '--config',
+        fallback: 'none',
       },
       skillSupport: {
         slashCommands: false,

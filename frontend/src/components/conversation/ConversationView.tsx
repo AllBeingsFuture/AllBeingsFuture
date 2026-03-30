@@ -751,6 +751,7 @@ export default function ConversationView({ session }: Props) {
   const scrollMetricsFrameRef = useRef<number | null>(null)
   const autoScrollFrameRef = useRef<number | null>(null)
   const isNearBottomRef = useRef(true)
+  const didPinInitialHistoryRef = useRef(false)
   const prevMsgCountRef = useRef(0)
   const lastEventTimeRef = useRef(0)
   const forceScrollUntilRef = useRef(0)
@@ -790,21 +791,32 @@ export default function ConversationView({ session }: Props) {
 
   const scrollToBottom = useCallback((afterPaint = false) => {
     const applyScroll = () => {
-      autoScrollFrameRef.current = null
       const el = scrollContainerRef.current
       if (!el) return
-      el.scrollTop = el.scrollHeight
+      const nextScrollTop = Math.max(el.scrollHeight - el.clientHeight, 0)
+      if (Math.abs(el.scrollTop - nextScrollTop) > 1) {
+        el.scrollTop = nextScrollTop
+      }
       isNearBottomRef.current = true
       commitScrollMetrics()
     }
 
-    cancelPendingAutoScroll()
-
     if (afterPaint && typeof requestAnimationFrame === 'function') {
-      autoScrollFrameRef.current = requestAnimationFrame(applyScroll)
+      if (autoScrollFrameRef.current !== null) return
+      autoScrollFrameRef.current = requestAnimationFrame(() => {
+        autoScrollFrameRef.current = null
+        applyScroll()
+
+        // A follow-up pass keeps the view pinned after virtualized rows settle.
+        autoScrollFrameRef.current = requestAnimationFrame(() => {
+          autoScrollFrameRef.current = null
+          applyScroll()
+        })
+      })
       return
     }
 
+    cancelPendingAutoScroll()
     applyScroll()
   }, [cancelPendingAutoScroll, commitScrollMetrics])
 
@@ -854,14 +866,17 @@ export default function ConversationView({ session }: Props) {
   useLayoutEffect(() => {
     prevMsgCountRef.current = 0
     isNearBottomRef.current = true
+    didPinInitialHistoryRef.current = false
     forceScrollUntilRef.current = Date.now() + 3000
   }, [session.id])
 
   useLayoutEffect(() => {
     if (messages.length === 0) return
+    if (didPinInitialHistoryRef.current) return
     if (Date.now() >= forceScrollUntilRef.current) return
+    didPinInitialHistoryRef.current = true
     scrollToBottom()
-  }, [messages, scrollToBottom, session.id])
+  }, [messages.length, scrollToBottom, session.id])
 
   useEffect(() => {
     commitScrollMetrics()
@@ -907,17 +922,11 @@ export default function ConversationView({ session }: Props) {
   useEffect(() => {
     const previousCount = prevMsgCountRef.current
     prevMsgCountRef.current = messages.length
-    const forceScroll = Date.now() < forceScrollUntilRef.current
-
-    if (forceScroll && messages.length > 0) {
-      scrollToBottom(true)
-      return
-    }
 
     if (!isNearBottomRef.current) return
 
     if (messages.length > previousCount) {
-      scrollToBottom()
+      scrollToBottom(true)
       return
     }
 
