@@ -19,6 +19,7 @@ export default function MissionPanel() {
     })))
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selectedMission = selectedId && currentMission?.id === selectedId ? currentMission : null
 
   useEffect(() => {
     void load()
@@ -137,11 +138,15 @@ export default function MissionPanel() {
 
       {/* -------- 右侧：详情区域 -------- */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {selectedId && currentMission ? (
+        {selectedMission ? (
           <MissionDetail
-            mission={currentMission}
-            onDelete={() => handleDelete(currentMission.id)}
+            mission={selectedMission}
+            onDelete={() => handleDelete(selectedMission.id)}
           />
+        ) : selectedId ? (
+          <div className="flex flex-1 items-center justify-center text-gray-500">
+            <Loader2 size={24} className="animate-spin" />
+          </div>
         ) : (
           <CreateMissionForm onCreated={(id) => handleSelect(id)} />
         )}

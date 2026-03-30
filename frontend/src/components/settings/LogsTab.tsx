@@ -20,12 +20,20 @@ const levelBadgeColors: Record<string, string> = {
   debug: 'bg-gray-500/20 text-gray-500',
 }
 
-export default function LogsTab() {
+interface LogsTabProps {
+  isActive?: boolean
+}
+
+export default function LogsTab({ isActive = true }: LogsTabProps) {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [filter, setFilter] = useState<LogLevel>('all')
   const [loading, setLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [isDocumentVisible, setIsDocumentVisible] = useState(() => (
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible'
+  ))
   const containerRef = useRef<HTMLDivElement>(null)
+  const shouldPoll = isActive && isDocumentVisible
 
   const loadLogs = useCallback(async () => {
     setLoading(true)
@@ -57,10 +65,23 @@ export default function LogsTab() {
   }, [])
 
   useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState === 'visible')
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
+  useEffect(() => {
+    if (!shouldPoll) {
+      return
+    }
+
     loadLogs()
     const timer = setInterval(loadLogs, 3000)
     return () => clearInterval(timer)
-  }, [loadLogs])
+  }, [loadLogs, shouldPoll])
 
   useEffect(() => {
     if (autoScroll && containerRef.current) {

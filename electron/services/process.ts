@@ -297,6 +297,9 @@ export class ProcessService {
 
     const provider = this.providerService.getById(session.providerId)
     if (!provider) throw new Error(`Provider not found: ${session.providerId}`)
+    if (!this.providerService.isRunnable(provider)) {
+      throw new Error(`Provider is not runnable: ${provider.name}. Check that the CLI is installed or disable this provider.`)
+    }
 
     // Initialize bridge adapter for this session
     const config: Record<string, unknown> = {
@@ -332,7 +335,7 @@ export class ProcessService {
       try {
         const isClaudeBased = this.isClaudeAdapter(provider.adapterType)
         const isCodex = this.isCodexAdapter(provider.adapterType)
-        const providerNames = this.providerService.getAll().map(p => p.name)
+        const providerNames = this.providerService.getRunnable().map(p => p.name)
         const workDir = config.workDir as string
 
         if (isClaudeBased || isCodex) {

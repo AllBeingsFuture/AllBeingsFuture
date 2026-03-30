@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage, Session } from '../../../../bindings/allbeingsfuture/internal/models/models'
 import type { ConversationMessage } from '../../../types/conversationTypes'
 import ConversationView, { extractFileChanges } from '../ConversationView'
-import { renderWithProviders, waitFor } from '../../../test/render'
+import { renderWithProviders, screen, waitFor } from '../../../test/render'
 
 const initSessionMock = vi.fn().mockResolvedValue(undefined)
 
@@ -22,6 +22,14 @@ const storeState = {
 const uiState = {
   shellPanelVisible: false,
 }
+
+const toolOperationGroupMock = vi.fn(({ messages }: { messages: ConversationMessage[] }) => (
+  <div data-testid="tool-group">{messages.map((message) => message.toolName).join(',')}</div>
+))
+
+const fileChangeCardMock = vi.fn(({ message }: { message: ConversationMessage }) => (
+  <div data-testid="file-change-card">{message.toolName}:{message.fileChange?.filePath}</div>
+))
 
 vi.mock('../../../stores/sessionStore', () => ({
   useSessionStore: (selector?: (state: typeof storeState) => unknown) =>
@@ -62,11 +70,11 @@ vi.mock('../SessionToolbar', () => ({
 }))
 
 vi.mock('../ToolOperationGroup', () => ({
-  default: () => null,
+  default: (props: { messages: ConversationMessage[] }) => toolOperationGroupMock(props),
 }))
 
 vi.mock('../FileChangeCard', () => ({
-  default: () => null,
+  default: (props: { message: ConversationMessage }) => fileChangeCardMock(props),
 }))
 
 vi.mock('../../terminal/ShellTerminalView', () => ({
@@ -139,6 +147,8 @@ describe('ConversationView session boot', () => {
     storeState.messages = []
     storeState.streaming = false
     storeState.chatError = ''
+    toolOperationGroupMock.mockClear()
+    fileChangeCardMock.mockClear()
   })
 
   afterEach(() => {
@@ -213,6 +223,33 @@ describe('ConversationView session boot', () => {
     expect(scrollContainer).toHaveStyle({ scrollPaddingBottom: '108px' })
     expect(scrollContainer.firstElementChild).toHaveStyle({ paddingBottom: '108px' })
     expect(composerShell).toBeInTheDocument()
+  })
+
+  it('keeps non-file tools visible when legacy assistant toolUse mixes them with file edits', async () => {
+    storeState.messages = [
+      {
+        role: 'assistant',
+        content: '',
+        toolUse: [
+          { name: 'Read', input: { path: 'frontend/src/App.tsx' } },
+          {
+            name: 'Edit',
+            input: {
+              path: 'frontend/src/demo.ts',
+              old_string: 'const foo = 1',
+              new_string: 'const foo = 2',
+            },
+          },
+        ],
+      } as unknown as ChatMessage,
+    ]
+
+    renderWithProviders(<ConversationView session={makeSession('idle')} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tool-group')).toHaveTextContent('Read')
+      expect(screen.getByTestId('file-change-card')).toHaveTextContent('Edit:frontend/src/demo.ts')
+    })
   })
 })
 

@@ -24,5 +24,6 @@ describe('Settings modal', () => {
     expect(screen.queryByRole('button', { name: 'QQ 官方机器人' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'AI Provider' }))
     expect(await screen.findByTestId('providers-tab')).toBeInTheDocument()
+    expect(screen.getByTestId('general-tab')).toBeInTheDocument()
   })
 })

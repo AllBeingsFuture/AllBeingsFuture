@@ -22,21 +22,24 @@ export default function WorkflowPanel() {
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingWorkflow, setEditingWorkflow] = useState<any | null>(null)
-  const refreshWorkflows = useCallback(() => {
+  const refreshWorkflows = useCallback((includeHistory = false) => {
     void workbenchApi.workflow.load()
-    void workbenchApi.workflow.loadHistory()
+    if (includeHistory) {
+      void workbenchApi.workflow.loadHistory()
+    }
   }, [])
 
   // 初始化加载
   useEffect(() => {
-    refreshWorkflows()
+    refreshWorkflows(true)
   }, [refreshWorkflows])
 
-  // 定时刷新活跃工作流
+  // 只有存在活跃执行时才轮询定义列表，历史记录改为按需刷新
   useEffect(() => {
+    if (activeWorkflows.length === 0) return
     const timer = setInterval(refreshWorkflows, 5000)
     return () => clearInterval(timer)
-  }, [refreshWorkflows])
+  }, [activeWorkflows.length, refreshWorkflows])
 
   const selectedWorkflow = useMemo(
     () => workflows.find((workflow: any) => workflow.id === selectedId),

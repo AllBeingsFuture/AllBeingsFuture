@@ -98,12 +98,30 @@ export default function SessionCreator({ onClose }: Props) {
   useEffect(() => {
     let cancelled = false
     workbenchApi.provider.list()
-      .then(data => {
+      .then(async data => {
         if (cancelled) return
         const enabledProviders = (data || []).filter(provider => provider.isEnabled)
-        setProviders(enabledProviders)
-        if (enabledProviders.length > 0 && !enabledProviders.some(provider => provider.id === providerId)) {
-          setProviderId(enabledProviders[0].id)
+        const runnableProviders = (
+          await Promise.all(enabledProviders.map(async (provider) => {
+            if (provider.adapterType === 'openai-api') {
+              return provider
+            }
+
+            try {
+              const ok = await workbenchApi.provider.testExecutable(
+                provider.id,
+                provider.executablePath || provider.command,
+              )
+              return ok ? provider : null
+            } catch {
+              return null
+            }
+          }))
+        ).filter((provider): provider is AIProvider => !!provider)
+
+        setProviders(runnableProviders)
+        if (runnableProviders.length > 0 && !runnableProviders.some(provider => provider.id === providerId)) {
+          setProviderId(runnableProviders[0].id)
         }
       })
       .catch(error => {
