@@ -9,6 +9,7 @@ const initProcessMock = vi.fn()
 const sendMessageMock = vi.fn()
 const openSessionMock = vi.fn()
 const getProvidersMock = vi.fn()
+const testExecutableMock = vi.fn()
 const getRepoRootMock = vi.fn()
 let settingsState = { autoWorktree: true }
 
@@ -16,6 +17,7 @@ vi.mock('../../../app/api/workbench', () => ({
   workbenchApi: {
     provider: {
       list: (...args: unknown[]) => getProvidersMock(...args),
+      testExecutable: (...args: unknown[]) => testExecutableMock(...args),
     },
     session: {
       create: (...args: unknown[]) => createMock(...args),
@@ -61,6 +63,7 @@ describe('SessionCreator', () => {
     sendMessageMock.mockReset()
     openSessionMock.mockReset()
     getProvidersMock.mockReset()
+    testExecutableMock.mockReset()
     getRepoRootMock.mockReset()
 
     settingsState = { autoWorktree: true }
@@ -68,6 +71,7 @@ describe('SessionCreator', () => {
       { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
       { id: 'qwen', name: 'qwen', isEnabled: true, adapterType: 'openai-api' },
     ])
+    testExecutableMock.mockResolvedValue(true)
     createMock.mockResolvedValue({ id: 'session-1' })
     initProcessMock.mockResolvedValue(undefined)
     sendMessageMock.mockResolvedValue(undefined)
@@ -115,6 +119,26 @@ describe('SessionCreator', () => {
         worktreeEnabled: false,
         gitRepoPath: '',
       }))
+    })
+  })
+
+  it('does not re-run executable detection when only switching the selected provider', async () => {
+    getProvidersMock.mockResolvedValue([
+      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
+      { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'codex-appserver' },
+      { id: 'qwen', name: 'Qwen', isEnabled: true, adapterType: 'openai-api' },
+    ])
+
+    renderWithProviders(<SessionCreator onClose={vi.fn()} />)
+
+    await screen.findByText('Codex CLI')
+    const initialExecutableChecks = testExecutableMock.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: /Codex CLI/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Qwen/ }))
+
+    await waitFor(() => {
+      expect(testExecutableMock).toHaveBeenCalledTimes(initialExecutableChecks)
     })
   })
 })

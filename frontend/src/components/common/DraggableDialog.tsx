@@ -55,7 +55,7 @@ export default function DraggableDialog({
     <>
       {showBackdrop && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 bg-black/60"
           style={{ zIndex: zIndex - 1 }}
           onClick={closeOnBackdropClick ? onClose : undefined}
         />
@@ -68,14 +68,16 @@ export default function DraggableDialog({
         aria-labelledby={testId ? `${testId}-title` : undefined}
         data-testid={testId}
         className={[
-          'fixed flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d1117]/98 shadow-[0_24px_64px_rgba(0,0,0,0.5)] backdrop-blur-xl',
+          'fixed flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d1117]/98 shadow-[0_24px_64px_rgba(0,0,0,0.5)] will-change-transform',
           widthClass,
           heightClass,
           className,
         ].join(' ')}
         style={{
-          left: position.x,
-          top: position.y,
+          left: 0,
+          top: 0,
+          transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+          contain: 'layout style paint',
           zIndex,
         }}
         onMouseDown={bringToFront}
