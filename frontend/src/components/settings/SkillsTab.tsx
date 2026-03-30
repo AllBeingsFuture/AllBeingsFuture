@@ -1,8 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { SkillService } from '../../../bindings/allbeingsfuture/internal/services'
-import { useSkillStore } from '../../stores/skillStore'
+import { useSkillStore, type Skill } from '../../stores/skillStore'
 
 type SkillRuntimeInfo = {
   id: string
@@ -19,6 +29,178 @@ const typeLabels: Record<string, string> = {
   prompt: 'Prompt 技能',
 }
 
+const CARD_CONTENT_VISIBILITY_STYLE: CSSProperties = {
+  contain: 'layout paint style',
+  contentVisibility: 'auto',
+  containIntrinsicSize: '260px',
+}
+
+interface SkillCardProps {
+  skill: Skill
+  info?: SkillRuntimeInfo
+  isExpanded: boolean
+  isDetailLoading: boolean
+  optimizeRendering: boolean
+  onToggleEnabled: (id: string, enabled: boolean) => Promise<void>
+  onToggleDetails: (id: string) => Promise<void>
+}
+
+const SkillCard = memo(function SkillCard({
+  skill,
+  info,
+  isExpanded,
+  isDetailLoading,
+  optimizeRendering,
+  onToggleEnabled,
+  onToggleDetails,
+}: SkillCardProps) {
+  const configCount = skill.config && !Array.isArray(skill.config) ? Object.keys(skill.config).length : 0
+
+  return (
+    <div
+      className="rounded-xl border border-dark-border bg-dark-bg/70 p-4"
+      style={optimizeRendering ? CARD_CONTENT_VISIBILITY_STYLE : undefined}
+    >
+      <div className="flex items-start gap-3">
+        <BookOpen size={16} className="mt-0.5 shrink-0 text-blue-400" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h5 className="text-sm font-medium text-white">{skill.name}</h5>
+              <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
+                {typeLabels[skill.type] ?? skill.type}
+              </span>
+              <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
+                {skill.source}
+              </span>
+              {skill.system ? (
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
+                  system
+                </span>
+              ) : null}
+            </div>
+            <button
+              role="switch"
+              aria-checked={skill.enabled}
+              title={skill.enabled ? '点击禁用' : '点击启用'}
+              onClick={() => void onToggleEnabled(skill.id, !skill.enabled)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                skill.enabled ? 'bg-emerald-500' : 'bg-gray-600'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  skill.enabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          <p className="mt-1 text-xs leading-5 text-gray-400">{skill.description || '暂无描述'}</p>
+
+          <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-gray-400">
+            <span className="rounded bg-dark-border px-2 py-0.5">分类: {skill.category || 'custom'}</span>
+            {skill.author ? <span className="rounded bg-dark-border px-2 py-0.5">作者: {skill.author}</span> : null}
+            {skill.slashCommand ? (
+              <span className="rounded bg-blue-500/15 px-2 py-0.5 text-blue-300">
+                /{skill.slashCommand}
+              </span>
+            ) : null}
+            {configCount > 0 ? (
+              <span className="rounded bg-blue-500/15 px-2 py-0.5 text-blue-300">
+                配置项: {configCount}
+              </span>
+            ) : null}
+            {skill.toolName ? <span className="rounded bg-dark-border px-2 py-0.5">tool: {skill.toolName}</span> : null}
+            {skill.handler ? <span className="rounded bg-dark-border px-2 py-0.5">handler: {skill.handler}</span> : null}
+          </div>
+
+          {skill.tags?.length ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {skill.tags.slice(0, 8).map((tag) => (
+                <span key={tag} className="rounded bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {skill.path ? (
+            <div className="mt-3 text-xs text-gray-500">
+              路径: <code>{skill.path}</code>
+            </div>
+          ) : null}
+
+          <div className="mt-4">
+            <button
+              onClick={() => void onToggleDetails(skill.id)}
+              className="inline-flex items-center gap-1 rounded-lg border border-dark-border px-3 py-1.5 text-xs text-gray-300 transition hover:border-blue-500 hover:text-white"
+            >
+              {isDetailLoading ? <Loader2 size={12} className="animate-spin" /> : isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              {isExpanded ? '收起详情' : '查看详情'}
+            </button>
+          </div>
+
+          {isExpanded ? (
+            <div className="mt-4 space-y-4 rounded-xl border border-dark-border bg-[#0f172a]/60 p-4">
+              <div>
+                <div className="mb-2 text-xs font-medium text-white">技能说明</div>
+                <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-dark-border bg-[#111827] px-3 py-2 text-xs leading-6 text-gray-300">
+                  {info?.instructions || (isDetailLoading ? '正在加载…' : '暂无说明')}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <div className="mb-2 text-xs font-medium text-white">脚本</div>
+                  {info?.scripts?.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {info.scripts.map((script) => (
+                        <span key={script} className="rounded bg-dark-border px-2 py-1 text-[11px] text-gray-300">
+                          {script}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-500">未发现脚本文件</div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="mb-2 text-xs font-medium text-white">参考文件</div>
+                  {info?.references?.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {info.references.map((reference) => (
+                        <span key={reference} className="rounded bg-dark-border px-2 py-1 text-[11px] text-gray-300">
+                          {reference}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-500">未发现参考文件</div>
+                  )}
+                </div>
+              </div>
+
+              {info?.rootDir ? (
+                <div className="text-xs text-gray-500">
+                  技能目录: <code>{info.rootDir}</code>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}, (prev, next) => (
+  prev.skill === next.skill
+  && prev.info === next.info
+  && prev.isExpanded === next.isExpanded
+  && prev.isDetailLoading === next.isDetailLoading
+  && prev.optimizeRendering === next.optimizeRendering
+))
+
 export default function SkillsTab() {
   const { skills, loading, load, toggleEnabled } = useSkillStore(useShallow((state) => ({
     skills: state.skills,
@@ -30,43 +212,82 @@ export default function SkillsTab() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [runtime, setRuntime] = useState<Record<string, SkillRuntimeInfo>>({})
   const [runtimeLoadingId, setRuntimeLoadingId] = useState<string | null>(null)
+  const expandedRef = useRef(expanded)
+  const runtimeRef = useRef(runtime)
+  const deferredSkills = useDeferredValue(skills)
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const types = useMemo(
-    () => ['all', ...Array.from(new Set(skills.map((skill) => skill.type || 'prompt')))],
-    [skills],
-  )
+  useEffect(() => {
+    expandedRef.current = expanded
+  }, [expanded])
 
-  const visibleSkills = useMemo(
-    () =>
-      selectedType === 'all'
-        ? skills
-        : skills.filter((skill) => (skill.type || 'prompt') === selectedType),
-    [selectedType, skills],
-  )
+  useEffect(() => {
+    runtimeRef.current = runtime
+  }, [runtime])
 
-  async function toggleDetails(skillId: string) {
-    if (expanded[skillId]) {
+  const handleRefresh = useCallback(() => {
+    void load(true)
+  }, [load])
+
+  const handleTypeChange = useCallback((type: string) => {
+    startTransition(() => {
+      setSelectedType(type)
+    })
+  }, [])
+
+  const handleToggleDetails = useCallback(async (skillId: string) => {
+    if (expandedRef.current[skillId]) {
       setExpanded((state) => ({ ...state, [skillId]: false }))
       return
     }
 
     setExpanded((state) => ({ ...state, [skillId]: true }))
-    if (runtime[skillId]) return
+    if (runtimeRef.current[skillId]) return
 
     setRuntimeLoadingId(skillId)
     try {
       const info = await SkillService.GetRuntimeInfo(skillId)
       if (info) {
-        setRuntime((state) => ({ ...state, [skillId]: info as SkillRuntimeInfo }))
+        setRuntime((state) => (
+          state[skillId]
+            ? state
+            : { ...state, [skillId]: info as SkillRuntimeInfo }
+        ))
       }
     } finally {
       setRuntimeLoadingId((current) => (current === skillId ? null : current))
     }
-  }
+  }, [])
+
+  const types = useMemo(
+    () => ['all', ...Array.from(new Set(deferredSkills.map((skill) => skill.type || 'prompt')))],
+    [deferredSkills],
+  )
+
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: deferredSkills.length }
+
+    for (const skill of deferredSkills) {
+      const type = skill.type || 'prompt'
+      counts[type] = (counts[type] ?? 0) + 1
+    }
+
+    return counts
+  }, [deferredSkills])
+
+  const visibleSkills = useMemo(
+    () => (
+      selectedType === 'all'
+        ? deferredSkills
+        : deferredSkills.filter((skill) => (skill.type || 'prompt') === selectedType)
+    ),
+    [deferredSkills, selectedType],
+  )
+
+  const optimizeRendering = visibleSkills.length > 12
 
   return (
     <div className="space-y-6">
@@ -81,7 +302,7 @@ export default function SkillsTab() {
           </p>
         </div>
         <button
-          onClick={() => void load()}
+          onClick={handleRefresh}
           disabled={loading}
           className="inline-flex items-center gap-1.5 rounded-lg border border-dark-border px-3 py-1.5 text-xs text-gray-300 transition hover:border-blue-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
         >
@@ -94,7 +315,7 @@ export default function SkillsTab() {
         {types.map((type) => (
           <button
             key={type}
-            onClick={() => setSelectedType(type)}
+            onClick={() => handleTypeChange(type)}
             className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${
               selectedType === type
                 ? 'border-blue-500 bg-blue-500/10 text-white'
@@ -102,157 +323,24 @@ export default function SkillsTab() {
             }`}
           >
             {typeLabels[type] ?? type}
-            <span className="ml-1 text-[10px] opacity-70">
-              {type === 'all'
-                ? skills.length
-                : skills.filter((skill) => (skill.type || 'prompt') === type).length}
-            </span>
+            <span className="ml-1 text-[10px] opacity-70">{typeCounts[type] ?? 0}</span>
           </button>
         ))}
       </div>
 
       <div className="grid gap-3">
-        {visibleSkills.map((skill) => {
-          const info = runtime[skill.id]
-          const isExpanded = expanded[skill.id]
-          const isDetailLoading = runtimeLoadingId === skill.id
-          const configCount = skill.config && !Array.isArray(skill.config) ? Object.keys(skill.config).length : 0
-
-          return (
-            <div key={skill.id} className="rounded-xl border border-dark-border bg-dark-bg/70 p-4">
-              <div className="flex items-start gap-3">
-                <BookOpen size={16} className="mt-0.5 shrink-0 text-blue-400" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h5 className="text-sm font-medium text-white">{skill.name}</h5>
-                      <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
-                        {typeLabels[skill.type] ?? skill.type}
-                      </span>
-                      <span className="rounded-full bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
-                        {skill.source}
-                      </span>
-                      {skill.system ? (
-                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
-                          system
-                        </span>
-                      ) : null}
-                    </div>
-                    <button
-                      role="switch"
-                      aria-checked={skill.enabled}
-                      title={skill.enabled ? '点击禁用' : '点击启用'}
-                      onClick={() => void toggleEnabled(skill.id, !skill.enabled)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-                        skill.enabled ? 'bg-emerald-500' : 'bg-gray-600'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                          skill.enabled ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  <p className="mt-1 text-xs leading-5 text-gray-400">{skill.description || '暂无描述'}</p>
-
-                  <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-gray-400">
-                    <span className="rounded bg-dark-border px-2 py-0.5">分类: {skill.category || 'custom'}</span>
-                    {skill.author ? <span className="rounded bg-dark-border px-2 py-0.5">作者: {skill.author}</span> : null}
-                    {skill.slashCommand ? (
-                      <span className="rounded bg-blue-500/15 px-2 py-0.5 text-blue-300">
-                        /{skill.slashCommand}
-                      </span>
-                    ) : null}
-                    {configCount > 0 ? (
-                      <span className="rounded bg-blue-500/15 px-2 py-0.5 text-blue-300">
-                        配置项: {configCount}
-                      </span>
-                    ) : null}
-                    {skill.toolName ? <span className="rounded bg-dark-border px-2 py-0.5">tool: {skill.toolName}</span> : null}
-                    {skill.handler ? <span className="rounded bg-dark-border px-2 py-0.5">handler: {skill.handler}</span> : null}
-                  </div>
-
-                  {skill.tags?.length ? (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {skill.tags.slice(0, 8).map((tag) => (
-                        <span key={tag} className="rounded bg-dark-border px-2 py-0.5 text-[10px] text-gray-300">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {skill.path ? (
-                    <div className="mt-3 text-xs text-gray-500">
-                      路径: <code>{skill.path}</code>
-                    </div>
-                  ) : null}
-
-                  <div className="mt-4">
-                    <button
-                      onClick={() => void toggleDetails(skill.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-dark-border px-3 py-1.5 text-xs text-gray-300 transition hover:border-blue-500 hover:text-white"
-                    >
-                      {isDetailLoading ? <Loader2 size={12} className="animate-spin" /> : isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                      {isExpanded ? '收起详情' : '查看详情'}
-                    </button>
-                  </div>
-
-                  {isExpanded ? (
-                    <div className="mt-4 space-y-4 rounded-xl border border-dark-border bg-[#0f172a]/60 p-4">
-                      <div>
-                        <div className="mb-2 text-xs font-medium text-white">技能说明</div>
-                        <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-dark-border bg-[#111827] px-3 py-2 text-xs leading-6 text-gray-300">
-                          {info?.instructions || (isDetailLoading ? '正在加载…' : '暂无说明')}
-                        </div>
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div>
-                          <div className="mb-2 text-xs font-medium text-white">脚本</div>
-                          {info?.scripts?.length ? (
-                            <div className="flex flex-wrap gap-2">
-                              {info.scripts.map((script) => (
-                                <span key={script} className="rounded bg-dark-border px-2 py-1 text-[11px] text-gray-300">
-                                  {script}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-gray-500">未发现脚本文件</div>
-                          )}
-                        </div>
-
-                        <div>
-                          <div className="mb-2 text-xs font-medium text-white">参考文件</div>
-                          {info?.references?.length ? (
-                            <div className="flex flex-wrap gap-2">
-                              {info.references.map((reference) => (
-                                <span key={reference} className="rounded bg-dark-border px-2 py-1 text-[11px] text-gray-300">
-                                  {reference}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-gray-500">未发现参考文件</div>
-                          )}
-                        </div>
-                      </div>
-
-                      {info?.rootDir ? (
-                        <div className="text-xs text-gray-500">
-                          技能目录: <code>{info.rootDir}</code>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          )
-        })}
+        {visibleSkills.map((skill) => (
+          <SkillCard
+            key={skill.id}
+            skill={skill}
+            info={runtime[skill.id]}
+            isExpanded={!!expanded[skill.id]}
+            isDetailLoading={runtimeLoadingId === skill.id}
+            optimizeRendering={optimizeRendering}
+            onToggleEnabled={toggleEnabled}
+            onToggleDetails={handleToggleDetails}
+          />
+        ))}
       </div>
 
       {!loading && visibleSkills.length === 0 ? (

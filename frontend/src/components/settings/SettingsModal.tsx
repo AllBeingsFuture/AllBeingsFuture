@@ -1,5 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { startTransition, useEffect, useState, type ReactNode } from 'react'
 import {
   Settings2,
   Palette,
@@ -127,6 +126,12 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
     setActiveTab(initialTab)
   }, [initialTab])
 
+  const handleTabChange = (tabId: TabId) => {
+    startTransition(() => {
+      setActiveTab(tabId)
+    })
+  }
+
   const activeDefinition = TABS.find((tab) => tab.id === activeTab) ?? TABS[0]
 
   return (
@@ -164,7 +169,7 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
                               ? 'bg-blue-500/15 text-white'
                               : 'text-slate-300 hover:bg-white/5 hover:text-white',
                           ].join(' ')}
-                          onClick={() => setActiveTab(tab.id)}
+                          onClick={() => handleTabChange(tab.id)}
                           type="button"
                         >
                           <span className={selected ? 'text-blue-300' : 'text-slate-500'}>
@@ -188,18 +193,10 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
             <span className="text-xs text-slate-500">{activeDefinition.description}</span>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.12, ease: 'easeOut' }}
-              >
-                {renderTab(activeTab)}
-              </motion.div>
-            </AnimatePresence>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" style={{ contain: 'layout paint' }}>
+            <div key={activeTab}>
+              {renderTab(activeTab)}
+            </div>
           </div>
         </section>
       </div>

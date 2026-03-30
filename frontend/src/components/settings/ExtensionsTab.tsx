@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { startTransition, useState } from 'react'
 import { Plug2, Wrench } from 'lucide-react'
 import McpTab from './McpTab'
 import SkillsTab from './SkillsTab'
@@ -13,13 +13,19 @@ const SUB_TABS: { id: SubTab; label: string; icon: React.ReactNode }[] = [
 export default function ExtensionsTab() {
   const [active, setActive] = useState<SubTab>('skills')
 
+  const handleTabChange = (tabId: SubTab) => {
+    startTransition(() => {
+      setActive(tabId)
+    })
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex gap-1 rounded-xl border border-white/10 bg-slate-900/50 p-1">
         {SUB_TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActive(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             className={[
               'flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
               active === tab.id

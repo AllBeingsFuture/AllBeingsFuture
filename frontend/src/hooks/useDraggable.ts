@@ -21,7 +21,26 @@ export function useDraggable(): UseDraggableReturn {
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const offsetRef = useRef<Position>({ x: 0, y: 0 })
+  const positionRef = useRef<Position>({ x: 0, y: 0 })
+  const pendingPositionRef = useRef<Position | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
   const centeredRef = useRef(false)
+
+  const flushPosition = useCallback(() => {
+    animationFrameRef.current = null
+
+    const nextPosition = pendingPositionRef.current
+    if (!nextPosition) return
+
+    positionRef.current = nextPosition
+    pendingPositionRef.current = null
+
+    const el = dialogRef.current
+    if (!el) return
+
+    el.style.left = `${nextPosition.x}px`
+    el.style.top = `${nextPosition.y}px`
+  }, [])
 
   // Center on mount once we know the element size
   useLayoutEffect(() => {
@@ -31,6 +50,8 @@ export function useDraggable(): UseDraggableReturn {
     const rect = el.getBoundingClientRect()
     const x = Math.max(0, (window.innerWidth - rect.width) / 2)
     const y = Math.max(0, (window.innerHeight - rect.height) / 2)
+
+    positionRef.current = { x, y }
     setPosition({ x, y })
     centeredRef.current = true
   }, [])
@@ -53,23 +74,37 @@ export function useDraggable(): UseDraggableReturn {
     e.preventDefault()
     setIsDragging(true)
     offsetRef.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y,
+      x: e.clientX - positionRef.current.x,
+      y: e.clientY - positionRef.current.y,
     }
-  }, [position])
+  }, [])
 
   useEffect(() => {
     if (!isDragging) return
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newPos = constrain({
+      pendingPositionRef.current = constrain({
         x: e.clientX - offsetRef.current.x,
         y: e.clientY - offsetRef.current.y,
       })
-      setPosition(newPos)
+
+      if (typeof requestAnimationFrame === 'function') {
+        if (animationFrameRef.current !== null) return
+        animationFrameRef.current = requestAnimationFrame(flushPosition)
+        return
+      }
+
+      flushPosition()
     }
 
     const handleMouseUp = () => {
+      if (animationFrameRef.current !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+
+      flushPosition()
+      setPosition(positionRef.current)
       setIsDragging(false)
     }
 
@@ -81,17 +116,23 @@ export function useDraggable(): UseDraggableReturn {
     document.body.style.userSelect = 'none'
 
     return () => {
+      if (animationFrameRef.current !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isDragging, constrain])
+  }, [constrain, flushPosition, isDragging])
 
   // Re-constrain on window resize
   useEffect(() => {
     const handleResize = () => {
-      setPosition((prev) => constrain(prev))
+      const nextPosition = constrain(positionRef.current)
+      positionRef.current = nextPosition
+      setPosition(nextPosition)
     }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)

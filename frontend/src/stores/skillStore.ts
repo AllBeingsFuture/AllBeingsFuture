@@ -22,7 +22,8 @@ export interface Skill {
 interface SkillState {
   skills: Skill[]
   loading: boolean
-  load: () => Promise<void>
+  loaded: boolean
+  load: (force?: boolean) => Promise<void>
   install: (skill: Skill) => Promise<void>
   remove: (id: string) => Promise<void>
   toggleEnabled: (id: string, enabled: boolean) => Promise<void>
@@ -48,19 +49,27 @@ const normalizeSkill = (skill: any): Skill => ({
 
 async function reloadSkills(set: (partial: Partial<SkillState>) => void) {
   const skills = await SkillService.List()
-  set({ skills: (skills ?? []).map(normalizeSkill) })
+  set({ skills: (skills ?? []).map(normalizeSkill), loaded: true })
 }
 
-export const useSkillStore = create<SkillState>((set) => ({
+let pendingSkillLoad: Promise<void> | null = null
+
+export const useSkillStore = create<SkillState>((set, get) => ({
   skills: [],
   loading: false,
-  load: async () => {
+  loaded: false,
+  load: async (force = false) => {
+    if (!force && get().loaded) return
+    if (pendingSkillLoad) return pendingSkillLoad
+
     set({ loading: true })
-    try {
-      await reloadSkills(set)
-    } finally {
-      set({ loading: false })
-    }
+    pendingSkillLoad = reloadSkills(set)
+      .finally(() => {
+        pendingSkillLoad = null
+        set({ loading: false })
+      })
+
+    return pendingSkillLoad
   },
   install: async (skill) => {
     await SkillService.Install(skill)
@@ -71,7 +80,21 @@ export const useSkillStore = create<SkillState>((set) => ({
     set((state) => ({ skills: state.skills.filter((skill) => skill.id !== id) }))
   },
   toggleEnabled: async (id, enabled) => {
-    await SkillService.ToggleEnabled(id, enabled)
-    await reloadSkills(set)
+    const previousSkills = get().skills
+
+    set((state) => ({
+      skills: state.skills.map((skill) => (
+        skill.id === id
+          ? { ...skill, enabled }
+          : skill
+      )),
+    }))
+
+    try {
+      await SkillService.ToggleEnabled(id, enabled)
+    } catch (error) {
+      set({ skills: previousSkills })
+      throw error
+    }
   },
 }))
