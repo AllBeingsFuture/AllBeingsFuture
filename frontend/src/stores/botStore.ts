@@ -13,7 +13,8 @@ export interface IMBot {
 interface BotState {
   bots: IMBot[]
   loading: boolean
-  load: () => Promise<void>
+  loaded: boolean
+  load: (force?: boolean) => Promise<void>
   create: (bot: IMBot) => Promise<void>
   update: (botId: string, bot: IMBot) => Promise<void>
   remove: (botId: string) => Promise<void>
@@ -29,35 +30,44 @@ const normalizeBot = (raw: any): IMBot => ({
   credentials: raw?.credentials ?? {},
 })
 
-export const useBotStore = create<BotState>((set) => ({
+async function reloadBots(set: (partial: Partial<BotState>) => void) {
+  const bots = await BotService.List()
+  set({ bots: (bots ?? []).map(normalizeBot), loaded: true })
+}
+
+let pendingBotLoad: Promise<void> | null = null
+
+export const useBotStore = create<BotState>((set, get) => ({
   bots: [],
   loading: false,
-  load: async () => {
+  loaded: false,
+  load: async (force = false) => {
+    if (!force && get().loaded) return
+    if (pendingBotLoad) return pendingBotLoad
+
     set({ loading: true })
-    try {
-      const bots = await BotService.List()
-      set({ bots: (bots ?? []).map(normalizeBot) })
-    } finally {
-      set({ loading: false })
-    }
+    pendingBotLoad = reloadBots(set)
+      .finally(() => {
+        pendingBotLoad = null
+        set({ loading: false })
+      })
+
+    return pendingBotLoad
   },
   create: async (bot) => {
     await BotService.Create(bot)
-    const bots = await BotService.List()
-    set({ bots: (bots ?? []).map(normalizeBot) })
+    await reloadBots(set)
   },
   update: async (botId, bot) => {
     await BotService.Update(botId, bot)
-    const bots = await BotService.List()
-    set({ bots: (bots ?? []).map(normalizeBot) })
+    await reloadBots(set)
   },
   remove: async (botId) => {
     await BotService.Delete(botId)
-    set((state) => ({ bots: state.bots.filter((b) => b.id !== botId) }))
+    set((state) => ({ bots: state.bots.filter((b) => b.id !== botId), loaded: true }))
   },
   toggle: async (botId, enabled) => {
     await BotService.Toggle(botId, enabled)
-    const bots = await BotService.List()
-    set({ bots: (bots ?? []).map(normalizeBot) })
+    await reloadBots(set)
   },
 }))

@@ -21,6 +21,8 @@ interface DraggableDialogProps {
   closeOnBackdropClick?: boolean
   testId?: string
   className?: string
+  backdropClassName?: string
+  surfaceClassName?: string
 }
 
 export default function DraggableDialog({
@@ -35,6 +37,8 @@ export default function DraggableDialog({
   closeOnBackdropClick = true,
   testId,
   className = '',
+  backdropClassName = 'bg-black/45',
+  surfaceClassName = 'bg-[#0d1117]/96',
 }: DraggableDialogProps) {
   const { dialogRef, handleMouseDown, position, isDragging } = useDraggable()
   const [zIndex, setZIndex] = useState(() => nextZ())
@@ -55,7 +59,7 @@ export default function DraggableDialog({
     <>
       {showBackdrop && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+          className={['fixed inset-0 transition-opacity duration-150', backdropClassName].join(' ')}
           style={{ zIndex: zIndex - 1 }}
           onClick={closeOnBackdropClick ? onClose : undefined}
         />
@@ -68,7 +72,8 @@ export default function DraggableDialog({
         aria-labelledby={testId ? `${testId}-title` : undefined}
         data-testid={testId}
         className={[
-          'fixed flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d1117]/98 shadow-[0_24px_64px_rgba(0,0,0,0.5)] backdrop-blur-xl',
+          'fixed flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] shadow-[0_24px_64px_rgba(0,0,0,0.5)]',
+          surfaceClassName,
           widthClass,
           heightClass,
           className,
@@ -77,6 +82,8 @@ export default function DraggableDialog({
           left: position.x,
           top: position.y,
           zIndex,
+          contain: 'layout paint style',
+          willChange: 'left, top',
         }}
         onMouseDown={bringToFront}
       >

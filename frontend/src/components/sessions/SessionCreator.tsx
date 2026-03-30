@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { startTransition, useEffect, useMemo, useState } from 'react'
 import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
 import { workbenchApi } from '../../app/api/workbench'
@@ -79,6 +79,7 @@ export default function SessionCreator({ onClose }: Props) {
   const [workDir, setWorkDir] = useState('')
   const [providerId, setProviderId] = useState('claude-code')
   const [providers, setProviders] = useState<AIProvider[]>([])
+  const [providersLoading, setProvidersLoading] = useState(false)
   const [mode, setMode] = useState<string>('normal')
   const [subAgentProviderIds, setSubAgentProviderIds] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
@@ -97,46 +98,61 @@ export default function SessionCreator({ onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    workbenchApi.provider.list()
-      .then(data => {
-        if (cancelled) return
-        const enabledProviders = (data || []).filter(provider => provider.isEnabled)
-        setProviders(enabledProviders)
-        if (enabledProviders.length > 0 && !enabledProviders.some(provider => provider.id === providerId)) {
-          setProviderId(enabledProviders[0].id)
-        }
-      })
-      .catch(error => {
-        console.error('Failed to load providers:', error)
-      })
-    return () => { cancelled = true }
-  }, [providerId])
+    const timer = window.setTimeout(() => {
+      setProvidersLoading(true)
+      workbenchApi.provider.list()
+        .then(data => {
+          if (cancelled) return
+          const enabledProviders = (data || []).filter(provider => provider.isEnabled)
+          startTransition(() => {
+            setProviders(enabledProviders)
+            setProviderId((current) => (
+              enabledProviders.some(provider => provider.id === current)
+                ? current
+                : (enabledProviders[0]?.id ?? current)
+            ))
+          })
+        })
+        .catch(error => {
+          console.error('Failed to load providers:', error)
+        })
+        .finally(() => {
+          if (!cancelled) setProvidersLoading(false)
+        })
+    }, 0)
 
-  useEffect(() => {
-    let cancelled = false
-
-    const checkGitRepo = async () => {
-      const targetDir = workDir.trim()
-      if (!targetDir || !autoWorktree) {
-        if (!cancelled) setWorktreeState('idle')
-        return
-      }
-
-      try {
-        const repoPath = await GitService.GetRepoRoot(targetDir).catch(() => '')
-        if (!cancelled) {
-          setWorktreeState(repoPath ? 'git' : 'plain')
-        }
-      } catch {
-        if (!cancelled) {
-          setWorktreeState('plain')
-        }
-      }
-    }
-
-    void checkGitRepo()
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    const targetDir = workDir.trim()
+    if (!targetDir || !autoWorktree) {
+      setWorktreeState('idle')
+      return
+    }
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void GitService.GetRepoRoot(targetDir)
+        .catch(() => '')
+        .then(repoPath => {
+          if (!cancelled) {
+            setWorktreeState(repoPath ? 'git' : 'plain')
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWorktreeState('plain')
+          }
+        })
+    }, 180)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
     }
   }, [autoWorktree, workDir])
 
@@ -375,7 +391,11 @@ export default function SessionCreator({ onClose }: Props) {
         {/* ── 5. AI 提供者 ── */}
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-2">AI 提供者</label>
-          {providerCards.length > 0 ? (
+          {providersLoading ? (
+            <div className="rounded-lg border border-white/10 bg-slate-900/40 px-3 py-3 text-xs text-gray-500">
+              正在加载可用 Provider...
+            </div>
+          ) : providerCards.length > 0 ? (
             <div className="grid grid-cols-2 gap-2">
               {providerCards.map(p => (
                 <button

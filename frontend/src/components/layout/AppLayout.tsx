@@ -2,6 +2,7 @@
  * 应用主布局 - 三栏分栏布局（对齐 claudeops）
  */
 
+import { Suspense, lazy } from 'react'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { ChevronLeft, ChevronRight, Users, X } from 'lucide-react'
@@ -20,10 +21,11 @@ import { useUIStore } from '../../stores/uiStore'
 import { usePanelStore } from '../../stores/panelStore'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { useTeamStore } from '../../stores/teamStore'
-import SettingsModal from '../settings/SettingsModal'
-import SessionCreator from '../sessions/SessionCreator'
 import QuickOpenDialog from '../file-manager/QuickOpenDialog'
 import { workbenchApi } from '../../app/api/workbench'
+
+const SettingsModal = lazy(() => import('../settings/SettingsModal'))
+const SessionCreator = lazy(() => import('../sessions/SessionCreator'))
 
 export default function AppLayout() {
   const {
@@ -148,11 +150,53 @@ export default function AppLayout() {
       {showSearchPanel && <SearchPanel />}
       {showHistoryPanel && <HistoryPanel />}
       {showQuickOpen && <QuickOpenDialog />}
-      {showNewSessionDialog && <SessionCreator onClose={() => { void workbenchApi.ui.setNewSessionDialogVisible(false) }} />}
+      {showNewSessionDialog && (
+        <Suspense fallback={<DialogFallback title="新建会话" description="正在准备会话配置..." compact />}>
+          <SessionCreator onClose={() => { void workbenchApi.ui.setNewSessionDialogVisible(false) }} />
+        </Suspense>
+      )}
 
       {showSettings && (
-        <SettingsModal onClose={() => { void workbenchApi.ui.setSettingsVisible(false) }} />
+        <Suspense fallback={<DialogFallback title="设置" description="正在加载设置内容..." wide />}>
+          <SettingsModal onClose={() => { void workbenchApi.ui.setSettingsVisible(false) }} />
+        </Suspense>
       )}
+    </div>
+  )
+}
+
+function DialogFallback({
+  title,
+  description,
+  compact = false,
+  wide = false,
+}: {
+  title: string
+  description: string
+  compact?: boolean
+  wide?: boolean
+}) {
+  const widthClass = compact ? 'max-w-[560px]' : wide ? 'max-w-5xl' : 'max-w-3xl'
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45">
+      <div
+        aria-live="polite"
+        className={[
+          'w-[calc(100vw-32px)] rounded-2xl border border-white/[0.08] bg-[#0d1117]/96 px-6 py-5 shadow-[0_24px_64px_rgba(0,0,0,0.5)]',
+          widthClass,
+        ].join(' ')}
+      >
+        <div className="h-4 w-24 rounded-full bg-white/[0.08]" />
+        <div className="mt-4 flex items-center gap-3">
+          <div className="h-9 w-9 animate-pulse rounded-xl border border-white/[0.08] bg-blue-500/10" />
+          <div className="space-y-2">
+            <div className="h-4 w-28 rounded-full bg-white/[0.12]" />
+            <div className="h-3 w-48 rounded-full bg-white/[0.06]" />
+          </div>
+        </div>
+        <p className="mt-4 text-sm text-slate-400">{title} {description}</p>
+      </div>
     </div>
   )
 }

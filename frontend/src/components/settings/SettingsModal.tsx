@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState, type ReactNode } from 'react'
+import { Suspense, lazy, startTransition, useEffect, useState, type ReactNode } from 'react'
 import {
   Settings2,
   Palette,
@@ -9,17 +9,18 @@ import {
   Shield,
   Server,
 } from 'lucide-react'
-import GeneralSettings from './GeneralSettings'
-import ProviderManager from './ProviderManager'
-import ThemeTab from './ThemeTab'
-import AppearanceTab from './AppearanceTab'
-import ExtensionsTab from './ExtensionsTab'
-import FeedbackTab from './FeedbackTab'
-import LogsTab from './LogsTab'
-import BotManagementTab from './BotManagementTab'
-import PolicyTab from './PolicyTab'
-import SystemSettingsTab from './SystemSettingsTab'
 import DraggableDialog from '../common/DraggableDialog'
+
+const GeneralSettings = lazy(() => import('./GeneralSettings'))
+const ProviderManager = lazy(() => import('./ProviderManager'))
+const ThemeTab = lazy(() => import('./ThemeTab'))
+const AppearanceTab = lazy(() => import('./AppearanceTab'))
+const ExtensionsTab = lazy(() => import('./ExtensionsTab'))
+const FeedbackTab = lazy(() => import('./FeedbackTab'))
+const LogsTab = lazy(() => import('./LogsTab'))
+const BotManagementTab = lazy(() => import('./BotManagementTab'))
+const PolicyTab = lazy(() => import('./PolicyTab'))
+const SystemSettingsTab = lazy(() => import('./SystemSettingsTab'))
 
 type TabId =
   | 'general'
@@ -195,7 +196,9 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" style={{ contain: 'layout paint' }}>
             <div key={activeTab}>
-              {renderTab(activeTab)}
+              <Suspense fallback={<SettingsTabFallback />}>
+                {renderTab(activeTab)}
+              </Suspense>
             </div>
           </div>
         </section>
@@ -234,4 +237,14 @@ function renderTab(activeTab: TabId) {
     default:
       return <GeneralSettings />
   }
+}
+
+function SettingsTabFallback() {
+  return (
+    <div className="space-y-4" aria-live="polite">
+      <div className="h-10 animate-pulse rounded-xl border border-white/10 bg-white/[0.04]" />
+      <div className="h-24 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]" />
+      <div className="h-24 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]" />
+    </div>
+  )
 }

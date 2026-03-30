@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent } from 'react'
 import { Bot, ChevronDown, Edit3, Eye, EyeOff, Loader2, Plus, RefreshCw, Send, Trash2, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useBotStore, type IMBot } from '../../stores/botStore'
 import { BotService } from '../../../bindings/allbeingsfuture/internal/services'
-import QQBotSettings from './QQBotSettings'
-import QQOfficialSettings from './QQOfficialSettings'
+
+const QQBotSettings = lazy(() => import('./QQBotSettings'))
+const QQOfficialSettings = lazy(() => import('./QQOfficialSettings'))
 
 // ─── Bot type definitions ────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ const EMPTY_BOT: IMBot = {
 }
 
 /** Map bot type to platform-specific settings component */
-const PLATFORM_SETTINGS: Record<string, { component: React.ComponentType; label: string }> = {
+const PLATFORM_SETTINGS: Record<string, { component: LazyExoticComponent<ComponentType>; label: string }> = {
   onebot: { component: QQBotSettings, label: 'QQ Bot 高级设置（授权用户 / 授权群组）' },
   onebot_reverse: { component: QQBotSettings, label: 'QQ Bot 高级设置（授权用户 / 授权群组）' },
   qqbot: { component: QQOfficialSettings, label: 'QQ 官方机器人高级设置' },
@@ -87,10 +88,11 @@ const PLATFORM_SETTINGS: Record<string, { component: React.ComponentType; label:
 // ─── Component ───────────────────────────────────────────────────────────
 
 export default function BotManagementTab() {
-  const { bots, loading, load, create, update, remove, toggle } = useBotStore(
+  const { bots, loading, loaded, load, create, update, remove, toggle } = useBotStore(
     useShallow((state) => ({
       bots: state.bots,
       loading: state.loading,
+      loaded: state.loaded,
       load: state.load,
       create: state.create,
       update: state.update,
@@ -109,8 +111,12 @@ export default function BotManagementTab() {
   const [showPlatformSettings, setShowPlatformSettings] = useState(false)
 
   useEffect(() => {
-    void load()
-  }, [load])
+    if (loaded) return
+    const frame = window.requestAnimationFrame(() => {
+      void load()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [load, loaded])
 
   const openCreate = () => {
     setEditingBot({ ...EMPTY_BOT })
@@ -204,7 +210,7 @@ export default function BotManagementTab() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => void load()}
+            onClick={() => void load(true)}
             disabled={loading}
             className="inline-flex items-center gap-1.5 rounded-lg border border-dark-border px-3 py-1.5 text-xs text-gray-300 transition hover:border-blue-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
           >
@@ -481,7 +487,9 @@ export default function BotManagementTab() {
                   </button>
                   {showPlatformSettings ? (
                     <div className="mt-3 rounded-xl border border-white/10 bg-slate-950/45 p-4">
-                      <PlatformComponent />
+                      <Suspense fallback={<PlatformSettingsFallback />}>
+                        <PlatformComponent />
+                      </Suspense>
                     </div>
                   ) : null}
                 </div>
@@ -507,6 +515,16 @@ export default function BotManagementTab() {
           </div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function PlatformSettingsFallback() {
+  return (
+    <div className="space-y-3" aria-live="polite">
+      <div className="h-9 animate-pulse rounded-lg bg-white/[0.05]" />
+      <div className="h-20 animate-pulse rounded-lg bg-white/[0.04]" />
+      <div className="h-9 animate-pulse rounded-lg bg-white/[0.05]" />
     </div>
   )
 }
