@@ -352,7 +352,7 @@ export default function SessionCreator({ onClose }: Props) {
           <input
             value={name}
             onChange={e => setName(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-900/60 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60"
+            className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60"
           />
         </div>
 
@@ -364,11 +364,11 @@ export default function SessionCreator({ onClose }: Props) {
               value={workDir}
               onChange={e => setWorkDir(e.target.value)}
               placeholder="C:\Users\project"
-              className={`flex-1 px-3 py-2 bg-slate-900/60 border rounded-lg text-sm text-white outline-none focus:border-blue-400/60 ${error && !workDir ? 'border-red-500/60' : 'border-white/10'}`}
+              className={`flex-1 px-3 py-2 bg-slate-900 border rounded-lg text-sm text-white outline-none focus:border-blue-400/60 ${error && !workDir ? 'border-red-500/60' : 'border-white/10'}`}
             />
             <button
               onClick={handleBrowse}
-              className="px-3 py-2 bg-slate-900/60 border border-white/10 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+              className="px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-gray-400 hover:text-white hover:bg-slate-800 transition-colors"
             >
               <FolderOpen size={16} />
             </button>
@@ -441,7 +441,7 @@ export default function SessionCreator({ onClose }: Props) {
             onChange={e => setPrompt(e.target.value)}
             rows={3}
             placeholder="创建后自动发送的指令..."
-            className="w-full px-3 py-2 bg-slate-900/60 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60 resize-none"
+            className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60 resize-none"
           />
           <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
             {autoWorktree
@@ -480,7 +480,7 @@ export default function SessionCreator({ onClose }: Props) {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-white/10 bg-slate-900/40 px-3 py-2 text-xs text-gray-500">
+            <div className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-gray-500">
               没有可用 Provider，请先到设置里启用或创建 Provider。
             </div>
           )}
