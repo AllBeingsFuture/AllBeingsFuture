@@ -436,12 +436,16 @@ export class ProcessService {
     text: string,
     options: {
       presentation?: ChatMessage['presentation']
+      sourceItemId?: string
       childSessionId?: string
       childAgentName?: string
     } = {},
   ): ChatMessage {
     const presentation = options.presentation || 'message'
     const lastMsg = messages[messages.length - 1]
+    const canMergeBySourceItem = lastMsg?.sourceItemId
+      ? lastMsg.sourceItemId === options.sourceItemId
+      : !options.sourceItemId
 
     if (
       lastMsg?.role === 'assistant'
@@ -449,11 +453,16 @@ export class ProcessService {
       && !lastMsg.toolUse
       && lastMsg.childSessionId === options.childSessionId
       && (lastMsg.presentation || 'message') === presentation
+      && canMergeBySourceItem
     ) {
       lastMsg.content += text
       if (!lastMsg.presentation) {
         lastMsg.presentation = presentation
       }
+      if (!lastMsg.sourceItemId && options.sourceItemId) {
+        lastMsg.sourceItemId = options.sourceItemId
+      }
+      lastMsg.partial = true
       return lastMsg
     }
 
@@ -462,6 +471,8 @@ export class ProcessService {
       content: text,
       timestamp: new Date().toISOString(),
       presentation,
+      sourceItemId: options.sourceItemId,
+      partial: true,
     }
     if (options.childSessionId) {
       msg.childSessionId = options.childSessionId
@@ -482,6 +493,7 @@ export class ProcessService {
     if (msg.role === 'assistant' && !msg.toolUse && !msg.thinking) {
       this.appendAssistantChunk(childState.messages, msg.content, {
         presentation: msg.presentation,
+        sourceItemId: msg.sourceItemId,
       })
       childState.streaming = true
       this.scheduleLastMessagePatch(childSessionId)
@@ -524,6 +536,7 @@ export class ProcessService {
         // Append to last assistant message or create new one
         this.appendAssistantChunk(state.messages, event.text || '', {
           presentation,
+          sourceItemId: event.itemId,
           childSessionId: childInfo?.id,
           childAgentName: childInfo?.name,
         })
@@ -542,6 +555,7 @@ export class ProcessService {
             content: event.text,
             timestamp: new Date().toISOString(),
             presentation,
+            sourceItemId: event.itemId,
           })
         }
         break
@@ -573,15 +587,28 @@ export class ProcessService {
           }
         }
 
-        // Finalize the last assistant message
-        const lastMsg = state.messages[state.messages.length - 1]
-        if (lastMsg?.role === 'assistant' && event.text) {
-          lastMsg.content = event.text
-          lastMsg.partial = false
+        // Finalize assistant messages emitted during this turn without
+        // overwriting segmented commentary / final-answer boundaries.
+        let lastAssistantMsg: ChatMessage | undefined
+        for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+          const candidate = state.messages[index]
+          if (candidate.role === 'user') break
+          if (candidate.role !== 'assistant') continue
+          candidate.partial = false
+          if (!lastAssistantMsg) lastAssistantMsg = candidate
+        }
+        if (!lastAssistantMsg && event.text) {
+          state.messages.push({
+            role: 'assistant',
+            content: event.text,
+            timestamp: new Date().toISOString(),
+            partial: false,
+          })
+          lastAssistantMsg = state.messages[state.messages.length - 1]
         }
         // Store usage/cache data on the last assistant message
-        if (event.usage && lastMsg?.role === 'assistant') {
-          lastMsg.usage = {
+        if (event.usage && lastAssistantMsg?.role === 'assistant') {
+          lastAssistantMsg.usage = {
             inputTokens: event.usage.input_tokens || 0,
             outputTokens: event.usage.output_tokens || 0,
             cacheReadTokens: event.usage.cache_read_input_tokens || event.usage.cache_read_tokens || 0,
