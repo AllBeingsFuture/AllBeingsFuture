@@ -279,8 +279,8 @@ export default function BotManagementTab() {
             </div>
             <h4 className="mt-3 text-lg font-semibold text-white">多渠道 Bot 控制中心</h4>
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              先把 OpenClaw 的渠道目录、ABF 已有 Bot 实例、测试推送入口和旧高级设置统一到一个控制台，
-              运行态和扫码登录能力后面再逐步接。
+              统一管理 OpenClaw 渠道目录、ABF 历史 Bot 实例、测试推送入口和旧高级设置。
+              Telegram 现已支持基础远程控制，其他渠道仍以配置与推送接入为主。
             </p>
           </div>
 

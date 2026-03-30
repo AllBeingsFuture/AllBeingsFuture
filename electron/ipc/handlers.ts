@@ -205,7 +205,7 @@ export function registerAllIpcHandlers(
   const usageService = new UsageService(db)
   const botService = new BotService(db)
   const botPushService = new BotPushService(botService)
-  const telegramService = new TelegramService(db)
+  const telegramService = new TelegramService(db, botService, sessionService, providerService, processService)
   const qqBotService = new QQBotService(db)
   const qqOfficialService = new QQOfficialService(db)
   const workspaceService = new WorkspaceService(db)
@@ -299,6 +299,8 @@ export function registerAllIpcHandlers(
   void cleanupManagedWorktreesOnStartup().catch(err => {
     console.warn('[startup-worktree-cleanup] failed', err)
   })
+
+  telegramService.start()
 
   // ==============================================================
   // SessionService
