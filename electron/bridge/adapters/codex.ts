@@ -19,6 +19,63 @@ function log(...args: any[]) {
   process.stderr.write(`[codex] ${args.join(' ')}\n`)
 }
 
+function formatTomlKeySegment(segment: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(segment) ? segment : JSON.stringify(segment)
+}
+
+function serializeTomlValue(value: unknown): string | null {
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : null
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (Array.isArray(value)) {
+    const items = value
+      .map((entry) => serializeTomlValue(entry))
+      .filter((entry): entry is string => typeof entry === 'string')
+    return `[${items.join(',')}]`
+  }
+  return null
+}
+
+function buildCodexMcpConfigArgs(mcpServers: unknown): string[] {
+  if (!mcpServers || typeof mcpServers !== 'object') return []
+
+  const cliArgs: string[] = []
+  for (const [serverName, rawConfig] of Object.entries(mcpServers as Record<string, any>)) {
+    if (!rawConfig || typeof rawConfig !== 'object') continue
+
+    const serverKey = `mcp_servers.${formatTomlKeySegment(serverName)}`
+    const pushConfig = (suffix: string, value: unknown) => {
+      const serialized = serializeTomlValue(value)
+      if (!serialized) return
+      cliArgs.push('-c', `${serverKey}.${suffix}=${serialized}`)
+    }
+
+    if (typeof rawConfig.command === 'string' && rawConfig.command.trim()) {
+      pushConfig('command', rawConfig.command.trim())
+      pushConfig('args', Array.isArray(rawConfig.args) ? rawConfig.args : [])
+      if (typeof rawConfig.cwd === 'string' && rawConfig.cwd.trim()) {
+        pushConfig('cwd', rawConfig.cwd.trim())
+      }
+      if (rawConfig.env && typeof rawConfig.env === 'object') {
+        for (const [envKey, envValue] of Object.entries(rawConfig.env as Record<string, unknown>)) {
+          if (envValue == null) continue
+          pushConfig(`env.${formatTomlKeySegment(envKey)}`, String(envValue))
+        }
+      }
+      continue
+    }
+
+    if (typeof rawConfig.url === 'string' && rawConfig.url.trim()) {
+      pushConfig('url', rawConfig.url.trim())
+      if (typeof rawConfig.bearerTokenEnvVar === 'string' && rawConfig.bearerTokenEnvVar.trim()) {
+        pushConfig('bearer_token_env_var', rawConfig.bearerTokenEnvVar.trim())
+      }
+    }
+  }
+
+  return cliArgs
+}
+
 const IMAGE_FILE_EXTENSIONS: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
@@ -69,7 +126,7 @@ export class CodexProcessManager {
   private async _start(config: Record<string, any>): Promise<void> {
     const resolvedCommand = resolveProcessCommand(config.executablePath || config.command, 'codex')
     const cmd = resolvedCommand.command
-    const args = [...resolvedCommand.args, 'app-server']
+    const args = [...resolvedCommand.args, ...buildCodexMcpConfigArgs(config.mcpServers), 'app-server']
     this.destroying = false
 
     return new Promise<void>((resolve, reject) => {

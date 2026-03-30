@@ -9,7 +9,7 @@
  * 共享规则（abf-common.md）：中文要求、Windows 环境、开发规范
  * 所有 Provider 共享：providers 适配 + git-workflow
  * Claude 额外：supervisor 调度指引
- * Codex 额外：codex-agents.md 专有配置
+ * Codex 额外：codex-agents.md 专有配置 + supervisor 调度指引
  *
  * 模板文件位于 resources/prompts/ 目录下，打包后通过 extraResources 分发。
  */
@@ -124,12 +124,13 @@ export function buildAllRulesContent(
 
 /**
  * 构建 Codex 专用规则内容。
- * 直接通过 developerInstructions 注入，避免在仓库里生成或覆盖 AGENTS.md。
+ * Codex 通过 AGENTS.md 文件发现机制读取这些规则。
  */
-export function buildCodexRulesContent(): string {
+export function buildCodexRulesContent(availableProviders: string[] = []): string {
   const parts = [
     loadTemplate('abf-common.md'),
     loadTemplate('codex-agents.md'),
+    buildSupervisorPrompt(availableProviders),
     buildProviderRules(),
     buildGitWorkflowRules(),
   ]
@@ -194,9 +195,9 @@ export function injectSupervisorPrompt(
  * 注入 Codex AGENTS.md 到工作目录。
  * 如果仓库原本就有 AGENTS.md，则保留原内容，只追加/更新 ABF 注入块。
  */
-export function injectCodexAgentsMd(workDir: string): void {
+export function injectCodexAgentsMd(workDir: string, availableProviders: string[] = []): void {
   const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
-  const injectedBlock = `${CODEX_INJECT_START}\n${buildCodexRulesContent()}\n${CODEX_INJECT_END}\n`
+  const injectedBlock = `${CODEX_INJECT_START}\n${buildCodexRulesContent(availableProviders)}\n${CODEX_INJECT_END}\n`
 
   let existing = ''
   try {

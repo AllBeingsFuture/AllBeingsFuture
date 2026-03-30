@@ -176,7 +176,29 @@ describe('ConversationView session boot', () => {
       expect(initSessionMock).toHaveBeenCalledWith('session-1')
     })
 
-    expect(scrollContainer.scrollTop).toBe(640)
+    expect(scrollContainer.scrollTop).toBe(360)
+  })
+
+  it('pins the conversation to bottom when history arrives after mount', async () => {
+    mockConversationContainerMetrics(640, 280)
+    storeState.messages = []
+
+    const view = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const scrollContainer = view.container.querySelector('[data-scroll-container]') as HTMLDivElement
+
+    await waitFor(() => {
+      expect(initSessionMock).toHaveBeenCalledWith('session-1')
+    })
+
+    storeState.messages = [
+      { role: 'user', content: 'late hello' } as ChatMessage,
+      { role: 'assistant', content: 'late world' } as ChatMessage,
+    ]
+    view.rerender(<ConversationView session={makeSession('running')} />)
+
+    await waitFor(() => {
+      expect(scrollContainer.scrollTop).toBe(360)
+    })
   })
 
   it('adds bottom clearance so the composer does not cover the latest activity', async () => {

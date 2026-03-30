@@ -335,18 +335,7 @@ export class ProcessService {
         const providerNames = this.providerService.getAll().map(p => p.name)
         const workDir = config.workDir as string
 
-        if (isClaudeBased) {
-          // Claude: write .claude/rules/ files only (Claude auto-discovers them)
-          // Do NOT inject via appendSystemPrompt to avoid reading rules twice
-          try {
-            injectSupervisorPrompt(workDir, providerNames)
-            this.supervisorPromptSessions.set(sessionId, workDir)
-          } catch (err: unknown) {
-            const errMsg = err instanceof Error ? err.message : String(err)
-            appLog('warn', `Failed to inject Claude rules files: ${errMsg}`, 'process')
-          }
-
-          // Inject agent-control MCP server for Claude sessions
+        if (isClaudeBased || isCodex) {
           try {
             const apiPort = await this.ensureAgentApi()
             config.mcpServers = {
@@ -363,12 +352,24 @@ export class ProcessService {
             const errMsg = err instanceof Error ? err.message : String(err)
             appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
           }
+        }
+
+        if (isClaudeBased) {
+          // Claude: write .claude/rules/ files only (Claude auto-discovers them)
+          // Do NOT inject via appendSystemPrompt to avoid reading rules twice
+          try {
+            injectSupervisorPrompt(workDir, providerNames)
+            this.supervisorPromptSessions.set(sessionId, workDir)
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to inject Claude rules files: ${errMsg}`, 'process')
+          }
         } else if (isCodex) {
           // Codex: inject ABF rules into AGENTS.md so Codex's file discovery
           // sees them. Prefer repo root when we already know it.
           try {
             const promptWorkDir = session.worktreeSourceRepo || workDir
-            injectCodexAgentsMd(promptWorkDir)
+            injectCodexAgentsMd(promptWorkDir, providerNames)
             this.supervisorPromptSessions.set(sessionId, promptWorkDir)
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err)

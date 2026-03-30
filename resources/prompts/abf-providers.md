@@ -9,7 +9,7 @@ ABF 通过 BridgeManager 统一管理多个 AI Provider 适配器，每个 Provi
 | Provider | Adapter Key | 通信方式 | MCP 支持 | 适合场景 |
 |----------|-------------|---------|---------|---------|
 | Claude Code | `claude-sdk` | in-process (SDK 直接调用) | 原生支持 | 复杂架构设计、多文件重构、Supervisor 调度 |
-| Codex CLI | `codex-appserver` | subprocess JSON-RPC | 不支持（prompt 注入降级） | 写代码、修 bug、加功能 |
+| Codex CLI | `codex-appserver` | subprocess JSON-RPC | 原生支持（CLI config 注入） | 写代码、修 bug、加功能 |
 | Gemini | `gemini-headless` | CLI subprocess | 不支持 | 大文件分析、代码审查、文档总结 |
 | OpenCode | `opencode-sdk` | SDK/CLI | 原生支持 (OPENCODE_CONFIG env) | 代码生成和补全 |
 
@@ -42,11 +42,12 @@ opencode / opencode-cli            →  opencode-sdk
 
 1. **native** — Provider 原生支持 MCP 协议，直接传入 MCP 配置
    - Claude Code SDK：通过 `config.mcpServers` 参数传入
+   - Codex CLI：通过 `codex -c mcp_servers.<name>... app-server` 的 CLI 配置覆盖传入
    - OpenCode：通过 `OPENCODE_CONFIG` 环境变量配置
 2. **prompt-injection** — Provider 不支持 MCP，ABF 将 MCP 工具描述注入到 system prompt 中
-   - Codex CLI：通过 system prompt 注入工具描述
 3. **none** — 不支持 MCP
    - Gemini CLI
+
 
 开发时注意：新增 Provider 必须在 `ProviderCapabilityRegistry.ts` 注册能力，否则 MCP 注入和 Skill 分发会失败。
 
