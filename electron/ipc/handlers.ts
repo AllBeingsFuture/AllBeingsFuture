@@ -654,6 +654,7 @@ export function registerAllIpcHandlers(
   // BotService
   // ==============================================================
   ipcMain.handle('BotService.List', () => botService.list())
+  ipcMain.handle('BotService.GetCatalog', () => botService.getCatalog())
   ipcMain.handle('BotService.Create', (_e, bot: any) => botService.create(bot))
   ipcMain.handle('BotService.Update', (_e, botId: string, bot: any) => botService.update(botId, bot))
   ipcMain.handle('BotService.Delete', (_e, botId: string) => botService.delete(botId))
