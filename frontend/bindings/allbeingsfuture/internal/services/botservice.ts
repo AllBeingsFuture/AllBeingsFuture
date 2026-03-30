@@ -8,6 +8,13 @@ export function List(): Promise<any[]> {
 }
 
 /**
+ * List bot catalog metadata.
+ */
+export function GetCatalog(): Promise<any[]> {
+    return ipc("BotService.GetCatalog");
+}
+
+/**
  * Create a new bot.
  */
 export function Create(bot: any): Promise<any> {
