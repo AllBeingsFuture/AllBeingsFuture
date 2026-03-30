@@ -8,8 +8,7 @@ import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
 import { v4 as uuidv4 } from 'uuid'
-import type BetterSqlite3 from 'better-sqlite3'
-import type { Database } from '../services/database.js'
+import type { Database, StatementCompat } from '../services/database.js'
 
 // ---- Types ----
 
@@ -80,7 +79,7 @@ export class FileChangeTracker extends EventEmitter {
   private database: Database | null
 
   /** prepared statements cache */
-  private insertStmt: BetterSqlite3.Statement | null = null
+  private insertStmt: StatementCompat | null = null
 
   constructor(database: Database | null) {
     super()

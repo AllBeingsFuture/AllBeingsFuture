@@ -1,11 +1,12 @@
 /**
- * SQLite Database Service (better-sqlite3)
+ * SQLite Database Service (node:sqlite)
  *
- * Replaces Go's modernc.org/sqlite database layer.
- * Stores sessions, providers, settings, tasks, workflows, missions, etc.
+ * Exposes a compatibility layer that preserves the existing
+ * better-sqlite3-style usage in the service layer.
  */
 
-import BetterSqlite3 from 'better-sqlite3'
+import { DatabaseSync, StatementSync } from 'node:sqlite'
+import type { SQLInputValue } from 'node:sqlite'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -13,33 +14,114 @@ import fs from 'node:fs'
 const DB_DIR = path.join(os.homedir(), '.allbeingsfuture')
 const DB_PATH = path.join(DB_DIR, 'allbeingsfuture.db')
 
+export interface StatementCompat {
+  run: (...params: unknown[]) => unknown
+  get: (...params: unknown[]) => unknown
+  all: (...params: unknown[]) => unknown[]
+}
+
+class SqliteStatementCompat implements StatementCompat {
+  constructor(private readonly statement: StatementSync) {}
+
+  run(...params: unknown[]): unknown {
+    return this.statement.run(...params as SQLInputValue[])
+  }
+
+  get(...params: unknown[]): unknown {
+    return this.statement.get(...params as SQLInputValue[])
+  }
+
+  all(...params: unknown[]): unknown[] {
+    return this.statement.all(...params as SQLInputValue[]) as unknown[]
+  }
+}
+
+export interface DatabaseCompat {
+  prepare: (sql: string) => StatementCompat
+  exec: (sql: string) => void
+  pragma: (sql: string) => unknown[]
+  transaction: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => TResult) => (...args: TArgs) => TResult
+  close: () => void
+}
+
+class SqliteDatabaseCompat implements DatabaseCompat {
+  constructor(private readonly db: DatabaseSync) {}
+
+  prepare(sql: string): StatementCompat {
+    return new SqliteStatementCompat(this.db.prepare(sql))
+  }
+
+  exec(sql: string): void {
+    this.db.exec(sql)
+  }
+
+  pragma(sql: string): unknown[] {
+    const normalized = sql.trim().replace(/;$/, '')
+    const query = normalized.toUpperCase().startsWith('PRAGMA')
+      ? normalized
+      : `PRAGMA ${normalized}`
+
+    const statement = this.db.prepare(query)
+    try {
+      return statement.all() as unknown[]
+    } catch {
+      statement.run()
+      return []
+    }
+  }
+
+  transaction<TArgs extends unknown[], TResult>(fn: (...args: TArgs) => TResult) {
+    return (...args: TArgs): TResult => {
+      this.db.exec('BEGIN IMMEDIATE')
+      try {
+        const result = fn(...args)
+        this.db.exec('COMMIT')
+        return result
+      } catch (error) {
+        try {
+          this.db.exec('ROLLBACK')
+        } catch {
+          // Ignore rollback failures triggered by nested errors.
+        }
+        throw error
+      }
+    }
+  }
+
+  close(): void {
+    this.db.close()
+  }
+}
+
 export class Database {
-  private db: BetterSqlite3.Database
+  private db: DatabaseSync
+  private compat: SqliteDatabaseCompat
 
   constructor() {
     // Ensure directory exists
     fs.mkdirSync(DB_DIR, { recursive: true })
 
-    this.db = new BetterSqlite3(DB_PATH)
+    this.db = new DatabaseSync(DB_PATH)
+    this.compat = new SqliteDatabaseCompat(this.db)
 
     // Enable WAL mode for better concurrent access
-    this.db.pragma('journal_mode = WAL')
-    this.db.pragma('foreign_keys = ON')
+    this.compat.pragma('journal_mode = WAL')
+    this.compat.pragma('foreign_keys = ON')
 
     // Run migrations
     this.migrate()
   }
 
-  get raw(): BetterSqlite3.Database {
-    return this.db
+  get raw(): DatabaseCompat {
+    return this.compat
   }
 
   close() {
-    this.db.close()
+    this.compat.close()
   }
 
   private migrate() {
-    this.db.exec(`
+    this.compat.exec(`
       -- AI Providers
       CREATE TABLE IF NOT EXISTS providers (
         id TEXT PRIMARY KEY,
@@ -209,13 +291,13 @@ export class Database {
     ]
     for (const [col, def] of skillColumns) {
       try {
-        this.db.exec(`ALTER TABLE skills ADD COLUMN ${col} ${def}`)
+        this.compat.exec(`ALTER TABLE skills ADD COLUMN ${col} ${def}`)
       } catch {
         // Column already exists, ignore
       }
     }
 
-    this.db.exec(`
+    this.compat.exec(`
       -- MCP Servers
       CREATE TABLE IF NOT EXISTS mcp_servers (
         id TEXT PRIMARY KEY,

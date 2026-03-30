@@ -29,7 +29,8 @@ export interface MCPServer {
 interface McpState {
   servers: MCPServer[]
   loading: boolean
-  load: () => Promise<void>
+  loaded: boolean
+  load: (force?: boolean) => Promise<void>
   install: (server: MCPServer) => Promise<void>
   uninstall: (id: string) => Promise<void>
   updateConfig: (id: string, config: Record<string, unknown>) => Promise<void>
@@ -60,22 +61,33 @@ const normalizeMcpServer = (server: any): MCPServer => ({
   env: server?.envVars ?? server?.env ?? {},
 })
 
-export const useMcpStore = create<McpState>((set) => ({
+async function reloadServers(set: (partial: Partial<McpState>) => void) {
+  const servers = await MCPService.List()
+  set({ servers: (servers ?? []).map(normalizeMcpServer), loaded: true })
+}
+
+let pendingMcpLoad: Promise<void> | null = null
+
+export const useMcpStore = create<McpState>((set, get) => ({
   servers: [],
   loading: false,
-  load: async () => {
+  loaded: false,
+  load: async (force = false) => {
+    if (!force && get().loaded) return
+    if (pendingMcpLoad) return pendingMcpLoad
+
     set({ loading: true })
-    try {
-      const servers = await MCPService.List()
-      set({ servers: (servers ?? []).map(normalizeMcpServer) })
-    } finally {
-      set({ loading: false })
-    }
+    pendingMcpLoad = reloadServers(set)
+      .finally(() => {
+        pendingMcpLoad = null
+        set({ loading: false })
+      })
+
+    return pendingMcpLoad
   },
   install: async (server) => {
     await MCPService.Install(server)
-    const servers = await MCPService.List()
-    set({ servers: (servers ?? []).map(normalizeMcpServer) })
+    await reloadServers(set)
   },
   uninstall: async (id) => {
     await MCPService.Uninstall(id)
@@ -83,12 +95,24 @@ export const useMcpStore = create<McpState>((set) => ({
   },
   updateConfig: async (id, config) => {
     await MCPService.UpdateConfig(id, config)
-    const servers = await MCPService.List()
-    set({ servers: (servers ?? []).map(normalizeMcpServer) })
+    await reloadServers(set)
   },
   toggleEnabled: async (id, enabled) => {
-    await MCPService.ToggleEnabled(id, enabled)
-    const servers = await MCPService.List()
-    set({ servers: (servers ?? []).map(normalizeMcpServer) })
+    const previousServers = get().servers
+
+    set((state) => ({
+      servers: state.servers.map((server) => (
+        server.id === id
+          ? { ...server, enabled }
+          : server
+      )),
+    }))
+
+    try {
+      await MCPService.ToggleEnabled(id, enabled)
+    } catch (error) {
+      set({ servers: previousServers })
+      throw error
+    }
   },
 }))
