@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
 import { workbenchApi } from '../../app/api/workbench'
@@ -19,6 +19,15 @@ interface RecentDir {
 }
 
 const RECENT_DIRS_KEY = 'allbeingsfuture-recent-directories'
+const PROVIDER_CHECK_CACHE_TTL_MS = 30_000
+const WORKDIR_CHECK_DEBOUNCE_MS = 120
+
+const providerAvailabilityCache = new Map<string, {
+  expiresAt: number
+  promise?: Promise<boolean>
+  result?: boolean
+}>()
+const repoRootCache = new Map<string, string>()
 
 function loadRecentDirs(): RecentDir[] {
   try {
@@ -47,6 +56,48 @@ function addRecentDir(path: string, pin = false): RecentDir[] {
 function shortDirName(p: string): string {
   const parts = p.replace(/\\/g, '/').split('/').filter(Boolean)
   return parts.length > 2 ? parts.slice(-2).join('/') : parts.join('/')
+}
+
+function getProviderCacheKey(provider: Pick<AIProvider, 'id' | 'command' | 'executablePath'>): string {
+  return `${provider.id}::${provider.executablePath || provider.command || ''}`
+}
+
+async function isProviderRunnable(provider: AIProvider): Promise<boolean> {
+  if (provider.adapterType === 'openai-api') {
+    return true
+  }
+
+  const cacheKey = getProviderCacheKey(provider)
+  const now = Date.now()
+  const cached = providerAvailabilityCache.get(cacheKey)
+  if (cached) {
+    if (cached.result !== undefined && cached.expiresAt > now) {
+      return cached.result
+    }
+    if (cached.promise) {
+      return cached.promise
+    }
+  }
+
+  const promise = workbenchApi.provider.testExecutable(
+    provider.id,
+    provider.executablePath || provider.command,
+  )
+    .then(Boolean)
+    .catch(() => false)
+
+  providerAvailabilityCache.set(cacheKey, {
+    expiresAt: now + PROVIDER_CHECK_CACHE_TTL_MS,
+    promise,
+  })
+
+  const result = await promise
+  providerAvailabilityCache.set(cacheKey, {
+    expiresAt: Date.now() + PROVIDER_CHECK_CACHE_TTL_MS,
+    result,
+  })
+
+  return result
 }
 
 // ─── Providers ───
@@ -80,7 +131,6 @@ export default function SessionCreator({ onClose }: Props) {
   const [providerId, setProviderId] = useState('claude-code')
   const [providers, setProviders] = useState<AIProvider[]>([])
   const [mode, setMode] = useState<string>('normal')
-  const [subAgentProviderIds, setSubAgentProviderIds] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
   const autoAccept = true
   const [error, setError] = useState('')
@@ -97,64 +147,73 @@ export default function SessionCreator({ onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    workbenchApi.provider.list()
-      .then(async data => {
+    const loadProviders = async () => {
+      try {
+        const data = await workbenchApi.provider.list()
         if (cancelled) return
+
         const enabledProviders = (data || []).filter(provider => provider.isEnabled)
         const runnableProviders = (
-          await Promise.all(enabledProviders.map(async (provider) => {
-            if (provider.adapterType === 'openai-api') {
-              return provider
-            }
-
-            try {
-              const ok = await workbenchApi.provider.testExecutable(
-                provider.id,
-                provider.executablePath || provider.command,
-              )
-              return ok ? provider : null
-            } catch {
-              return null
-            }
-          }))
+          await Promise.all(enabledProviders.map(async (provider) => (
+            await isProviderRunnable(provider) ? provider : null
+          )))
         ).filter((provider): provider is AIProvider => !!provider)
 
+        if (cancelled) return
         setProviders(runnableProviders)
-        if (runnableProviders.length > 0 && !runnableProviders.some(provider => provider.id === providerId)) {
-          setProviderId(runnableProviders[0].id)
-        }
-      })
-      .catch(error => {
+        setProviderId((current) => (
+          runnableProviders.some((provider) => provider.id === current)
+            ? current
+            : runnableProviders[0]?.id || ''
+        ))
+      } catch (error) {
         console.error('Failed to load providers:', error)
-      })
-    return () => { cancelled = true }
-  }, [providerId])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const checkGitRepo = async () => {
-      const targetDir = workDir.trim()
-      if (!targetDir || !autoWorktree) {
-        if (!cancelled) setWorktreeState('idle')
-        return
-      }
-
-      try {
-        const repoPath = await GitService.GetRepoRoot(targetDir).catch(() => '')
-        if (!cancelled) {
-          setWorktreeState(repoPath ? 'git' : 'plain')
-        }
-      } catch {
-        if (!cancelled) {
-          setWorktreeState('plain')
-        }
       }
     }
 
-    void checkGitRepo()
+    void loadProviders()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const targetDir = workDir.trim()
+
+    if (!targetDir || !autoWorktree) {
+      setWorktreeState('idle')
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (repoRootCache.has(targetDir)) {
+      setWorktreeState((repoRootCache.get(targetDir) || '') ? 'git' : 'plain')
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setWorktreeState('idle')
+    const timer = window.setTimeout(() => {
+      void GitService.GetRepoRoot(targetDir)
+        .then((repoPath) => {
+          const resolvedRepoPath = repoPath || ''
+          repoRootCache.set(targetDir, resolvedRepoPath)
+          if (!cancelled) {
+            setWorktreeState(resolvedRepoPath ? 'git' : 'plain')
+          }
+        })
+        .catch(() => {
+          repoRootCache.set(targetDir, '')
+          if (!cancelled) {
+            setWorktreeState('plain')
+          }
+        })
+    }, WORKDIR_CHECK_DEBOUNCE_MS)
+
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
     }
   }, [autoWorktree, workDir])
 
@@ -237,8 +296,15 @@ export default function SessionCreator({ onClose }: Props) {
     try {
       const trimmedWorkDir = workDir.trim()
       const gitRepoPath = autoWorktree
-        ? await GitService.GetRepoRoot(trimmedWorkDir).catch(() => '')
+        ? (
+            repoRootCache.has(trimmedWorkDir)
+              ? repoRootCache.get(trimmedWorkDir) || ''
+              : await GitService.GetRepoRoot(trimmedWorkDir).catch(() => '')
+          )
         : ''
+      if (autoWorktree) {
+        repoRootCache.set(trimmedWorkDir, gitRepoPath)
+      }
 
       const config = {
         name,

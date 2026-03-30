@@ -38,8 +38,7 @@ export function useDraggable(): UseDraggableReturn {
     const el = dialogRef.current
     if (!el) return
 
-    el.style.left = `${nextPosition.x}px`
-    el.style.top = `${nextPosition.y}px`
+    el.style.transform = `translate3d(${nextPosition.x}px, ${nextPosition.y}px, 0)`
   }, [])
 
   // Center on mount once we know the element size
@@ -59,10 +58,11 @@ export function useDraggable(): UseDraggableReturn {
   const constrain = useCallback((pos: Position): Position => {
     const el = dialogRef.current
     if (!el) return pos
-    const rect = el.getBoundingClientRect()
+    const width = el.offsetWidth
+    const height = el.offsetHeight
     return {
-      x: Math.max(0, Math.min(pos.x, window.innerWidth - rect.width)),
-      y: Math.max(0, Math.min(pos.y, window.innerHeight - rect.height)),
+      x: Math.max(0, Math.min(pos.x, window.innerWidth - width)),
+      y: Math.max(0, Math.min(pos.y, window.innerHeight - height)),
     }
   }, [])
 

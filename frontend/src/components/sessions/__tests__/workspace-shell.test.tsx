@@ -4,6 +4,7 @@ import SessionCreator from '../SessionCreator'
 import { fireEvent, renderWithProviders, screen, waitFor } from '../../../test/render'
 
 const getProvidersMock = vi.fn()
+const testExecutableMock = vi.fn()
 const getRepoRootMock = vi.fn()
 
 let settingsState = { autoWorktree: true }
@@ -64,6 +65,7 @@ vi.mock('../../../app/api/workbench', () => ({
   workbenchApi: {
     provider: {
       list: (...args: unknown[]) => getProvidersMock(...args),
+      testExecutable: (...args: unknown[]) => testExecutableMock(...args),
     },
     session: {
       create: (...args: unknown[]) => createSessionMock(...args),
@@ -118,6 +120,7 @@ describe('Session workspace', () => {
     appendMessageMock.mockReset()
     initializeTerminalMock.mockReset()
     getProvidersMock.mockReset()
+    testExecutableMock.mockReset()
     getRepoRootMock.mockReset()
     createSessionMock.mockResolvedValue({ id: 'session-new' })
     initSessionMock.mockResolvedValue(undefined)
@@ -128,6 +131,7 @@ describe('Session workspace', () => {
       { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'codex-appserver' },
       { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
     ])
+    testExecutableMock.mockResolvedValue(true)
   })
 
   it('renders conversation view for selected session', async () => {
