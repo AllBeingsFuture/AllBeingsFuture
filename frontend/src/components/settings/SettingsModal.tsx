@@ -158,7 +158,7 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
       testId="settings-modal"
     >
       <div className="flex h-full min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/10 bg-slate-950/70">
+        <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/10 bg-slate-950">
           <div className="flex-1 overflow-y-auto px-2 py-3">
             {(['core', 'integrations', 'security', 'support', 'botmanagement'] as const).map((group) => {
               const groupTabs = TABS.filter((tab) => tab.group === group)
@@ -200,13 +200,13 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-2 border-b border-white/10 px-5 py-2.5">
+          <div className="flex items-center gap-2 border-b border-white/10 bg-[#0f141c] px-5 py-2.5">
             <span className="text-blue-300">{activeDefinition.icon}</span>
             <h3 className="text-sm font-medium text-white">{activeDefinition.label}</h3>
             <span className="text-xs text-slate-500">{activeDefinition.description}</span>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" style={{ contain: 'layout paint' }}>
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#0d1117] px-5 py-4" style={{ contain: 'layout paint' }}>
             {TABS.map((tab) => {
               const shouldKeepMounted = tab.id !== 'logs'
               const shouldRender = shouldKeepMounted ? visitedTabs[tab.id] : activeTab === tab.id
