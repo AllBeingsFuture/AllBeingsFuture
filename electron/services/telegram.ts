@@ -825,7 +825,8 @@ export class TelegramService {
 
     const endpoint = normalizeTranscriptionEndpoint(provider.apiEndpoint)
     const form = new FormData()
-    form.set('file', new Blob([buffer], { type: mimeType || 'audio/ogg' }), fileName || 'telegram-audio.ogg')
+    const audioBytes = Uint8Array.from(buffer)
+    form.set('file', new Blob([audioBytes], { type: mimeType || 'audio/ogg' }), fileName || 'telegram-audio.ogg')
     form.set('model', provider.model)
 
     const controller = new AbortController()
