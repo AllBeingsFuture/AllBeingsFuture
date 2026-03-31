@@ -74,7 +74,7 @@ const TOOLS = [
   {
     name: 'spawn_agent',
     description:
-      'Spawn a new persistent child agent. It stays alive and can receive follow-up messages via send_to_agent. Returns the child session ID and the agent\'s initial response.',
+      'Spawn a new persistent child agent and wait for its initial turn to finish before returning. It stays alive and can receive follow-up messages via send_to_agent. Returns the child session ID and the child\'s initial response. Treat this as synchronous by default.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -141,7 +141,7 @@ const TOOLS = [
   {
     name: 'wait_agent_idle',
     description:
-      'Wait until a persistent child agent finishes its current turn (becomes idle). Returns immediately if the agent already completed its turn. Use this after spawn_agent or send_to_agent when you want to check the result without blocking on the synchronous response.',
+      'Wait until a persistent child agent finishes its current turn (becomes idle). Returns immediately if the agent already completed its turn. Use this only when you intentionally left the child running while the parent handled strictly non-overlapping work. Do not use it by default after spawn_agent, because spawn_agent already waits for the initial turn.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -273,6 +273,7 @@ async function handleToolCall(name, args) {
             text: [
               `Agent "${args.name}" spawned successfully.`,
               `Child Session ID: ${res.childSessionId}`,
+              'Initial turn completed: yes (spawn_agent already waited).',
               '',
               `Agent response:`,
               res.result || '(no output)',

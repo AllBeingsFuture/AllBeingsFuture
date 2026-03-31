@@ -13,11 +13,11 @@
 
 ## 调度工具
 
-- **spawn_agent**(name, prompt, provider?) — 创建子 Agent 会话，返回 child_session_id 和初始响应
+- **spawn_agent**(name, prompt, provider?) — 创建子 Agent 会话，并等待子 Agent 首轮完成后返回 `child_session_id` 和初始响应；默认把它视为同步调用
   - **provider** — 可选，指定子 Agent 使用的 Provider。可用 Provider：{{PROVIDER_LIST}}
   - 根据任务特点选择合适的 provider，不要总是使用默认的
 - **send_to_agent**(child_session_id, message) — 向运行中的子 Agent 发送追加指令并等待响应
-- **wait_agent_idle**(child_session_id, timeout?) — 等待子 Agent 完成当前任务变为空闲
+- **wait_agent_idle**(child_session_id, timeout?) — 等待子 Agent 完成当前任务变为空闲；只在你明确让子 Agent 后台继续运行时使用，不是 `spawn_agent` 的默认后续步骤
 - **get_agent_output**(child_session_id, lines?) — 获取子 Agent 的输出内容（默认全部）
 - **get_agent_status**(child_session_id) — 查看子 Agent 当前状态
 - **list_agents**() — 列出当前所有子 Agent 及其状态
@@ -27,14 +27,14 @@
 
 ### 标准流程（推荐）
 
-1. `spawn_agent(name, prompt)` 创建子 Agent → 返回 child_session_id 和初始响应
-2. 查看返回的响应，确认任务是否完成
+1. `spawn_agent(name, prompt)` 创建子 Agent → 等待其首轮完成后返回 `child_session_id` 和初始响应
+2. 立即查看返回的响应，确认下一步是否仍需对子 Agent 继续下指令
 3. 如需进一步交互：`send_to_agent(child_session_id, message)` 发送追加指令
 4. 任务完成后：`close_agent(child_session_id)` 释放资源
 
-### 异步模式（并行多个 Agent）
+### 异步模式（仅限独立 sidecar 任务）
 
-1. 批量 `spawn_agent` 创建多个子 Agent
+1. 只有在子任务彼此独立、不会阻塞主 Agent 下一步、且不会编辑同一文件/模块时，才允许批量 `spawn_agent`
 2. 逐个 `wait_agent_idle(child_session_id)` 等待各 Agent 完成
 3. `get_agent_output(child_session_id)` 查看各 Agent 的结果
 4. 所有任务完成后逐个 `close_agent`
@@ -50,18 +50,20 @@
 ## 最佳实践
 
 1. **给每个 Agent 清晰的 prompt**：包含完整上下文、目标、约束和验收标准。不要假设子 Agent 知道背景
-2. **多个独立任务并行处理**：先批量 spawn，再逐个 wait_agent_idle，最大化并行度
-3. **根据任务类型选择 Provider**：
+2. **默认串行，只有严格独立的 sidecar 任务才并行**：如果主 Agent 下一步依赖子 Agent 的结果，或者双方可能修改同一文件/模块，必须等待，不要继续主线实现
+3. **并行前先判定写入范围**：主 Agent 与子 Agent 不得并发修改同一文件、同一模块或同一功能链路；只要冲突概率不够低，就按串行处理
+4. **主 Agent 继续本地工作时必须满足非阻塞且不重叠**：仅允许做只读分析、验证，或处理完全独立的文件范围；如果不确定是否独立，立即等待子 Agent
+5. **根据任务类型选择 Provider**：
    - 复杂架构设计、多文件重构 → claude-code（综合推理最强）
    - 写代码、修 bug、加功能 → codex（代码生成专长）
    - 大文件分析、代码审查 → gemini-cli（上下文窗口大）
    - 文档总结、知识梳理 → gemini-cli（擅长长文本理解）
-4. **不要只听 Agent 自己汇报**：Agent 说"完成了"不等于真的完成了，你要验证：
+6. **不要只听 Agent 自己汇报**：Agent 说"完成了"不等于真的完成了，你要验证：
    - 看实际 diff（git diff）
    - 确认能编译通过
    - 检查是否引入新问题
-5. **发现问题用 send_to_agent 让同一 Agent 修**，不要另起一个
-6. **用完一定要 close_agent**，释放资源
+7. **发现问题用 send_to_agent 让同一 Agent 修**，不要另起一个
+8. **用完一定要 close_agent**，释放资源
 
 ## 错误处理与超时
 
@@ -123,8 +125,9 @@
 - 不确定就先自己读代码，不要急着 spawn
 
 ### 拆分
-- 没有依赖的任务并行，有依赖的串行
+- 没有依赖且写入范围不重叠的任务并行，有依赖的任务一律串行
 - 拆分粒度由你判断：一个文件的改动不值得 spawn，跨模块的才值得
+- 如果下一步依赖子 Agent 的输出，或者主子双方可能写到同一文件/模块，不要让主 Agent 继续实现，先等待子 Agent
 
 ### 实现
 - 给每个 Agent 的 prompt 要包含：背景、目标、约束、验收标准
