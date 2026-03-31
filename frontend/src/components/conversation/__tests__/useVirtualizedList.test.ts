@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildVirtualLayout } from '../useVirtualizedList'
+import { buildVirtualLayout, syncMeasurementCache } from '../useVirtualizedList'
 
 describe('buildVirtualLayout', () => {
   const items = Array.from({ length: 10 }, (_, index) => ({
@@ -47,5 +47,52 @@ describe('buildVirtualLayout', () => {
       'item-2:200',
       'item-3:380',
     ])
+  })
+})
+
+describe('syncMeasurementCache', () => {
+  it('drops cached sizes when an item reuses a key but its signature changes', () => {
+    const measured = new Map<string, number>([['key-0', 80]])
+    const previousSignatures = new Map<string, string | null>([['key-0', 'sig-a']])
+    const nextSignatures = syncMeasurementCache(
+      [{ id: 'key-0' }],
+      (item) => item.id,
+      measured,
+      previousSignatures,
+      () => 'sig-b',
+    )
+
+    expect(measured.has('key-0')).toBe(false)
+    expect(nextSignatures.get('key-0')).toBe('sig-b')
+  })
+
+  it('retains cached sizes when signatures remain the same', () => {
+    const measured = new Map<string, number>([['key-0', 55]])
+    const previousSignatures = new Map<string, string | null>([['key-0', 'stable']])
+    const nextSignatures = syncMeasurementCache(
+      [{ id: 'key-0' }],
+      (item) => item.id,
+      measured,
+      previousSignatures,
+      () => 'stable',
+    )
+
+    expect(measured.has('key-0')).toBe(true)
+    expect(nextSignatures.get('key-0')).toBe('stable')
+  })
+
+  it('clears cache entries that no longer exist in the current item set', () => {
+    const measured = new Map<string, number>([['key-0', 33]])
+    const previousSignatures = new Map<string, string | null>([['key-0', 'sig']])
+    const nextSignatures = syncMeasurementCache(
+      [],
+      () => 'key-0',
+      measured,
+      previousSignatures,
+      () => null,
+    )
+
+    expect(measured.has('key-0')).toBe(false)
+    expect(nextSignatures.size).toBe(0)
   })
 })
