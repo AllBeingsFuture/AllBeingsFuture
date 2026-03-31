@@ -58,6 +58,7 @@ interface TelegramBotRuntimeState {
   offset: number
   lastError: string
   lastPolledAt: number
+  commandsSynced: boolean
 }
 
 interface TelegramChat {
@@ -90,12 +91,40 @@ interface TelegramUpdate {
 
 type ChatBindings = Record<string, string>
 type TelegramUpdateOffsets = Record<string, number>
+type TelegramReplyMarkup = Record<string, unknown>
 
 const SETTINGS_KEY_CHAT_BINDINGS = 'telegram_chat_bindings'
 const SETTINGS_KEY_UPDATE_OFFSETS = 'telegram_update_offsets'
 const DEFAULT_POLLING_INTERVAL_MS = 1500
 const MAX_TELEGRAM_MESSAGE_LEN = 3900
 const STARTUP_BACKLOG_GRACE_MS = 10 * 60 * 1000
+
+const TELEGRAM_COMMAND_DEFINITIONS = [
+  { command: 'help', description: '查看帮助' },
+  { command: 'sessions', description: '查看会话列表' },
+  { command: 'dock_telegram', description: '绑定当前聊天到会话' },
+  { command: 'undock', description: '解除当前绑定' },
+  { command: 'status', description: '查看运行状态' },
+] as const
+
+const TELEGRAM_MENU_KEYBOARD: TelegramReplyMarkup = {
+  keyboard: [
+    [{ text: '帮助' }, { text: '会话列表' }],
+    [{ text: '绑定会话' }, { text: '解除绑定' }],
+    [{ text: '状态' }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+  input_field_placeholder: '请选择中文菜单命令或直接输入消息',
+}
+
+const TELEGRAM_COMMAND_ALIASES: Array<{ pattern: RegExp; resolver: (match: RegExpMatchArray) => string }> = [
+  { pattern: /^\/?帮助$/i, resolver: () => '/help' },
+  { pattern: /^\/?会话列表$/i, resolver: () => '/sessions' },
+  { pattern: /^\/?绑定会话(?:\s+(.+))?$/i, resolver: (match) => `/dock_telegram${match[1] ? ` ${match[1].trim()}` : ''}` },
+  { pattern: /^\/?解除绑定$/i, resolver: () => '/undock' },
+  { pattern: /^\/?状态$/i, resolver: () => '/status' },
+]
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -268,6 +297,7 @@ export class TelegramService {
       offset: Number(this.updateOffsets[botId] || 0),
       lastError: '',
       lastPolledAt: 0,
+      commandsSynced: false,
     }
     this.runtimeStates.set(botId, created)
     return created
@@ -319,6 +349,11 @@ export class TelegramService {
     const state = this.ensureRuntimeState(bot.id)
     const hadStoredOffset = Number(this.updateOffsets[bot.id] || 0) > 0
     try {
+      if (!state.commandsSynced) {
+        await this.syncTelegramMenu(bot)
+        state.commandsSynced = true
+      }
+
       appLog('debug', `Polling Telegram bot "${bot.name}" with offset=${state.offset}`, 'telegram')
       const updates = await this.callTelegramApi<TelegramUpdate[]>(token, 'getUpdates', {
         offset: state.offset || undefined,
@@ -350,8 +385,24 @@ export class TelegramService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       state.lastError = message
+      state.commandsSynced = false
       appLog('warn', `Telegram bot "${bot.name}" polling failed: ${message}`, 'telegram')
     }
+  }
+
+  private async syncTelegramMenu(bot: TelegramBotRecord): Promise<void> {
+    const token = bot.credentials.bot_token?.trim()
+    if (!token) return
+
+    await this.callTelegramApi(token, 'setMyCommands', {
+      commands: TELEGRAM_COMMAND_DEFINITIONS,
+    })
+
+    await this.callTelegramApi(token, 'setChatMenuButton', {
+      menu_button: {
+        type: 'commands',
+      },
+    })
   }
 
   private shouldSkipBacklog(hasStoredOffset: boolean, update: TelegramUpdate): boolean {
@@ -398,6 +449,7 @@ export class TelegramService {
     chatId: string,
     text: string,
     replyToMessageId?: number,
+    replyMarkup?: TelegramReplyMarkup,
   ): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return
@@ -409,6 +461,7 @@ export class TelegramService {
         text: chunks[index],
         parse_mode: 'HTML',
         reply_to_message_id: index === 0 ? replyToMessageId : undefined,
+        reply_markup: index === 0 ? (replyMarkup || TELEGRAM_MENU_KEYBOARD) : undefined,
       })
     }
   }
@@ -449,7 +502,7 @@ export class TelegramService {
 
     const chatId = stringifyId(message.chat?.id)
     const userId = stringifyId(message.from?.id)
-    const rawText = message.text.trim()
+    const rawText = this.normalizeTelegramMenuCommand(message.text.trim())
     if (!chatId || !userId || !rawText) return
 
     if (!this.isAuthorized(bot, chatId, userId)) {
@@ -463,6 +516,20 @@ export class TelegramService {
     if (!handled) {
       await this.forwardTextToSession(bot, chatId, rawText, message.message_id)
     }
+  }
+
+  private normalizeTelegramMenuCommand(rawText: string): string {
+    const trimmed = rawText.trim()
+    if (!trimmed) return ''
+
+    for (const alias of TELEGRAM_COMMAND_ALIASES) {
+      const match = trimmed.match(alias.pattern)
+      if (match) {
+        return alias.resolver(match)
+      }
+    }
+
+    return trimmed
   }
 
   private async handleCommand(
@@ -537,12 +604,14 @@ export class TelegramService {
       '• /dock_telegram [序号|会话 ID|会话名] 绑定当前聊天到会话',
       '• /undock 解除绑定',
       '• /status 查看当前绑定和运行状态',
+      '• 也可以直接点底部中文菜单按钮：帮助 / 会话列表 / 绑定会话 / 解除绑定 / 状态',
       '',
       boundSession
         ? `当前已绑定：<b>${escHtml(boundSession.name || shortenSessionId(boundSession.id))}</b>`
         : '当前未绑定会话。先发 /dock_telegram 或 /sessions。',
       '',
       '绑定后，直接发送文本消息，就会转发到 ABF 当前会话。',
+      'Telegram 的斜杠命令名仍保留英文，这是官方限制；中文菜单和中文别名都已可直接使用。',
       '未识别的 /xxx 指令也会在已绑定时原样转发给会话。',
     ].join('\n')
   }
