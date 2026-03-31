@@ -61,6 +61,7 @@ const VIRTUALIZATION_HEIGHT_MULTIPLIER = 3
 const VIRTUALIZATION_OVERSCAN_PX = 600
 const DEFAULT_COMPOSER_HEIGHT = 96
 const COMPOSER_BOTTOM_GAP = 12
+const LIVE_RENDER_HOLD_MS = 700
 
 function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup[] {
   const groups: MessageGroup[] = []
@@ -750,6 +751,7 @@ export default function ConversationView({ session }: Props) {
 
   const [ready, setReady] = useState(false)
   const [composerHeight, setComposerHeight] = useState(0)
+  const [preferLiveMessages, setPreferLiveMessages] = useState(streaming)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const lastEventTimeRef = useRef(0)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
@@ -757,6 +759,23 @@ export default function ConversationView({ session }: Props) {
   const composerClearance = hasComposer
     ? Math.max(composerHeight, DEFAULT_COMPOSER_HEIGHT) + COMPOSER_BOTTOM_GAP
     : 0
+
+  useEffect(() => {
+    if (streaming) {
+      setPreferLiveMessages(true)
+      return
+    }
+
+    // Hold on to the live array briefly after streaming settles so the
+    // deferred snapshot does not flash older content back into view.
+    const timer = window.setTimeout(() => {
+      setPreferLiveMessages(false)
+    }, LIVE_RENDER_HOLD_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [streaming, session.id])
+  const shouldRenderLiveMessages = streaming || preferLiveMessages
+
   const {
     bottomRef,
     contentRef,
@@ -766,7 +785,7 @@ export default function ConversationView({ session }: Props) {
   } = useConversationScroll({
     sessionId: session.id,
     messagesLength: messages.length,
-    streaming,
+    streaming: shouldRenderLiveMessages,
     bottomOffset: composerClearance,
   })
 
@@ -825,8 +844,9 @@ export default function ConversationView({ session }: Props) {
 
   const shellPanelVisible = usePanelStore((state) => state.shellPanelVisible)
   const deferredMessages = useDeferredValue(messages)
-  // 流式期间直接渲染实时消息，避免 useDeferredValue 把 token/patch 合并成块状刷新。
-  const groupedMessagesSource = streaming
+  // 流式期间以及刚结束的短暂缓冲期内直接渲染实时消息，
+  // 避免 deferred 快照回退到旧内容，造成会话区闪屏。
+  const groupedMessagesSource = shouldRenderLiveMessages
     ? messages
     : deferredMessages.length === 0 && messages.length <= 1
       ? messages
@@ -900,7 +920,7 @@ export default function ConversationView({ session }: Props) {
           {nonStickerMsgs.length > 0 && (
             <ToolOperationGroup
               messages={nonStickerMsgs}
-              isActive={streaming && isLastGroup}
+              isActive={shouldRenderLiveMessages && isLastGroup}
             />
           )}
           {fileOps.map((operation, index) => (
@@ -925,7 +945,7 @@ export default function ConversationView({ session }: Props) {
           name={group.childAgentName}
           messages={group.messages}
           childSessionId={group.childSessionId}
-          isActive={streaming && isLastGroup}
+          isActive={shouldRenderLiveMessages && isLastGroup}
         />
       )
     }
@@ -941,11 +961,11 @@ export default function ConversationView({ session }: Props) {
       <MessageBubble
         key={`msg-${group.index}-${index}`}
         message={msg}
-        isStreaming={streaming}
+        isStreaming={shouldRenderLiveMessages}
         providerId={session.providerId}
       />
     ))
-  }, [groupedMessagesSource.length, session.providerId, streaming])
+  }, [groupedMessagesSource.length, session.providerId, shouldRenderLiveMessages])
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="conversation-view">
@@ -1011,7 +1031,7 @@ export default function ConversationView({ session }: Props) {
           )}
 
           <AnimatePresence>
-            {(streaming || ['starting', 'running'].includes(session.status)) && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !(messages[messages.length - 1] as any)?.content?.trim())) && (
+            {(shouldRenderLiveMessages || ['starting', 'running'].includes(session.status)) && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !(messages[messages.length - 1] as any)?.content?.trim())) && (
               <StreamingIndicator messages={messages} providerId={session.providerId} />
             )}
           </AnimatePresence>

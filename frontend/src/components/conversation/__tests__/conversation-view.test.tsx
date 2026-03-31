@@ -405,6 +405,40 @@ describe('ConversationView session boot', () => {
     expect(screen.queryByText('deferred snapshot')).not.toBeInTheDocument()
   })
 
+  it('keeps rendering the live snapshot briefly after streaming settles to avoid flashback flicker', async () => {
+    vi.useFakeTimers()
+    try {
+      initSessionMock.mockReturnValue(new Promise(() => {}))
+      deferredValueState.enabled = true
+      deferredValueState.value = [
+        { role: 'assistant', content: 'stale deferred snapshot' } as ChatMessage,
+      ]
+      storeState.messages = [
+        { role: 'assistant', content: 'latest live output' } as ChatMessage,
+      ]
+      storeState.streaming = true
+
+      const view = renderWithProviders(<ConversationView session={makeSession('running')} />)
+
+      expect(screen.getByText('latest live output')).toBeInTheDocument()
+      expect(screen.queryByText('stale deferred snapshot')).not.toBeInTheDocument()
+
+      storeState.streaming = false
+      view.rerender(<ConversationView session={makeSession('idle')} />)
+
+      expect(screen.getByText('latest live output')).toBeInTheDocument()
+      expect(screen.queryByText('stale deferred snapshot')).not.toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(701)
+      })
+
+      expect(screen.getByText('stale deferred snapshot')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not steal scroll position after the user scrolls away from the latest activity', async () => {
     installResizeObserverMock()
     installAnimationFrameMock()
