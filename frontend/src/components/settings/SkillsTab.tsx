@@ -295,7 +295,7 @@ export default function SkillsTab() {
         <div>
           <h4 className="text-sm font-medium">技能管理</h4>
           <p className="mt-1 text-xs text-gray-500">
-            当前列表来自项目内的 <code>skills/</code> 目录和数据库状态。现在除了展示元数据，还支持启停、查看技能说明、脚本和参考文件。
+            当前列表来自应用内嵌的技能资源和数据库状态。现在除了展示元数据，还支持启停、查看技能说明、脚本和参考文件。
           </p>
           <p className="mt-1 text-xs text-gray-500">
             聊天窗口里可以直接输入 <code>/slash-command</code> 触发已启用技能，例如 <code>/code-review</code>、<code>/datetime-tool</code>。
@@ -348,7 +348,7 @@ export default function SkillsTab() {
           <Sparkles size={40} className="mx-auto mb-3 text-gray-600" />
           <p className="text-sm text-gray-400">当前筛选下没有可见技能</p>
           <p className="mt-1 text-xs text-gray-500">
-            把新的技能目录放到 <code>skills/</code> 后点击刷新即可重新同步。
+            变更内嵌技能资源后点击刷新即可重新同步。
           </p>
         </div>
       ) : null}

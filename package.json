@@ -48,13 +48,7 @@
     },
     "files": [
       "electron/dist/**/*",
-      "electron/preload.cjs",
-      "frontend/dist/**/*",
-      "bridge/**/*",
-      "mcps/**/*",
-      "skills/**/*",
-      "resources/**/*",
-      "appicon.ico"
+      "electron/preload.cjs"
     ],
     "win": {
       "target": "nsis",
@@ -92,16 +86,16 @@
         "to": "frontend/dist"
       },
       {
-        "from": "mcps",
+        "from": "electron/embedded-assets/mcps",
         "to": "mcps"
       },
       {
-        "from": "skills",
+        "from": "electron/embedded-assets/skills",
         "to": "skills"
       },
       {
-        "from": "resources",
-        "to": "resources"
+        "from": "resources/prompts",
+        "to": "resources/prompts"
       },
       {
         "from": "appicon.ico",
