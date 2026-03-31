@@ -183,11 +183,11 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
   return groups
 }
 
-function getGroupKey(group: MessageGroup): string {
+function getGroupKey(sessionId: string, group: MessageGroup): string {
   if (group.type === 'child_agent') {
-    return `${group.type}-${group.childSessionId || 'unknown'}-${group.index}`
+    return `${sessionId}-${group.type}-${group.childSessionId || 'unknown'}-${group.index}`
   }
-  return `${group.type}-${group.index}`
+  return `${sessionId}-${group.type}-${group.index}`
 }
 
 function estimateMessageGroupHeight(group: MessageGroup): number {
@@ -752,6 +752,11 @@ export default function ConversationView({ session }: Props) {
   const [composerHeight, setComposerHeight] = useState(0)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const lastEventTimeRef = useRef(0)
+  const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
+  const hasComposer = !isEnded || isChildSession
+  const composerClearance = hasComposer
+    ? Math.max(composerHeight, DEFAULT_COMPOSER_HEIGHT) + COMPOSER_BOTTOM_GAP
+    : 0
   const {
     bottomRef,
     contentRef,
@@ -762,6 +767,7 @@ export default function ConversationView({ session }: Props) {
     sessionId: session.id,
     messagesLength: messages.length,
     streaming,
+    bottomOffset: composerClearance,
   })
 
   const measureComposerHeight = useCallback(() => {
@@ -818,15 +824,13 @@ export default function ConversationView({ session }: Props) {
   }, [pollChat, session.id])
 
   const shellPanelVisible = usePanelStore((state) => state.shellPanelVisible)
-  const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
-  const hasComposer = !isEnded || isChildSession
-  const composerClearance = hasComposer
-    ? Math.max(composerHeight, DEFAULT_COMPOSER_HEIGHT) + COMPOSER_BOTTOM_GAP
-    : 0
   const deferredMessages = useDeferredValue(messages)
-  const groupedMessagesSource = deferredMessages.length === 0 && messages.length <= 1
+  // 流式期间直接渲染实时消息，避免 useDeferredValue 把 token/patch 合并成块状刷新。
+  const groupedMessagesSource = streaming
     ? messages
-    : deferredMessages
+    : deferredMessages.length === 0 && messages.length <= 1
+      ? messages
+      : deferredMessages
   const messageGroups = useMemo(() => groupMessages(groupedMessagesSource, session.id), [groupedMessagesSource, session.id])
   const estimatedConversationHeight = useMemo(
     () => messageGroups.reduce((sum, group) => sum + estimateMessageGroupHeight(group), 0),
@@ -839,7 +843,7 @@ export default function ConversationView({ session }: Props) {
   const virtualization = useVirtualizedList({
     items: messageGroups,
     enabled: shouldVirtualize,
-    getItemKey: getGroupKey,
+    getItemKey: (group) => getGroupKey(session.id, group),
     estimateSize: estimateMessageGroupHeight,
     overscanPx: VIRTUALIZATION_OVERSCAN_PX,
     scrollTop: scrollMetrics.scrollTop,

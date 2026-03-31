@@ -1,6 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage, Session } from '../../../../bindings/allbeingsfuture/internal/models/models'
 import type { ConversationMessage } from '../../../types/conversationTypes'
+import { buildVirtualLayout } from '../useVirtualizedList'
+const deferredValueState = vi.hoisted(() => ({
+  enabled: false,
+  value: undefined as unknown,
+}))
+
+vi.mock('react', async () => {
+  const actual = await vi.importActual<typeof import('react')>('react')
+  return {
+    ...actual,
+    useDeferredValue: <T,>(value: T) => (
+      deferredValueState.enabled
+        ? deferredValueState.value as T
+        : actual.useDeferredValue(value)
+    ),
+  }
+})
+
 import ConversationView, { extractFileChanges } from '../ConversationView'
 import { act, fireEvent, renderWithProviders, screen, waitFor } from '../../../test/render'
 
@@ -58,7 +76,9 @@ vi.mock('../../../app/api/workbench', () => ({
 }))
 
 vi.mock('../MessageBubble', () => ({
-  default: () => null,
+  default: ({ message }: { message: ChatMessage }) => (
+    <div data-testid="message-bubble">{message.content}</div>
+  ),
 }))
 
 vi.mock('../MessageInput', () => ({
@@ -110,9 +130,14 @@ function makeSession(status: Session['status']): Session {
 
 const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight')
 const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
 const originalResizeObserver = globalThis.ResizeObserver
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
 
 const resizeObserverInstances: MockResizeObserver[] = []
+let animationFrameId = 0
+let animationFrameQueue = new Map<number, FrameRequestCallback>()
 
 class MockResizeObserver {
   private readonly callback: ResizeObserverCallback
@@ -165,6 +190,51 @@ function restoreResizeObserverMock() {
   Reflect.deleteProperty(globalThis, 'ResizeObserver')
 }
 
+function installAnimationFrameMock() {
+  animationFrameId = 0
+  animationFrameQueue = new Map()
+  ;(globalThis as typeof globalThis & {
+    requestAnimationFrame: typeof requestAnimationFrame
+    cancelAnimationFrame: typeof cancelAnimationFrame
+  }).requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    animationFrameId += 1
+    animationFrameQueue.set(animationFrameId, callback)
+    return animationFrameId
+  }) as typeof requestAnimationFrame
+  ;(globalThis as typeof globalThis & {
+    requestAnimationFrame: typeof requestAnimationFrame
+    cancelAnimationFrame: typeof cancelAnimationFrame
+  }).cancelAnimationFrame = ((id: number) => {
+    animationFrameQueue.delete(id)
+  }) as typeof cancelAnimationFrame
+}
+
+function flushAnimationFrames(iterations = 1) {
+  for (let index = 0; index < iterations; index += 1) {
+    const queuedCallbacks = [...animationFrameQueue.values()]
+    animationFrameQueue.clear()
+    if (queuedCallbacks.length === 0) return
+    act(() => {
+      queuedCallbacks.forEach((callback) => callback(performance.now()))
+    })
+  }
+}
+
+function restoreAnimationFrameMock() {
+  animationFrameQueue.clear()
+  if (originalRequestAnimationFrame) {
+    ;(globalThis as typeof globalThis & { requestAnimationFrame: typeof requestAnimationFrame }).requestAnimationFrame = originalRequestAnimationFrame
+  } else {
+    Reflect.deleteProperty(globalThis, 'requestAnimationFrame')
+  }
+
+  if (originalCancelAnimationFrame) {
+    ;(globalThis as typeof globalThis & { cancelAnimationFrame: typeof cancelAnimationFrame }).cancelAnimationFrame = originalCancelAnimationFrame
+  } else {
+    Reflect.deleteProperty(globalThis, 'cancelAnimationFrame')
+  }
+}
+
 function mockConversationContainerMetrics(
   scrollHeight: number | (() => number),
   clientHeight: number | (() => number),
@@ -189,6 +259,18 @@ function mockConversationContainerMetrics(
   })
 }
 
+function mockComposerShellMetrics(height: number | (() => number)) {
+  const readHeight = typeof height === 'function' ? height : () => height
+
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      if (this.getAttribute?.('data-message-input-shell') !== null) return readHeight()
+      return originalOffsetHeight?.get?.call(this) ?? 0
+    },
+  })
+}
+
 function restoreConversationContainerMetrics() {
   if (originalScrollHeight) {
     Object.defineProperty(HTMLElement.prototype, 'scrollHeight', originalScrollHeight)
@@ -197,6 +279,10 @@ function restoreConversationContainerMetrics() {
   if (originalClientHeight) {
     Object.defineProperty(HTMLElement.prototype, 'clientHeight', originalClientHeight)
   }
+
+  if (originalOffsetHeight) {
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', originalOffsetHeight)
+  }
 }
 
 describe('ConversationView session boot', () => {
@@ -204,6 +290,8 @@ describe('ConversationView session boot', () => {
     vi.clearAllMocks()
     initSessionMock.mockReset()
     initSessionMock.mockResolvedValue(undefined)
+    deferredValueState.enabled = false
+    deferredValueState.value = undefined
     storeState.messages = []
     storeState.streaming = false
     storeState.chatError = ''
@@ -214,6 +302,7 @@ describe('ConversationView session boot', () => {
   afterEach(() => {
     restoreConversationContainerMetrics()
     restoreResizeObserverMock()
+    restoreAnimationFrameMock()
   })
 
   it('always calls initProcess on mount to ensure adapter is ready', async () => {
@@ -274,6 +363,7 @@ describe('ConversationView session boot', () => {
 
   it('keeps the latest activity visible when rendered content height grows after mount', async () => {
     installResizeObserverMock()
+    installAnimationFrameMock()
     let scrollHeight = 640
     mockConversationContainerMetrics(() => scrollHeight, 280)
     storeState.messages = [
@@ -290,14 +380,34 @@ describe('ConversationView session boot', () => {
 
     scrollHeight = 860
     triggerResizeObservers()
+    flushAnimationFrames(3)
 
     await waitFor(() => {
       expect(scrollContainer.scrollTop).toBe(580)
     })
   })
 
+  it('renders live streaming messages immediately even when deferred messages lag behind', async () => {
+    deferredValueState.enabled = true
+    deferredValueState.value = [
+      { role: 'assistant', content: 'deferred snapshot' } as ChatMessage,
+    ]
+    storeState.messages = [
+      { role: 'assistant', content: 'live streaming output' } as ChatMessage,
+    ]
+    storeState.streaming = true
+
+    renderWithProviders(<ConversationView session={makeSession('running')} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('live streaming output')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('deferred snapshot')).not.toBeInTheDocument()
+  })
+
   it('does not steal scroll position after the user scrolls away from the latest activity', async () => {
     installResizeObserverMock()
+    installAnimationFrameMock()
     let scrollHeight = 640
     mockConversationContainerMetrics(() => scrollHeight, 280)
     storeState.messages = [
@@ -312,14 +422,45 @@ describe('ConversationView session boot', () => {
       expect(scrollContainer.scrollTop).toBe(360)
     })
 
-    scrollContainer.scrollTop = 40
+    scrollContainer.scrollTop = 320
     fireEvent.scroll(scrollContainer)
 
     scrollHeight = 900
     triggerResizeObservers()
+    flushAnimationFrames(3)
 
     await waitFor(() => {
-      expect(scrollContainer.scrollTop).toBe(40)
+      expect(scrollContainer.scrollTop).toBe(320)
+    })
+  })
+
+  it('keeps the conversation pinned when composer height grows while following the latest activity', async () => {
+    installResizeObserverMock()
+    installAnimationFrameMock()
+    let scrollHeight = 640
+    let composerHeight = 96
+    mockConversationContainerMetrics(() => scrollHeight, 280)
+    mockComposerShellMetrics(() => composerHeight)
+    storeState.messages = [
+      { role: 'user', content: 'hello' } as ChatMessage,
+      { role: 'assistant', content: 'world' } as ChatMessage,
+    ]
+
+    const view = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const scrollContainer = view.container.querySelector('[data-scroll-container]') as HTMLDivElement
+
+    await waitFor(() => {
+      expect(scrollContainer.scrollTop).toBe(360)
+    })
+
+    composerHeight = 180
+    scrollHeight = 724
+    triggerResizeObservers()
+    flushAnimationFrames(3)
+    view.rerender(<ConversationView session={makeSession('running')} />)
+
+    await waitFor(() => {
+      expect(scrollContainer.scrollTop).toBe(444)
     })
   })
 
@@ -366,6 +507,23 @@ describe('ConversationView session boot', () => {
 })
 
 describe('extractFileChanges', () => {
+  it('ignores stale measured sizes when a reused virtualized key points to different content', () => {
+    const layout = buildVirtualLayout({
+      items: ['fresh content'],
+      getItemKey: () => 'session-2-group-0',
+      estimateSize: () => 80,
+      measuredSizes: new Map([
+        ['session-2-group-0', { fingerprint: 'stale-fingerprint', size: 420 } as any],
+      ]),
+      overscanPx: 0,
+      scrollTop: 0,
+      viewportHeight: 400,
+    })
+
+    expect(layout.totalHeight).toBe(80)
+    expect(layout.items[0]?.size).toBe(80)
+  })
+
   it('parses Codex apply_patch payloads into per-file change cards', () => {
     const messages: ConversationMessage[] = [
       {
