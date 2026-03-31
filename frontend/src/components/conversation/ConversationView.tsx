@@ -16,6 +16,7 @@ import StickerCard from './StickerCard'
 import ShellTerminalView from '../terminal/ShellTerminalView'
 import { usePanelStore } from '../../stores/panelStore'
 import type { ConversationMessage, FileChangeInfo } from '../../types/conversationTypes'
+import { useConversationScroll } from './useConversationScroll'
 import { useVirtualizedList } from './useVirtualizedList'
 import { resolveProviderDisplayInfo } from '../../utils/providerDisplay'
 
@@ -748,82 +749,20 @@ export default function ConversationView({ session }: Props) {
   const isChildSession = !!(childToParent?.[session.id] || (session as any).parentSessionId)
 
   const [ready, setReady] = useState(false)
-  const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 })
   const [composerHeight, setComposerHeight] = useState(0)
-  const bottomRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLDivElement | null>(null)
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
-  const scrollMetricsFrameRef = useRef<number | null>(null)
-  const autoScrollFrameRef = useRef<number | null>(null)
-  const isNearBottomRef = useRef(true)
-  const didPinInitialHistoryRef = useRef(false)
-  const prevMsgCountRef = useRef(0)
   const lastEventTimeRef = useRef(0)
-  const forceScrollUntilRef = useRef(0)
-
-  const commitScrollMetrics = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    setScrollMetrics((prev) => {
-      const next = {
-        scrollTop: el.scrollTop,
-        viewportHeight: el.clientHeight,
-      }
-      return prev.scrollTop === next.scrollTop && prev.viewportHeight === next.viewportHeight
-        ? prev
-        : next
-    })
-  }, [])
-
-  const syncScrollMetrics = useCallback(() => {
-    if (typeof requestAnimationFrame !== 'function') {
-      commitScrollMetrics()
-      return
-    }
-    if (scrollMetricsFrameRef.current !== null) return
-    scrollMetricsFrameRef.current = requestAnimationFrame(() => {
-      scrollMetricsFrameRef.current = null
-      commitScrollMetrics()
-    })
-  }, [commitScrollMetrics])
-
-  const cancelPendingAutoScroll = useCallback(() => {
-    if (autoScrollFrameRef.current !== null && typeof cancelAnimationFrame === 'function') {
-      cancelAnimationFrame(autoScrollFrameRef.current)
-      autoScrollFrameRef.current = null
-    }
-  }, [])
-
-  const scrollToBottom = useCallback((afterPaint = false) => {
-    const applyScroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      const nextScrollTop = Math.max(el.scrollHeight - el.clientHeight, 0)
-      if (Math.abs(el.scrollTop - nextScrollTop) > 1) {
-        el.scrollTop = nextScrollTop
-      }
-      isNearBottomRef.current = true
-      commitScrollMetrics()
-    }
-
-    if (afterPaint && typeof requestAnimationFrame === 'function') {
-      if (autoScrollFrameRef.current !== null) return
-      autoScrollFrameRef.current = requestAnimationFrame(() => {
-        autoScrollFrameRef.current = null
-        applyScroll()
-
-        // A follow-up pass keeps the view pinned after virtualized rows settle.
-        autoScrollFrameRef.current = requestAnimationFrame(() => {
-          autoScrollFrameRef.current = null
-          applyScroll()
-        })
-      })
-      return
-    }
-
-    cancelPendingAutoScroll()
-    applyScroll()
-  }, [cancelPendingAutoScroll, commitScrollMetrics])
+  const {
+    bottomRef,
+    contentRef,
+    scrollContainerRef,
+    handleScroll,
+    scrollMetrics,
+  } = useConversationScroll({
+    sessionId: session.id,
+    messagesLength: messages.length,
+    streaming,
+  })
 
   const measureComposerHeight = useCallback(() => {
     const el = composerRef.current
@@ -835,14 +774,6 @@ export default function ConversationView({ session }: Props) {
     const nextHeight = Math.ceil(Math.max(el.offsetHeight, el.getBoundingClientRect().height || 0))
     setComposerHeight((prev) => (prev === nextHeight ? prev : nextHeight))
   }, [])
-
-  const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const threshold = 150
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
-    syncScrollMetrics()
-  }, [syncScrollMetrics])
 
   useIpcEvent<ChatUpdateEvent>('chat:update', (event) => {
     lastEventTimeRef.current = Date.now()
@@ -857,44 +788,6 @@ export default function ConversationView({ session }: Props) {
   useIpcEvent<AgentUpdateEvent>('agent:update', (event) => {
     handleAgentUpdate(event)
   })
-
-  useEffect(() => {
-    return () => {
-      if (scrollMetricsFrameRef.current !== null && typeof cancelAnimationFrame === 'function') {
-        cancelAnimationFrame(scrollMetricsFrameRef.current)
-        scrollMetricsFrameRef.current = null
-      }
-      cancelPendingAutoScroll()
-    }
-  }, [cancelPendingAutoScroll])
-
-  useLayoutEffect(() => {
-    prevMsgCountRef.current = 0
-    isNearBottomRef.current = true
-    didPinInitialHistoryRef.current = false
-    forceScrollUntilRef.current = Date.now() + 3000
-  }, [session.id])
-
-  useLayoutEffect(() => {
-    if (messages.length === 0) return
-    if (didPinInitialHistoryRef.current) return
-    if (Date.now() >= forceScrollUntilRef.current) return
-    didPinInitialHistoryRef.current = true
-    scrollToBottom()
-  }, [messages.length, scrollToBottom, session.id])
-
-  useEffect(() => {
-    commitScrollMetrics()
-
-    const el = scrollContainerRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-
-    const observer = new ResizeObserver(() => {
-      syncScrollMetrics()
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [commitScrollMetrics, session.id, syncScrollMetrics])
 
   // Initialize session on first mount / session switch.
   // IMPORTANT: Do NOT depend on session.status here — status changes frequently
@@ -923,24 +816,6 @@ export default function ConversationView({ session }: Props) {
     }, 3000)
     return () => clearInterval(timer)
   }, [pollChat, session.id])
-
-  useEffect(() => {
-    const previousCount = prevMsgCountRef.current
-    prevMsgCountRef.current = messages.length
-
-    if (!isNearBottomRef.current) return
-
-    if (messages.length > previousCount) {
-      scrollToBottom(true)
-      return
-    }
-
-    // 流式输出期间，消息内容通过 chat:patch (upsert_last) 持续更新，
-    // messages 引用变化但 length 不变，需要持续滚动到底部
-    if (streaming && messages.length > 0) {
-      scrollToBottom(true)
-    }
-  }, [messages, scrollToBottom, streaming])
 
   const shellPanelVisible = usePanelStore((state) => state.shellPanelVisible)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
@@ -1004,12 +879,6 @@ export default function ConversationView({ session }: Props) {
 
     return () => observer.disconnect()
   }, [hasComposer, measureComposerHeight, session.id])
-
-  useLayoutEffect(() => {
-    if (!hasComposer || composerClearance === 0) return
-    if (!isNearBottomRef.current && Date.now() >= forceScrollUntilRef.current) return
-    scrollToBottom(true)
-  }, [composerClearance, hasComposer, scrollToBottom])
 
   const renderMessageGroup = useCallback((group: MessageGroup) => {
     if (group.type === 'tool_group' && group.convMessages) {
@@ -1086,6 +955,7 @@ export default function ConversationView({ session }: Props) {
         style={{ overflowAnchor: 'none', scrollPaddingBottom: `${composerClearance}px` }}
       >
         <div
+          ref={contentRef}
           className="mx-auto flex max-w-4xl flex-col gap-3"
           style={{ paddingBottom: composerClearance > 0 ? `${composerClearance}px` : undefined }}
         >

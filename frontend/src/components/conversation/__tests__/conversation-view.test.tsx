@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage, Session } from '../../../../bindings/allbeingsfuture/internal/models/models'
 import type { ConversationMessage } from '../../../types/conversationTypes'
 import ConversationView, { extractFileChanges } from '../ConversationView'
-import { renderWithProviders, screen, waitFor } from '../../../test/render'
+import { act, fireEvent, renderWithProviders, screen, waitFor } from '../../../test/render'
 
 const initSessionMock = vi.fn().mockResolvedValue(undefined)
 
@@ -110,12 +110,72 @@ function makeSession(status: Session['status']): Session {
 
 const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight')
 const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+const originalResizeObserver = globalThis.ResizeObserver
 
-function mockConversationContainerMetrics(scrollHeight: number, clientHeight: number) {
+const resizeObserverInstances: MockResizeObserver[] = []
+
+class MockResizeObserver {
+  private readonly callback: ResizeObserverCallback
+  private readonly targets = new Set<Element>()
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+    resizeObserverInstances.push(this)
+  }
+
+  observe(target: Element) {
+    this.targets.add(target)
+  }
+
+  unobserve(target: Element) {
+    this.targets.delete(target)
+  }
+
+  disconnect() {
+    this.targets.clear()
+  }
+
+  trigger() {
+    if (this.targets.size === 0) return
+    const entries = [...this.targets].map((target) => ({
+      target,
+      contentRect: target.getBoundingClientRect(),
+    })) as ResizeObserverEntry[]
+    this.callback(entries, this as unknown as ResizeObserver)
+  }
+}
+
+function installResizeObserverMock() {
+  resizeObserverInstances.length = 0
+  ;(globalThis as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
+}
+
+function triggerResizeObservers() {
+  act(() => {
+    resizeObserverInstances.forEach((observer) => observer.trigger())
+  })
+}
+
+function restoreResizeObserverMock() {
+  resizeObserverInstances.length = 0
+  if (originalResizeObserver) {
+    ;(globalThis as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver = originalResizeObserver
+    return
+  }
+  Reflect.deleteProperty(globalThis, 'ResizeObserver')
+}
+
+function mockConversationContainerMetrics(
+  scrollHeight: number | (() => number),
+  clientHeight: number | (() => number),
+) {
+  const readScrollHeight = typeof scrollHeight === 'function' ? scrollHeight : () => scrollHeight
+  const readClientHeight = typeof clientHeight === 'function' ? clientHeight : () => clientHeight
+
   Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
     configurable: true,
     get() {
-      if (this.getAttribute?.('data-scroll-container') !== null) return scrollHeight
+      if (this.getAttribute?.('data-scroll-container') !== null) return readScrollHeight()
       return originalScrollHeight?.get?.call(this) ?? 0
     },
   })
@@ -123,7 +183,7 @@ function mockConversationContainerMetrics(scrollHeight: number, clientHeight: nu
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
     configurable: true,
     get() {
-      if (this.getAttribute?.('data-scroll-container') !== null) return clientHeight
+      if (this.getAttribute?.('data-scroll-container') !== null) return readClientHeight()
       return originalClientHeight?.get?.call(this) ?? 0
     },
   })
@@ -153,6 +213,7 @@ describe('ConversationView session boot', () => {
 
   afterEach(() => {
     restoreConversationContainerMetrics()
+    restoreResizeObserverMock()
   })
 
   it('always calls initProcess on mount to ensure adapter is ready', async () => {
@@ -208,6 +269,57 @@ describe('ConversationView session boot', () => {
 
     await waitFor(() => {
       expect(scrollContainer.scrollTop).toBe(360)
+    })
+  })
+
+  it('keeps the latest activity visible when rendered content height grows after mount', async () => {
+    installResizeObserverMock()
+    let scrollHeight = 640
+    mockConversationContainerMetrics(() => scrollHeight, 280)
+    storeState.messages = [
+      { role: 'user', content: 'hello' } as ChatMessage,
+      { role: 'assistant', content: 'world' } as ChatMessage,
+    ]
+
+    const { container } = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
+
+    await waitFor(() => {
+      expect(scrollContainer.scrollTop).toBe(360)
+    })
+
+    scrollHeight = 860
+    triggerResizeObservers()
+
+    await waitFor(() => {
+      expect(scrollContainer.scrollTop).toBe(580)
+    })
+  })
+
+  it('does not steal scroll position after the user scrolls away from the latest activity', async () => {
+    installResizeObserverMock()
+    let scrollHeight = 640
+    mockConversationContainerMetrics(() => scrollHeight, 280)
+    storeState.messages = [
+      { role: 'user', content: 'hello' } as ChatMessage,
+      { role: 'assistant', content: 'world' } as ChatMessage,
+    ]
+
+    const { container } = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
+
+    await waitFor(() => {
+      expect(scrollContainer.scrollTop).toBe(360)
+    })
+
+    scrollContainer.scrollTop = 40
+    fireEvent.scroll(scrollContainer)
+
+    scrollHeight = 900
+    triggerResizeObservers()
+
+    await waitFor(() => {
+      expect(scrollContainer.scrollTop).toBe(40)
     })
   })
 
