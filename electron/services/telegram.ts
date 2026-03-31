@@ -56,7 +56,6 @@ interface TelegramBotRecord {
 
 interface TelegramBotRuntimeState {
   offset: number
-  primed: boolean
   lastError: string
   lastPolledAt: number
 }
@@ -77,6 +76,7 @@ interface TelegramUser {
 
 interface TelegramMessage {
   message_id?: number
+  date?: number
   text?: string
   chat?: TelegramChat
   from?: TelegramUser
@@ -89,10 +89,13 @@ interface TelegramUpdate {
 }
 
 type ChatBindings = Record<string, string>
+type TelegramUpdateOffsets = Record<string, number>
 
 const SETTINGS_KEY_CHAT_BINDINGS = 'telegram_chat_bindings'
+const SETTINGS_KEY_UPDATE_OFFSETS = 'telegram_update_offsets'
 const DEFAULT_POLLING_INTERVAL_MS = 1500
 const MAX_TELEGRAM_MESSAGE_LEN = 3900
+const STARTUP_BACKLOG_GRACE_MS = 10 * 60 * 1000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -138,6 +141,8 @@ export class TelegramService {
   private aiProviders: AIProvider[] = []
   private chatBindings: ChatBindings = {}
   private runtimeStates = new Map<string, TelegramBotRuntimeState>()
+  private updateOffsets: TelegramUpdateOffsets = {}
+  private runtimeStartedAt = Date.now()
 
   constructor(
     private db: Database,
@@ -148,6 +153,7 @@ export class TelegramService {
   ) {
     this.loadConfig()
     this.loadChatBindings()
+    this.loadUpdateOffsets()
   }
 
   private loadConfig(): void {
@@ -179,6 +185,22 @@ export class TelegramService {
     } catch {}
   }
 
+  private loadUpdateOffsets(): void {
+    try {
+      const row = this.db.raw.prepare('SELECT value FROM settings WHERE key = ?').get(SETTINGS_KEY_UPDATE_OFFSETS) as any
+      if (row?.value) {
+        const parsed = JSON.parse(row.value)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          this.updateOffsets = Object.fromEntries(
+            Object.entries(parsed as Record<string, unknown>)
+              .filter(([, value]) => Number.isFinite(Number(value)))
+              .map(([key, value]) => [key, Number(value)]),
+          )
+        }
+      }
+    } catch {}
+  }
+
   private saveConfig(): void {
     const save = (key: string, value: any) => {
       const json = JSON.stringify(value)
@@ -193,6 +215,12 @@ export class TelegramService {
     const json = JSON.stringify(this.chatBindings)
     this.db.raw.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?')
       .run(SETTINGS_KEY_CHAT_BINDINGS, json, json)
+  }
+
+  private saveUpdateOffsets(): void {
+    const json = JSON.stringify(this.updateOffsets)
+    this.db.raw.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?')
+      .run(SETTINGS_KEY_UPDATE_OFFSETS, json, json)
   }
 
   private getBindingKey(botId: string, chatId: string): string {
@@ -237,8 +265,7 @@ export class TelegramService {
     const existing = this.runtimeStates.get(botId)
     if (existing) return existing
     const created: TelegramBotRuntimeState = {
-      offset: 0,
-      primed: false,
+      offset: Number(this.updateOffsets[botId] || 0),
       lastError: '',
       lastPolledAt: 0,
     }
@@ -269,6 +296,7 @@ export class TelegramService {
       for (const botId of [...this.runtimeStates.keys()]) {
         if (!activeIds.has(botId)) {
           this.runtimeStates.delete(botId)
+          delete this.updateOffsets[botId]
         }
       }
 
@@ -289,7 +317,9 @@ export class TelegramService {
     if (!token) return
 
     const state = this.ensureRuntimeState(bot.id)
+    const hadStoredOffset = Number(this.updateOffsets[bot.id] || 0) > 0
     try {
+      appLog('debug', `Polling Telegram bot "${bot.name}" with offset=${state.offset}`, 'telegram')
       const updates = await this.callTelegramApi<TelegramUpdate[]>(token, 'getUpdates', {
         offset: state.offset || undefined,
         timeout: 0,
@@ -299,22 +329,21 @@ export class TelegramService {
       state.lastPolledAt = Date.now()
 
       if (!Array.isArray(updates) || updates.length === 0) {
-        state.primed = true
         return
       }
 
       const lastOffset = updates[updates.length - 1]?.update_id
       if (typeof lastOffset === 'number') {
         state.offset = lastOffset + 1
-      }
-
-      // Prime on first successful poll to avoid replaying historical backlog.
-      if (!state.primed) {
-        state.primed = true
-        return
+        this.updateOffsets[bot.id] = state.offset
+        this.saveUpdateOffsets()
       }
 
       for (const update of updates) {
+        if (this.shouldSkipBacklog(hadStoredOffset, update)) {
+          appLog('debug', `Skipping stale Telegram update ${update.update_id} for "${bot.name}"`, 'telegram')
+          continue
+        }
         await this.handleUpdate(bot, update)
       }
       state.lastError = ''
@@ -323,6 +352,20 @@ export class TelegramService {
       state.lastError = message
       appLog('warn', `Telegram bot "${bot.name}" polling failed: ${message}`, 'telegram')
     }
+  }
+
+  private shouldSkipBacklog(hasStoredOffset: boolean, update: TelegramUpdate): boolean {
+    if (hasStoredOffset) {
+      return false
+    }
+
+    const message = update.message || update.edited_message
+    const date = Number(message?.date || 0) * 1000
+    if (!date) {
+      return true
+    }
+
+    return date < this.runtimeStartedAt - STARTUP_BACKLOG_GRACE_MS
   }
 
   private async callTelegramApi<TResult>(
@@ -666,8 +709,9 @@ export class TelegramService {
   start(): { success: boolean } {
     if (this.running) return { success: true }
     this.running = true
+    this.runtimeStartedAt = Date.now()
     this.scheduleNextPoll(0)
-    appLog('info', 'Telegram runtime started', 'telegram')
+    appLog('info', `Telegram runtime started with ${this.getEnabledTelegramBots().length} enabled bot(s)`, 'telegram')
     return { success: true }
   }
 
