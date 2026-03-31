@@ -11,6 +11,8 @@ import TimelinePanel from '../panels/TimelinePanel'
 import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
 import ToolsCatalogPanel from '../tools/ToolsCatalogPanel'
+import SkillsTab from '../settings/SkillsTab'
+import McpTab from '../settings/McpTab'
 
 export default function Sidebar() {
   const activePanelLeft = usePanelStore(s => s.activePanelLeft)
@@ -29,9 +31,9 @@ export default function Sidebar() {
     case 'stats':
       return <StatsPanel />
     case 'mcp':
-      return <ComingSoon label="MCP 工具" />
+      return <McpTab />
     case 'skills':
-      return <ComingSoon label="技能库" />
+      return <SkillsTab />
     case 'tutorial':
       return <TutorialSidebarView />
     case 'sessions':

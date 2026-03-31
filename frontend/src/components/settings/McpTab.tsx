@@ -320,7 +320,7 @@ export default function McpTab() {
         <div>
           <h4 className="text-sm font-medium">MCP 服务</h4>
           <p className="mt-1 text-xs text-gray-500">
-            当前列表来自项目内的 <code>mcps/</code> 目录和数据库状态。启用后的服务会在新会话启动时自动注入 Provider 配置。
+            当前列表来自应用内嵌的 MCP 资源和数据库状态。启用后的服务会在新会话启动时自动注入 Provider 配置。
           </p>
           <p className="mt-1 text-xs text-gray-500">
             现在可以直接查看 MCP 说明、命令解析结果和本地就绪检查，不再只是静态占位列表。
@@ -373,7 +373,7 @@ export default function McpTab() {
           <Server size={40} className="mx-auto mb-3 text-gray-600" />
           <p className="text-sm text-gray-400">当前分类下没有可用 MCP 服务</p>
           <p className="mt-1 text-xs text-gray-500">
-            可以直接往项目 <code>mcps/</code> 目录放置 AllBeingsFuture 风格的服务目录，刷新后会自动同步。
+            更新内嵌 MCP 资源后点击刷新即可重新同步。
           </p>
         </div>
       ) : null}

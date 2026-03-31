@@ -5,7 +5,7 @@
  * 按 18 大类别分组，支持搜索过滤和折叠展开。
  */
 
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Search,
   ChevronRight,
@@ -29,8 +29,10 @@ import {
   Wrench,
   Terminal,
 } from 'lucide-react'
-import { TOOL_CATEGORIES, TOTAL_TOOL_COUNT, TOTAL_CATEGORY_COUNT } from './toolsData'
+import { TOOL_CATEGORIES } from './toolsData'
 import type { ToolCategory } from './toolsData'
+import { useSkillStore } from '../../stores/skillStore'
+import { useMcpStore } from '../../stores/mcpStore'
 
 /** lucide icon name → component 映射 */
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -62,6 +64,57 @@ function CategoryIcon({ name, className }: { name: string; className?: string })
 export default function ToolsCatalogPanel() {
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const skills = useSkillStore(state => state.skills)
+  const skillsLoaded = useSkillStore(state => state.loaded)
+  const loadSkills = useSkillStore(state => state.load)
+  const servers = useMcpStore(state => state.servers)
+  const mcpLoaded = useMcpStore(state => state.loaded)
+  const loadMcp = useMcpStore(state => state.load)
+
+  useEffect(() => {
+    if (!skillsLoaded) {
+      void loadSkills()
+    }
+  }, [loadSkills, skillsLoaded])
+
+  useEffect(() => {
+    if (!mcpLoaded) {
+      void loadMcp()
+    }
+  }, [loadMcp, mcpLoaded])
+
+  const runtimeCategories = useMemo(() => TOOL_CATEGORIES.map((category) => {
+    if (category.id === 'skills') {
+      const enabledSkills = skills.filter(skill => skill.enabled)
+      return {
+        ...category,
+        tools: enabledSkills.length > 0
+          ? enabledSkills.map(skill => ({
+            name: skill.slashCommand ? `/${skill.slashCommand}` : skill.name,
+            description: skill.description || skill.path || '本地技能',
+          }))
+          : [{ name: '暂无已启用技能', description: '启用技能后会在这里显示真实可用项' }],
+      }
+    }
+
+    if (category.id === 'mcp') {
+      const enabledServers = servers.filter(server => server.enabled)
+      return {
+        ...category,
+        tools: enabledServers.length > 0
+          ? enabledServers.map(server => ({
+            name: server.name,
+            description: server.description || [server.command, ...server.args].filter(Boolean).join(' '),
+          }))
+          : [{ name: '暂无已启用 MCP', description: '启用 MCP 服务后会在这里显示真实可用项' }],
+      }
+    }
+
+    return category
+  }), [servers, skills])
+
+  const totalToolCount = runtimeCategories.reduce((sum, category) => sum + category.tools.length, 0)
+  const totalCategoryCount = runtimeCategories.length
 
   const toggleCategory = (id: string) => {
     setExpanded(prev => {
@@ -73,7 +126,7 @@ export default function ToolsCatalogPanel() {
   }
 
   const expandAll = () => {
-    setExpanded(new Set(TOOL_CATEGORIES.map(c => c.id)))
+    setExpanded(new Set(runtimeCategories.map(c => c.id)))
   }
 
   const collapseAll = () => {
@@ -82,10 +135,10 @@ export default function ToolsCatalogPanel() {
 
   /** 搜索过滤 */
   const filtered = useMemo(() => {
-    if (!query.trim()) return TOOL_CATEGORIES
+    if (!query.trim()) return runtimeCategories
 
     const q = query.toLowerCase()
-    return TOOL_CATEGORIES
+    return runtimeCategories
       .map(cat => ({
         ...cat,
         tools: cat.tools.filter(
@@ -97,7 +150,7 @@ export default function ToolsCatalogPanel() {
         cat.label.toLowerCase().includes(q) ||
         cat.labelEn.toLowerCase().includes(q)
       )
-  }, [query])
+  }, [query, runtimeCategories])
 
   const filteredToolCount = filtered.reduce((sum, cat) => sum + cat.tools.length, 0)
 
@@ -117,9 +170,9 @@ export default function ToolsCatalogPanel() {
               内置工具
             </span>
           </div>
-          <span className="text-[10px] text-text-muted tabular-nums">
-            {filteredToolCount} / {TOTAL_TOOL_COUNT} 款
-          </span>
+            <span className="text-[10px] text-text-muted tabular-nums">
+            {filteredToolCount} / {totalToolCount} 款
+            </span>
         </div>
 
         {/* 搜索框 */}
@@ -164,13 +217,13 @@ export default function ToolsCatalogPanel() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Terminal className="w-3.5 h-3.5 text-accent-blue" />
-            <span className="text-xs text-text-secondary font-medium">{TOTAL_TOOL_COUNT}</span>
+            <span className="text-xs text-text-secondary font-medium">{totalToolCount}</span>
             <span className="text-[10px] text-text-muted">款工具</span>
           </div>
           <div className="w-px h-3 bg-border" />
           <div className="flex items-center gap-1.5">
             <Package className="w-3.5 h-3.5 text-accent-green" />
-            <span className="text-xs text-text-secondary font-medium">{TOTAL_CATEGORY_COUNT}</span>
+            <span className="text-xs text-text-secondary font-medium">{totalCategoryCount}</span>
             <span className="text-[10px] text-text-muted">个类别</span>
           </div>
         </div>

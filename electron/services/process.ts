@@ -9,10 +9,13 @@
 import path from 'node:path'
 import { app, type BrowserWindow } from 'electron'
 import type { Database } from './database.js'
+import type { MCPService } from './mcp.js'
 import type { SessionService } from './session.js'
+import type { SkillService } from './skill.js'
 import type { ProviderService } from './provider.js'
 import type { SettingsService } from './settings.js'
 import type { BridgeManager } from '../bridge/bridge.js'
+import { ProviderCapabilityRegistry } from '../bridge/ProviderCapabilityRegistry.js'
 import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
 import { MessageScheduler } from './message-scheduler.js'
@@ -61,6 +64,8 @@ export class ProcessService {
     private sessionService: SessionService,
     private providerService: ProviderService,
     private settingsService: SettingsService,
+    private mcpService: MCPService,
+    private skillService: SkillService,
     private bridgeManager: BridgeManager,
     private getWindow: () => BrowserWindow | null,
   ) {
@@ -146,7 +151,7 @@ export class ProcessService {
         return path.join(process.resourcesPath, 'mcps', 'agent-control', 'server.mjs')
       }
     } catch {}
-    return path.join(process.cwd(), 'mcps', 'agent-control', 'server.mjs')
+    return path.join(app.getAppPath(), 'electron', 'embedded-assets', 'mcps', 'agent-control', 'server.mjs')
   }
 
   private getOrCreateState(sessionId: string): SessionState {
@@ -258,6 +263,51 @@ export class ProcessService {
     }
   }
 
+  private buildRuntimeCapabilitiesPrompt(providerId: string): string {
+    const sections: string[] = []
+    const enabledSkills = this.skillService.getEnabledSkillSummaries()
+    const enabledMcps = this.mcpService.getEnabledServerSummaries()
+
+    if (enabledSkills.length > 0) {
+      sections.push([
+        '## 本地技能',
+        '应用已经从 skills/ 目录加载了一批本地技能。',
+        '当用户输入以 / 开头的命令时，宿主会在发送前自动展开匹配的技能提示词。',
+        '当前启用的技能包括：',
+        ...enabledSkills.map(skill => `- /${skill.slashCommand || skill.name}: ${skill.description || skill.name}`),
+      ].join('\n'))
+    }
+
+    if (enabledMcps.length > 0) {
+      const supportsNativeMcp = ProviderCapabilityRegistry.supportsNativeMcp(providerId)
+      sections.push([
+        '## MCP 服务',
+        supportsNativeMcp
+          ? '当前会话已经注入以下已启用的 MCP 服务，适合时请直接调用，不要假设未列出的 MCP 可用。'
+          : '应用里安装了以下 MCP 服务，但当前 Provider 不支持原生 MCP 调用，这里仅作为背景信息，不要把它们当成可直接调用的工具。',
+        ...enabledMcps.map(server => `- ${server.serverIdentifier}: ${server.description || server.name}`),
+      ].join('\n'))
+    }
+
+    return sections.join('\n\n').trim()
+  }
+
+  private expandSkillCommand(message: string): string {
+    const match = this.skillService.matchCommand(message)
+    if (!match?.matched || !match.skill) {
+      return message
+    }
+
+    const result = this.skillService.execute(match.skill.id, match.remainingInput || '')
+    if (!result?.success) {
+      throw new Error(result?.error || `Failed to execute skill: ${match.skill.name}`)
+    }
+
+    return typeof result.prompt === 'string' && result.prompt.trim()
+      ? result.prompt
+      : message
+  }
+
   async initSession(sessionId: string): Promise<void> {
     const session = this.sessionService.getById(sessionId)
     if (!session) throw new Error(`Session not found: ${sessionId}`)
@@ -319,6 +369,21 @@ export class ProcessService {
       envOverrides: provider.envOverrides ? this.parseEnvOverrides(provider.envOverrides) : undefined,
     }
 
+    if (ProviderCapabilityRegistry.supportsNativeMcp(provider.id)) {
+      const enabledMcpServers = this.mcpService.getEnabledServerConfigs()
+      if (Object.keys(enabledMcpServers).length > 0) {
+        config.mcpServers = enabledMcpServers
+      }
+    }
+
+    const runtimeCapabilitiesPrompt = this.buildRuntimeCapabilitiesPrompt(provider.id)
+    if (runtimeCapabilitiesPrompt) {
+      const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
+      config.appendSystemPrompt = existingPrompt
+        ? `${existingPrompt}\n\n${runtimeCapabilitiesPrompt}`
+        : runtimeCapabilitiesPrompt
+    }
+
     if (session.conversationId) {
       config.resumeSessionId = session.conversationId
     }
@@ -342,6 +407,7 @@ export class ProcessService {
           try {
             const apiPort = await this.ensureAgentApi()
             config.mcpServers = {
+              ...((config.mcpServers as Record<string, unknown>) || {}),
               'agent-control': {
                 command: 'node',
                 args: [this.getAgentControlMcpPath()],
@@ -862,8 +928,9 @@ export class ProcessService {
         appLog('info', `Auto-initializing session ${sessionId}`, 'process')
         await this.initSession(sessionId)
       }
+      const outboundMessage = this.expandSkillCommand(message)
       appLog('info', `Sending message to AI (${message.length} chars)`, 'process')
-      await this.bridgeManager.sendMessage(sessionId, message)
+      await this.bridgeManager.sendMessage(sessionId, outboundMessage)
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err)
       appLog('error', `sendMessage failed: ${errMsg}`, 'process')
@@ -917,7 +984,8 @@ export class ProcessService {
       if (!this.bridgeManager.isSessionActive(sessionId)) {
         await this.initSession(sessionId)
       }
-      await this.bridgeManager.sendMessage(sessionId, message, images)
+      const outboundMessage = this.expandSkillCommand(message)
+      await this.bridgeManager.sendMessage(sessionId, outboundMessage, images)
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err)
       state.streaming = false

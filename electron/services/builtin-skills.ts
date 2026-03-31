@@ -27,6 +27,16 @@ export interface SkillDef {
   version: string
   author: string
   tags: string[]
+  isEnabled?: boolean
+  system?: boolean
+  toolName?: string
+  handler?: string
+  path?: string
+  rootDir?: string
+  scripts?: string[]
+  references?: string[]
+  instructions?: string
+  config?: Record<string, unknown>
 }
 
 export const BUILTIN_SKILLS: SkillDef[] = [

@@ -180,7 +180,18 @@ export function registerAllIpcHandlers(
   const sessionService = new SessionService(db)
   const providerService = new ProviderService(db)
   const settingsService = new SettingsService(db)
-  const processService = new ProcessService(db, sessionService, providerService, settingsService, bridgeManager, getWindow)
+  const mcpService = new MCPService(db)
+  const skillService = new SkillService(db)
+  const processService = new ProcessService(
+    db,
+    sessionService,
+    providerService,
+    settingsService,
+    mcpService,
+    skillService,
+    bridgeManager,
+    getWindow,
+  )
   const taskService = new TaskService(db)
   const gitService = new GitService()
   const ptyService = new PTYService(getWindow)
@@ -188,8 +199,6 @@ export function registerAllIpcHandlers(
   const workflowService = new WorkflowService(db)
   const missionService = new MissionService(db)
   const teamService = new TeamService(db)
-  const mcpService = new MCPService(db)
-  const skillService = new SkillService(db)
   const authService = new AuthService(db)
   const updateService = new UpdateService()
   const systemSettingsService = new SystemSettingsService(db)
