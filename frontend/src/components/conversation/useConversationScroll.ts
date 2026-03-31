@@ -4,6 +4,7 @@ interface UseConversationScrollOptions {
   sessionId: string
   messagesLength: number
   streaming: boolean
+  bottomOffset: number
 }
 
 interface ScrollMetrics {
@@ -13,6 +14,8 @@ interface ScrollMetrics {
 
 const FORCE_SCROLL_WINDOW_MS = 3000
 const NEAR_BOTTOM_THRESHOLD_PX = 150
+const USER_DETACH_THRESHOLD_PX = 32
+const FOLLOW_UP_SCROLL_FRAMES = 2
 
 /**
  * 统一管理会话视图的滚动行为。
@@ -26,6 +29,7 @@ export function useConversationScroll({
   sessionId,
   messagesLength,
   streaming,
+  bottomOffset,
 }: UseConversationScrollOptions) {
   const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>({ scrollTop: 0, viewportHeight: 0 })
 
@@ -35,9 +39,11 @@ export function useConversationScroll({
   const scrollMetricsFrameRef = useRef<number | null>(null)
   const autoScrollFrameRef = useRef<number | null>(null)
   const isNearBottomRef = useRef(true)
+  const userDetachedRef = useRef(false)
   const didPinInitialHistoryRef = useRef(false)
   const prevMsgCountRef = useRef(0)
   const forceScrollUntilRef = useRef(0)
+  const lastScrollTopRef = useRef(0)
 
   const commitScrollMetrics = useCallback(() => {
     const el = scrollContainerRef.current
@@ -75,49 +81,72 @@ export function useConversationScroll({
   }, [])
 
   const shouldStickToBottom = useCallback(() => (
-    isNearBottomRef.current || Date.now() < forceScrollUntilRef.current
+    !userDetachedRef.current || Date.now() < forceScrollUntilRef.current
   ), [])
 
-  const scrollToBottom = useCallback((afterPaint = false) => {
-    const applyScroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
+  const applyScrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
 
-      const nextScrollTop = Math.max(el.scrollHeight - el.clientHeight, 0)
-      if (Math.abs(el.scrollTop - nextScrollTop) > 1) {
-        el.scrollTop = nextScrollTop
-      }
-
-      isNearBottomRef.current = true
-      commitScrollMetrics()
+    const nextScrollTop = Math.max(el.scrollHeight - el.clientHeight, 0)
+    if (Math.abs(el.scrollTop - nextScrollTop) > 1) {
+      el.scrollTop = nextScrollTop
     }
 
-    if (afterPaint && typeof requestAnimationFrame === 'function') {
-      if (autoScrollFrameRef.current !== null) return
-      autoScrollFrameRef.current = requestAnimationFrame(() => {
-        autoScrollFrameRef.current = null
-        applyScroll()
+    lastScrollTopRef.current = nextScrollTop
+    isNearBottomRef.current = true
+    userDetachedRef.current = false
+    commitScrollMetrics()
+  }, [commitScrollMetrics])
 
-        // 第二帧兜底，处理虚拟列表二次测量和流式内容补渲染。
-        autoScrollFrameRef.current = requestAnimationFrame(() => {
-          autoScrollFrameRef.current = null
-          applyScroll()
-        })
-      })
+  const queueFollowUpAutoScroll = useCallback(() => {
+    if (typeof requestAnimationFrame !== 'function') return
+    if (autoScrollFrameRef.current !== null) return
+
+    let remainingFrames = FOLLOW_UP_SCROLL_FRAMES
+    const tick = () => {
+      autoScrollFrameRef.current = null
+      applyScrollToBottom()
+      remainingFrames -= 1
+      if (remainingFrames <= 0) return
+      autoScrollFrameRef.current = requestAnimationFrame(tick)
+    }
+
+    autoScrollFrameRef.current = requestAnimationFrame(tick)
+  }, [applyScrollToBottom])
+
+  const scrollToBottom = useCallback((afterPaint = false) => {
+    if (!afterPaint) {
+      cancelPendingAutoScroll()
+      applyScrollToBottom()
       return
     }
 
-    cancelPendingAutoScroll()
-    applyScroll()
-  }, [cancelPendingAutoScroll, commitScrollMetrics])
+    // 先立刻纠正一次，再保留后续帧兜底，避免流式内容增长时出现可见断档。
+    applyScrollToBottom()
+    queueFollowUpAutoScroll()
+  }, [applyScrollToBottom, cancelPendingAutoScroll, queueFollowUpAutoScroll])
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
 
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_THRESHOLD_PX
+    const distanceFromBottom = Math.max(el.scrollHeight - el.scrollTop - el.clientHeight, 0)
+    const nextIsNearBottom = distanceFromBottom < NEAR_BOTTOM_THRESHOLD_PX
+    const scrolledUp = el.scrollTop < lastScrollTopRef.current - 1
+
+    if (scrolledUp && distanceFromBottom > USER_DETACH_THRESHOLD_PX) {
+      userDetachedRef.current = true
+      forceScrollUntilRef.current = 0
+      cancelPendingAutoScroll()
+    } else if (nextIsNearBottom) {
+      userDetachedRef.current = false
+    }
+
+    isNearBottomRef.current = nextIsNearBottom
+    lastScrollTopRef.current = el.scrollTop
     syncScrollMetrics()
-  }, [syncScrollMetrics])
+  }, [cancelPendingAutoScroll, syncScrollMetrics])
 
   useEffect(() => {
     return () => {
@@ -132,8 +161,10 @@ export function useConversationScroll({
   useLayoutEffect(() => {
     prevMsgCountRef.current = 0
     isNearBottomRef.current = true
+    userDetachedRef.current = false
     didPinInitialHistoryRef.current = false
     forceScrollUntilRef.current = Date.now() + FORCE_SCROLL_WINDOW_MS
+    lastScrollTopRef.current = 0
   }, [sessionId])
 
   useLayoutEffect(() => {
@@ -153,10 +184,12 @@ export function useConversationScroll({
 
     const observer = new ResizeObserver(() => {
       syncScrollMetrics()
+      if (!shouldStickToBottom()) return
+      scrollToBottom(true)
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [commitScrollMetrics, sessionId, syncScrollMetrics])
+  }, [commitScrollMetrics, scrollToBottom, sessionId, shouldStickToBottom, syncScrollMetrics])
 
   useEffect(() => {
     const contentEl = contentRef.current
@@ -170,6 +203,12 @@ export function useConversationScroll({
     observer.observe(contentEl)
     return () => observer.disconnect()
   }, [scrollToBottom, sessionId, shouldStickToBottom, syncScrollMetrics])
+
+  useLayoutEffect(() => {
+    syncScrollMetrics()
+    if (!shouldStickToBottom()) return
+    scrollToBottom(true)
+  }, [bottomOffset, scrollToBottom, shouldStickToBottom, syncScrollMetrics])
 
   useEffect(() => {
     const previousCount = prevMsgCountRef.current
