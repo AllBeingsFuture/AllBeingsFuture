@@ -42,3 +42,6 @@ desktop.ini
 
 # ABF worktree isolation
 .abf-worktrees/
+
+# Local temp scripts
+tmp-update-cache.js
