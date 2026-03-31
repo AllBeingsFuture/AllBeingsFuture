@@ -5,13 +5,16 @@
  * - Poll enabled Telegram bots configured in Bot 管理
  * - Restrict interaction to the configured chat_id / allowed users
  * - Support basic remote-control commands
- * - Forward plain text to a bound ABF session and relay assistant replies
+ * - Forward text / images / voice input to a bound ABF session
+ * - Relay assistant replies back to Telegram with streaming preview edits
  */
 
+import { Buffer } from 'node:buffer'
+import path from 'node:path'
 import type { Database } from './database.js'
 import type { BotService } from './bot.js'
 import type { Session, SessionService } from './session.js'
-import type { ProviderService } from './provider.js'
+import type { AIProvider as DesktopAIProvider, ProviderService } from './provider.js'
 import type { ProcessService } from './process.js'
 import type { ChatMessage } from './process-types.js'
 import { appLog } from './log.js'
@@ -32,8 +35,11 @@ interface AllowedUser {
 interface AIProvider {
   id: string
   name: string
+  apiEndpoint?: string
   apiKey: string
   model: string
+  maxTokens?: number
+  priority?: number
   [key: string]: any
 }
 
@@ -79,6 +85,35 @@ interface TelegramMessage {
   message_id?: number
   date?: number
   text?: string
+  caption?: string
+  media_group_id?: string
+  photo?: Array<{
+    file_id?: string
+    file_size?: number
+    width?: number
+    height?: number
+  }>
+  voice?: {
+    file_id?: string
+    file_size?: number
+    duration?: number
+    mime_type?: string
+  }
+  audio?: {
+    file_id?: string
+    file_size?: number
+    duration?: number
+    mime_type?: string
+    file_name?: string
+    performer?: string
+    title?: string
+  }
+  document?: {
+    file_id?: string
+    file_size?: number
+    mime_type?: string
+    file_name?: string
+  }
   chat?: TelegramChat
   from?: TelegramUser
 }
@@ -89,14 +124,33 @@ interface TelegramUpdate {
   edited_message?: TelegramMessage
 }
 
+interface TelegramApiFile {
+  file_id?: string
+  file_unique_id?: string
+  file_path?: string
+  file_size?: number
+}
+
+interface TelegramSentMessage {
+  message_id?: number
+}
+
 type ChatBindings = Record<string, string>
 type TelegramUpdateOffsets = Record<string, number>
 type TelegramReplyMarkup = Record<string, unknown>
+type TelegramTranscriptionProvider = {
+  apiEndpoint: string
+  apiKey: string
+  model: string
+  source: string
+}
 
 const SETTINGS_KEY_CHAT_BINDINGS = 'telegram_chat_bindings'
 const SETTINGS_KEY_UPDATE_OFFSETS = 'telegram_update_offsets'
 const DEFAULT_POLLING_INTERVAL_MS = 1500
 const MAX_TELEGRAM_MESSAGE_LEN = 3900
+const STREAM_PREVIEW_UPDATE_INTERVAL_MS = 1200
+const STREAM_PREVIEW_MAX_LEN = 3600
 const STARTUP_BACKLOG_GRACE_MS = 10 * 60 * 1000
 
 const TELEGRAM_COMMAND_DEFINITIONS = [
@@ -105,13 +159,14 @@ const TELEGRAM_COMMAND_DEFINITIONS = [
   { command: 'dock_telegram', description: '绑定当前聊天到会话' },
   { command: 'undock', description: '解除当前绑定' },
   { command: 'status', description: '查看运行状态' },
+  { command: 'stop', description: '停止当前会话输出' },
 ] as const
 
 const TELEGRAM_MENU_KEYBOARD: TelegramReplyMarkup = {
   keyboard: [
     [{ text: '帮助' }, { text: '会话列表' }],
     [{ text: '绑定会话' }, { text: '解除绑定' }],
-    [{ text: '状态' }],
+    [{ text: '状态' }, { text: '停止' }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -124,6 +179,7 @@ const TELEGRAM_COMMAND_ALIASES: Array<{ pattern: RegExp; resolver: (match: RegEx
   { pattern: /^\/?绑定会话(?:\s+(.+))?$/i, resolver: (match) => `/dock_telegram${match[1] ? ` ${match[1].trim()}` : ''}` },
   { pattern: /^\/?解除绑定$/i, resolver: () => '/undock' },
   { pattern: /^\/?状态$/i, resolver: () => '/status' },
+  { pattern: /^\/?停止$/i, resolver: () => '/stop' },
 ]
 
 function sleep(ms: number): Promise<void> {
@@ -140,6 +196,120 @@ function escHtml(value: string): string {
 function stringifyId(value: string | number | undefined | null): string {
   if (value === undefined || value === null) return ''
   return String(value).trim()
+}
+
+function parseEnvOverrides(envStr: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  try {
+    const parsed = JSON.parse(envStr)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [key, String(value ?? '')]),
+      )
+    }
+  } catch {}
+
+  for (const line of envStr.split('\n')) {
+    const idx = line.indexOf('=')
+    if (idx > 0) {
+      result[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+    }
+  }
+
+  return result
+}
+
+function normalizeTelegramApiBase(raw?: string): string {
+  const trimmed = String(raw || '').trim()
+  if (!trimmed) return 'https://api.telegram.org'
+  return trimmed.replace(/\/+$/, '')
+}
+
+function inferMimeTypeFromFileName(fileName: string, fallback = 'application/octet-stream'): string {
+  const ext = path.extname(fileName).toLowerCase()
+  switch (ext) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.png':
+      return 'image/png'
+    case '.gif':
+      return 'image/gif'
+    case '.webp':
+      return 'image/webp'
+    case '.bmp':
+      return 'image/bmp'
+    case '.ogg':
+    case '.oga':
+      return 'audio/ogg'
+    case '.mp3':
+      return 'audio/mpeg'
+    case '.m4a':
+      return 'audio/mp4'
+    case '.wav':
+      return 'audio/wav'
+    case '.webm':
+      return 'audio/webm'
+    default:
+      return fallback
+  }
+}
+
+function hasImagePayload(message: TelegramMessage): boolean {
+  return Boolean(
+    (Array.isArray(message.photo) && message.photo.length > 0)
+    || (message.document?.file_id && String(message.document.mime_type || '').startsWith('image/')),
+  )
+}
+
+function hasAudioPayload(message: TelegramMessage): boolean {
+  if (message.voice?.file_id || message.audio?.file_id) return true
+  if (!message.document?.file_id) return false
+  const mimeType = String(message.document.mime_type || '').toLowerCase()
+  return mimeType.startsWith('audio/')
+    || mimeType === 'application/ogg'
+    || /\.(ogg|oga|mp3|m4a|wav|webm)$/i.test(String(message.document.file_name || ''))
+}
+
+function resolvePreferredPhotoFileId(message: TelegramMessage): string {
+  if (!Array.isArray(message.photo) || message.photo.length === 0) return ''
+  const sorted = [...message.photo].sort((left, right) => Number(right.file_size || 0) - Number(left.file_size || 0))
+  return sorted[0]?.file_id?.trim() || ''
+}
+
+function buildStreamPreviewText(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  const suffix = '\n\n<i>流式输出中...</i>'
+  const available = Math.max(200, STREAM_PREVIEW_MAX_LEN - suffix.length)
+  const body = trimmed.length > available
+    ? `${trimmed.slice(0, available - 1).trimEnd()}…`
+    : trimmed
+  return `${body}${suffix}`
+}
+
+function normalizeTranscriptionEndpoint(rawEndpoint: string): string {
+  const trimmed = rawEndpoint.trim()
+  if (!trimmed) return ''
+
+  try {
+    const url = new URL(trimmed)
+    const normalizedPath = url.pathname.replace(/\/+$/, '')
+    if (/\/audio\/transcriptions$/i.test(normalizedPath)) {
+      return url.toString()
+    }
+    if (!normalizedPath || normalizedPath === '/') {
+      url.pathname = '/v1/audio/transcriptions'
+      return url.toString()
+    }
+    url.pathname = `${normalizedPath}/audio/transcriptions`
+    return url.toString()
+  } catch {
+    if (/\/audio\/transcriptions\/?$/i.test(trimmed)) {
+      return trimmed
+    }
+    return `${trimmed.replace(/\/+$/, '')}/audio/transcriptions`
+  }
 }
 
 function shortenSessionId(sessionId: string): string {
@@ -450,19 +620,238 @@ export class TelegramService {
     text: string,
     replyToMessageId?: number,
     replyMarkup?: TelegramReplyMarkup,
-  ): Promise<void> {
+  ): Promise<number[]> {
     const trimmed = text.trim()
-    if (!trimmed) return
+    if (!trimmed) return []
 
     const chunks = this.chunkTelegramText(trimmed)
+    return this.sendTelegramChunks(token, chatId, chunks, replyToMessageId, replyMarkup)
+  }
+
+  private async sendTelegramChunks(
+    token: string,
+    chatId: string,
+    chunks: string[],
+    replyToMessageId?: number,
+    replyMarkup?: TelegramReplyMarkup,
+  ): Promise<number[]> {
+    const messageIds: number[] = []
     for (let index = 0; index < chunks.length; index += 1) {
-      await this.callTelegramApi(token, 'sendMessage', {
+      const result = await this.callTelegramApi<TelegramSentMessage>(token, 'sendMessage', {
         chat_id: chatId,
         text: chunks[index],
         parse_mode: 'HTML',
         reply_to_message_id: index === 0 ? replyToMessageId : undefined,
         reply_markup: index === 0 ? (replyMarkup || TELEGRAM_MENU_KEYBOARD) : undefined,
       })
+      if (typeof result?.message_id === 'number') {
+        messageIds.push(result.message_id)
+      }
+    }
+    return messageIds
+  }
+
+  private async editTelegramMessage(
+    token: string,
+    chatId: string,
+    messageId: number,
+    text: string,
+  ): Promise<void> {
+    const trimmed = text.trim()
+    if (!trimmed) return
+
+    await this.callTelegramApi(token, 'editMessageText', {
+      chat_id: chatId,
+      message_id: messageId,
+      text: trimmed,
+      parse_mode: 'HTML',
+    })
+  }
+
+  private async resolveTelegramFile(
+    token: string,
+    fileId: string,
+  ): Promise<TelegramApiFile> {
+    return this.callTelegramApi<TelegramApiFile>(token, 'getFile', {
+      file_id: fileId,
+    })
+  }
+
+  private async downloadTelegramFile(
+    token: string,
+    filePath: string,
+    apiBase?: string,
+  ): Promise<Buffer> {
+    const normalizedApiBase = normalizeTelegramApiBase(apiBase)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30_000)
+    try {
+      const response = await fetch(`${normalizedApiBase}/file/bot${token}/${filePath}`, {
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        throw new Error(`Telegram file download failed: ${response.status}`)
+      }
+      const arrayBuffer = await response.arrayBuffer()
+      return Buffer.from(arrayBuffer)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private getMessageText(message: TelegramMessage): string {
+    return String(message.text || message.caption || '').trim()
+  }
+
+  private getMessageFileId(message: TelegramMessage): string {
+    return message.voice?.file_id?.trim()
+      || message.audio?.file_id?.trim()
+      || message.document?.file_id?.trim()
+      || ''
+  }
+
+  private async resolveTelegramImageInput(
+    bot: TelegramBotRecord,
+    message: TelegramMessage,
+  ): Promise<{ data: string; mimeType: string }[]> {
+    const token = bot.credentials.bot_token?.trim()
+    if (!token) return []
+
+    const fileId = resolvePreferredPhotoFileId(message)
+      || (
+        String(message.document?.mime_type || '').startsWith('image/')
+          ? String(message.document?.file_id || '').trim()
+          : ''
+      )
+    if (!fileId) return []
+
+    const file = await this.resolveTelegramFile(token, fileId)
+    if (!file.file_path) {
+      throw new Error('Telegram 图片文件缺少 file_path')
+    }
+
+    const buffer = await this.downloadTelegramFile(token, file.file_path)
+    const mimeType = String(message.document?.mime_type || '').trim()
+      || inferMimeTypeFromFileName(file.file_path, 'image/jpeg')
+
+    return [{
+      data: buffer.toString('base64'),
+      mimeType,
+    }]
+  }
+
+  private async resolveTelegramAudioInput(
+    bot: TelegramBotRecord,
+    message: TelegramMessage,
+  ): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> {
+    const token = bot.credentials.bot_token?.trim()
+    if (!token) {
+      throw new Error('Telegram bot token 未配置')
+    }
+
+    const fileId = this.getMessageFileId(message)
+    if (!fileId) {
+      throw new Error('未找到可下载的音频 file_id')
+    }
+
+    const file = await this.resolveTelegramFile(token, fileId)
+    if (!file.file_path) {
+      throw new Error('Telegram 音频文件缺少 file_path')
+    }
+
+    const buffer = await this.downloadTelegramFile(token, file.file_path)
+    const fileName = message.audio?.file_name
+      || message.document?.file_name
+      || path.basename(file.file_path)
+      || 'telegram-audio.ogg'
+    const mimeType = String(message.voice?.mime_type || message.audio?.mime_type || message.document?.mime_type || '').trim()
+      || inferMimeTypeFromFileName(fileName, 'audio/ogg')
+
+    return { buffer, mimeType, fileName }
+  }
+
+  private resolveProviderTranscriptionCandidate(bot: TelegramBotRecord): TelegramTranscriptionProvider | null {
+    const providerId = this.getSuggestedProviderId(bot)
+    if (!providerId) return null
+
+    const provider = this.providerService.getById(providerId) as DesktopAIProvider | null
+    if (!provider) return null
+
+    const env = parseEnvOverrides(provider.envOverrides || '')
+    const apiKey = String(env.OPENAI_API_KEY || '').trim()
+    const apiEndpoint = String(env.OPENAI_BASE_URL || env.OPENAI_BASEURL || 'https://api.openai.com/v1').trim()
+    const model = String(env.OPENAI_TRANSCRIPTION_MODEL || 'whisper-1').trim()
+
+    if (!apiEndpoint || !model || !apiKey) {
+      return null
+    }
+
+    return {
+      apiEndpoint,
+      apiKey,
+      model,
+      source: `provider:${provider.name}`,
+    }
+  }
+
+  private resolveTelegramAiTranscriptionCandidate(): TelegramTranscriptionProvider | null {
+    const provider = [...this.aiProviders]
+      .sort((left, right) => Number(right.priority || 0) - Number(left.priority || 0))
+      .find(candidate => candidate.apiEndpoint?.trim() && candidate.model?.trim())
+
+    if (!provider?.apiEndpoint?.trim() || !provider.model?.trim()) {
+      return null
+    }
+
+    return {
+      apiEndpoint: provider.apiEndpoint.trim(),
+      apiKey: String(provider.apiKey || '').trim(),
+      model: provider.model.trim(),
+      source: `telegram-ai:${provider.name}`,
+    }
+  }
+
+  private async transcribeTelegramAudio(
+    bot: TelegramBotRecord,
+    buffer: Buffer,
+    fileName: string,
+    mimeType: string,
+  ): Promise<string> {
+    const provider = this.resolveProviderTranscriptionCandidate(bot)
+      || this.resolveTelegramAiTranscriptionCandidate()
+    if (!provider) {
+      throw new Error('未配置可用的语音转写提供商')
+    }
+
+    const endpoint = normalizeTranscriptionEndpoint(provider.apiEndpoint)
+    const form = new FormData()
+    form.set('file', new Blob([buffer], { type: mimeType || 'audio/ogg' }), fileName || 'telegram-audio.ogg')
+    form.set('model', provider.model)
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 60_000)
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : undefined,
+        body: form,
+        signal: controller.signal,
+      })
+      const json = await response.json().catch(() => ({})) as { text?: string; error?: { message?: string } | string }
+      if (!response.ok) {
+        const message = typeof json.error === 'string'
+          ? json.error
+          : json.error?.message
+        throw new Error(message || `转写请求失败: ${response.status}`)
+      }
+
+      const transcript = String(json.text || '').trim()
+      if (!transcript) {
+        throw new Error(`转写接口 ${provider.source} 未返回文本结果`)
+      }
+      return transcript
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -498,23 +887,34 @@ export class TelegramService {
   private async handleUpdate(bot: TelegramBotRecord, update: TelegramUpdate): Promise<void> {
     const message = update.message || update.edited_message
     const token = bot.credentials.bot_token?.trim()
-    if (!message?.text || !token) return
+    if (!message || !token) return
 
     const chatId = stringifyId(message.chat?.id)
     const userId = stringifyId(message.from?.id)
-    const rawText = this.normalizeTelegramMenuCommand(message.text.trim())
-    if (!chatId || !userId || !rawText) return
+    const normalizedText = this.normalizeTelegramMenuCommand(this.getMessageText(message))
+    if (!chatId || !userId) return
 
     if (!this.isAuthorized(bot, chatId, userId)) {
       return
     }
 
-    const handled = rawText.startsWith('/')
-      ? await this.handleCommand(bot, chatId, rawText, message.message_id)
-      : false
+    if (normalizedText.startsWith('/') && !hasImagePayload(message) && !hasAudioPayload(message)) {
+      const handled = await this.handleCommand(bot, chatId, normalizedText, message.message_id)
+      if (handled) return
+    }
 
-    if (!handled) {
-      await this.forwardTextToSession(bot, chatId, rawText, message.message_id)
+    if (hasImagePayload(message)) {
+      await this.forwardImageToSession(bot, chatId, message, message.message_id)
+      return
+    }
+
+    if (hasAudioPayload(message)) {
+      await this.forwardAudioToSession(bot, chatId, message, message.message_id)
+      return
+    }
+
+    if (normalizedText) {
+      await this.forwardTextToSession(bot, chatId, normalizedText, message.message_id)
     }
   }
 
@@ -587,6 +987,27 @@ export class TelegramService {
         await this.sendTelegramMessage(bot.credentials.bot_token!.trim(), chatId, text, replyToMessageId)
         return true
       }
+      case '/stop': {
+        const boundSessionId = this.getBoundSessionId(bot.id, chatId)
+        const boundSession = boundSessionId ? this.sessionService.getById(boundSessionId) : null
+        if (!boundSessionId || !boundSession) {
+          await this.sendTelegramMessage(
+            bot.credentials.bot_token!.trim(),
+            chatId,
+            '当前聊天还没绑定可停止的会话。先发 /dock_telegram，或者 /sessions 看列表。',
+            replyToMessageId,
+          )
+          return true
+        }
+        await this.processService.stopProcess(boundSessionId)
+        await this.sendTelegramMessage(
+          bot.credentials.bot_token!.trim(),
+          chatId,
+          `已停止会话 <b>${escHtml(boundSession.name || shortenSessionId(boundSession.id))}</b> 的当前输出。`,
+          replyToMessageId,
+        )
+        return true
+      }
       default:
         return false
     }
@@ -604,13 +1025,15 @@ export class TelegramService {
       '• /dock_telegram [序号|会话 ID|会话名] 绑定当前聊天到会话',
       '• /undock 解除绑定',
       '• /status 查看当前绑定和运行状态',
-      '• 也可以直接点底部中文菜单按钮：帮助 / 会话列表 / 绑定会话 / 解除绑定 / 状态',
+      '• /stop 停止当前会话输出',
+      '• 也可以直接点底部中文菜单按钮：帮助 / 会话列表 / 绑定会话 / 解除绑定 / 状态 / 停止',
       '',
       boundSession
         ? `当前已绑定：<b>${escHtml(boundSession.name || shortenSessionId(boundSession.id))}</b>`
         : '当前未绑定会话。先发 /dock_telegram 或 /sessions。',
       '',
-      '绑定后，直接发送文本消息，就会转发到 ABF 当前会话。',
+      '绑定后，直接发送文本、图片都会转发到 ABF 当前会话；语音会先尝试转写再转发。',
+      '当会话正在输出时，Telegram 会尽量用同一条消息做流式更新预览。',
       'Telegram 的斜杠命令名仍保留英文，这是官方限制；中文菜单和中文别名都已可直接使用。',
       '未识别的 /xxx 指令也会在已绑定时原样转发给会话。',
     ].join('\n')
@@ -663,14 +1086,13 @@ export class TelegramService {
       || null
   }
 
-  private async forwardTextToSession(
+  private async resolveBoundSessionContext(
     bot: TelegramBotRecord,
     chatId: string,
-    text: string,
     replyToMessageId?: number,
-  ): Promise<void> {
+  ): Promise<{ token: string; session: Session; sessionId: string } | null> {
     const token = bot.credentials.bot_token?.trim()
-    if (!token) return
+    if (!token) return null
 
     const boundSessionId = this.getBoundSessionId(bot.id, chatId)
     if (!boundSessionId) {
@@ -680,7 +1102,7 @@ export class TelegramService {
         '当前聊天还没绑定 ABF 会话。先发 /dock_telegram，或者 /sessions 看列表。',
         replyToMessageId,
       )
-      return
+      return null
     }
 
     const session = this.sessionService.getById(boundSessionId)
@@ -692,14 +1114,124 @@ export class TelegramService {
         '绑定的会话已经不存在，已自动解除绑定。请重新发送 /dock_telegram 绑定新的会话。',
         replyToMessageId,
       )
+      return null
+    }
+
+    return { token, session, sessionId: boundSessionId }
+  }
+
+  private async forwardTextToSession(
+    bot: TelegramBotRecord,
+    chatId: string,
+    text: string,
+    replyToMessageId?: number,
+  ): Promise<void> {
+    await this.forwardSessionRequest(bot, chatId, replyToMessageId, (sessionId) =>
+      this.processService.sendMessage(sessionId, text),
+    )
+  }
+
+  private async forwardImageToSession(
+    bot: TelegramBotRecord,
+    chatId: string,
+    message: TelegramMessage,
+    replyToMessageId?: number,
+  ): Promise<void> {
+    let images: Array<{ data: string; mimeType: string }> = []
+    try {
+      images = await this.resolveTelegramImageInput(bot, message)
+    } catch (error) {
+      const token = bot.credentials.bot_token?.trim()
+      if (token) {
+        await this.sendTelegramMessage(
+          token,
+          chatId,
+          `收到图片了，但下载图片内容失败：${escHtml(error instanceof Error ? error.message : String(error))}`,
+          replyToMessageId,
+        )
+      }
       return
     }
 
-    const baseline = this.processService.getChatState(boundSessionId)?.messages.length ?? 0
-    const wasStreaming = this.processService.isStreaming(boundSessionId)
+    if (images.length === 0) {
+      const token = bot.credentials.bot_token?.trim()
+      if (token) {
+        await this.sendTelegramMessage(
+          token,
+          chatId,
+          '收到图片了，但下载图片内容失败。请稍后重试，或改用文件/文字补充说明。',
+          replyToMessageId,
+        )
+      }
+      return
+    }
+
+    const prompt = this.getMessageText(message)
+      || '[Telegram 图片消息]\n用户发送了一张图片，请结合图片内容继续回复。'
+
+    await this.forwardSessionRequest(bot, chatId, replyToMessageId, (sessionId) =>
+      this.processService.sendMessageWithImages(sessionId, prompt, images),
+    )
+  }
+
+  private async forwardAudioToSession(
+    bot: TelegramBotRecord,
+    chatId: string,
+    message: TelegramMessage,
+    replyToMessageId?: number,
+  ): Promise<void> {
+    let audio: { buffer: Buffer; mimeType: string; fileName: string }
+    try {
+      audio = await this.resolveTelegramAudioInput(bot, message)
+    } catch (error) {
+      const token = bot.credentials.bot_token?.trim()
+      if (token) {
+        await this.sendTelegramMessage(
+          token,
+          chatId,
+          `收到语音了，但下载语音内容失败：${escHtml(error instanceof Error ? error.message : String(error))}`,
+          replyToMessageId,
+        )
+      }
+      return
+    }
+    const promptLines = ['[Telegram 语音消息]']
+
+    const extraText = this.getMessageText(message)
+    if (extraText) {
+      promptLines.push(`附加文本：${extraText}`)
+    }
 
     try {
-      await this.processService.sendMessage(boundSessionId, text)
+      const transcript = await this.transcribeTelegramAudio(bot, audio.buffer, audio.fileName, audio.mimeType)
+      promptLines.push(`语音转写：${transcript}`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      appLog('warn', `Telegram audio transcription failed: ${errorMessage}`, 'telegram')
+      promptLines.push('系统未能取得这段语音的转写文本。请结合上下文回复，并提醒用户必要时改发文字。')
+      promptLines.push(`系统备注：${errorMessage}`)
+    }
+
+    await this.forwardSessionRequest(bot, chatId, replyToMessageId, (sessionId) =>
+      this.processService.sendMessage(sessionId, promptLines.join('\n')),
+    )
+  }
+
+  private async forwardSessionRequest(
+    bot: TelegramBotRecord,
+    chatId: string,
+    replyToMessageId: number | undefined,
+    dispatch: (sessionId: string) => Promise<void>,
+  ): Promise<void> {
+    const context = await this.resolveBoundSessionContext(bot, chatId, replyToMessageId)
+    if (!context) return
+
+    const { token, session, sessionId } = context
+    const baseline = this.processService.getChatState(sessionId)?.messages.length ?? 0
+    const wasStreaming = this.processService.isStreaming(sessionId)
+
+    try {
+      await dispatch(sessionId)
 
       if (wasStreaming) {
         await this.sendTelegramMessage(
@@ -710,8 +1242,12 @@ export class TelegramService {
         )
       }
 
-      const reply = await this.waitForAssistantReply(boundSessionId, baseline)
-      if (!reply) {
+      const result = await this.waitForAssistantReply(sessionId, baseline, {
+        token,
+        chatId,
+        replyToMessageId,
+      })
+      if (!result.reply) {
         await this.sendTelegramMessage(
           token,
           chatId,
@@ -721,7 +1257,13 @@ export class TelegramService {
         return
       }
 
-      await this.sendTelegramMessage(token, chatId, reply, replyToMessageId)
+      await this.deliverTelegramAssistantReply(
+        token,
+        chatId,
+        result.reply,
+        replyToMessageId,
+        result.previewMessageId,
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       await this.sendTelegramMessage(
@@ -733,10 +1275,42 @@ export class TelegramService {
     }
   }
 
-  private async waitForAssistantReply(sessionId: string, baselineMessageCount: number): Promise<string> {
+  private async deliverTelegramAssistantReply(
+    token: string,
+    chatId: string,
+    reply: string,
+    replyToMessageId?: number,
+    previewMessageId?: number,
+  ): Promise<void> {
+    const chunks = this.chunkTelegramText(reply)
+    if (chunks.length === 0) return
+
+    if (previewMessageId) {
+      try {
+        await this.editTelegramMessage(token, chatId, previewMessageId, chunks[0])
+        if (chunks.length > 1) {
+          await this.sendTelegramChunks(token, chatId, chunks.slice(1))
+        }
+        return
+      } catch (error) {
+        appLog('warn', `Telegram preview finalization failed: ${String(error)}`, 'telegram')
+      }
+    }
+
+    await this.sendTelegramChunks(token, chatId, chunks, replyToMessageId)
+  }
+
+  private async waitForAssistantReply(
+    sessionId: string,
+    baselineMessageCount: number,
+    previewTarget?: { token: string; chatId: string; replyToMessageId?: number },
+  ): Promise<{ reply: string; previewMessageId?: number }> {
     const timeoutMs = 180_000
     const startedAt = Date.now()
     let lastStateError = ''
+    let previewMessageId: number | undefined
+    let lastPreviewText = ''
+    let lastPreviewAt = 0
 
     while (Date.now() - startedAt < timeoutMs) {
       const state = this.processService.getChatState(sessionId)
@@ -744,14 +1318,48 @@ export class TelegramService {
       const assistantMessages = messages
         .slice(baselineMessageCount)
         .filter((message): message is ChatMessage => message.role === 'assistant' && Boolean(message.content?.trim()))
+      const reply = assistantMessages.length > 0
+        ? this.formatAssistantMessages(assistantMessages)
+        : ''
 
       if (state?.error) {
         lastStateError = state.error
       }
 
+      if (
+        previewTarget
+        && state?.streaming
+        && reply
+      ) {
+        const previewText = buildStreamPreviewText(reply)
+        if (
+          previewText !== lastPreviewText
+          && (!previewMessageId || (Date.now() - lastPreviewAt) >= STREAM_PREVIEW_UPDATE_INTERVAL_MS)
+        ) {
+          if (!previewMessageId) {
+            const ids = await this.sendTelegramMessage(
+              previewTarget.token,
+              previewTarget.chatId,
+              previewText,
+              previewTarget.replyToMessageId,
+            )
+            previewMessageId = ids[0]
+          } else {
+            await this.editTelegramMessage(
+              previewTarget.token,
+              previewTarget.chatId,
+              previewMessageId,
+              previewText,
+            )
+          }
+          lastPreviewText = previewText
+          lastPreviewAt = Date.now()
+        }
+      }
+
       if (!state?.streaming) {
-        if (assistantMessages.length > 0) {
-          return this.formatAssistantMessages(assistantMessages)
+        if (reply) {
+          return { reply, previewMessageId }
         }
         if (lastStateError) {
           throw new Error(lastStateError)
@@ -761,7 +1369,7 @@ export class TelegramService {
       await sleep(800)
     }
 
-    return ''
+    return { reply: '', previewMessageId }
   }
 
   private formatAssistantMessages(messages: ChatMessage[]): string {
