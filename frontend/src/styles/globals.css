@@ -1,0 +1,350 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 基础色系 */
+    --color-bg: #111827;
+    --color-card: #18212f;
+    --color-hover: #223044;
+    --color-accent: #3b82f6;
+    --color-accent-hover: #2563eb;
+    --color-text: #e5eefb;
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+
+    /* 语义色 (统一定义，避免重复) */
+    --color-border: #30363d;
+    --color-text-muted: #484f58;
+
+    /* 扩展色阶 */
+    --color-bg-primary: #0d1117;
+    --color-bg-secondary: #161b22;
+    --color-bg-tertiary: #21262d;
+    --color-bg-hover: #30363d;
+    --color-bg-input: #0d1117;
+    --color-text-primary: #e6edf3;
+    --color-text-secondary: #8b949e;
+    --color-accent-blue: #58a6ff;
+    --color-accent-green: #3fb950;
+    --color-accent-yellow: #d29922;
+    --color-accent-red: #f85149;
+    --color-accent-purple: #bc8cff;
+    --font-size-base: 14px;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at top, rgba(59, 130, 246, 0.12), transparent 40%),
+      linear-gradient(180deg, rgba(13, 17, 23, 0.98), rgba(13, 17, 23, 1));
+    color: var(--color-text);
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.2);
+    border-radius: 999px;
+    transition: background-color 0.2s;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.4);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Selection styling */
+  ::selection {
+    background: rgba(59, 130, 246, 0.3);
+    color: #fff;
+  }
+}
+
+@layer components {
+  .surface-card {
+    border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+    border-radius: 22px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(16px);
+  }
+
+  .app-shell {
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+  }
+
+  .app-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem 1rem;
+  }
+
+  .titlebar-button {
+    display: inline-flex;
+    height: 2.25rem;
+    min-width: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-muted);
+    transition: all 160ms ease;
+  }
+
+  .titlebar-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text);
+  }
+
+  .app-body {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    gap: 1rem;
+    padding: 0 1rem 1rem;
+  }
+
+  .app-activitybar {
+    display: flex;
+    width: 4.75rem;
+    flex-direction: column;
+    align-items: center;
+    border-radius: 26px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+    padding: 1rem 0.75rem;
+    backdrop-filter: blur(20px);
+  }
+
+  .activity-button {
+    display: inline-flex;
+    height: 2.75rem;
+    width: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1rem;
+    color: var(--color-text-muted);
+    transition: all 160ms ease;
+  }
+
+  .activity-button:hover,
+  .activity-button-active {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+  }
+
+  .app-workspace {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 360px);
+    gap: 1rem;
+  }
+
+  .app-sidebar-shell,
+  .app-main-shell,
+  .app-detail-shell {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .app-sidebar,
+  .app-main-panel,
+  .app-detail-panel {
+    min-height: 100%;
+  }
+
+  .sidebar-action {
+    display: inline-flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 16px;
+    padding: 0.9rem 1rem;
+    color: var(--color-text-muted);
+    transition: all 160ms ease;
+  }
+
+  .sidebar-action:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text);
+  }
+
+  .app-statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(8, 12, 20, 0.55);
+    padding: 0.8rem 1.25rem;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .floating-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(2, 6, 23, 0.56);
+    padding: 1.5rem;
+  }
+
+  .btn-transition {
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .panel-toggle-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 40px;
+    border-radius: 6px;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  .panel-toggle-btn:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+
+  .group:hover .panel-toggle-btn,
+  .panel-toggle-btn:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Subtle glow for focused inputs */
+  .input-glow:focus {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08), 0 0 12px rgba(59, 130, 246, 0.06);
+  }
+
+  /* Smooth fade-in animation */
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.3s ease-out;
+  }
+
+  /* Glass morphism utility */
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* Shimmer / skeleton loading effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 25%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.03) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite linear;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* Collapsible section with smooth height transition (CSS-only) */
+  .collapse-section {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease-out;
+  }
+  .collapse-section.is-open {
+    grid-template-rows: 1fr;
+  }
+  .collapse-section > * {
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 1200px) {
+  .app-workspace {
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+  }
+
+  .app-detail-shell {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-body {
+    gap: 0.75rem;
+    padding: 0 0.75rem 0.75rem;
+  }
+
+  .app-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-sidebar-shell {
+    display: none;
+  }
+
+  .app-statusbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}

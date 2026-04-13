@@ -1,0 +1,8 @@
+interface:
+  display_name: Cancel Scheduled Task
+  short_description: PERMANENTLY DELETE scheduled task
+  default_prompt: Use $cancel-scheduled-task
+i18n:
+  zh:
+    name: 取消定时任务
+    description: 永久删除指定的定时任务。

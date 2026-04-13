@@ -1,0 +1,8 @@
+interface:
+  display_name: Read File
+  short_description: Read file content for text files
+  default_prompt: Use $read-file
+i18n:
+  zh:
+    name: 读取文件
+    description: 读取文本文件内容，用于查看文件内容、分析代码或获取配置信息。

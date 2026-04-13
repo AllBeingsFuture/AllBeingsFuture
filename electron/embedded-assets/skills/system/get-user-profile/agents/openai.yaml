@@ -1,0 +1,8 @@
+interface:
+  display_name: Get User Profile
+  short_description: Get current user profile summary to understand user's prefere...
+  default_prompt: Use $get-user-profile
+i18n:
+  zh:
+    name: 获取用户画像
+    description: 获取当前用户的画像摘要，了解用户偏好和上下文信息。

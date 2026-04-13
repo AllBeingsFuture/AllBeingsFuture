@@ -1,0 +1,161 @@
+---
+name: allbeingsfuture/skills@image-understanding
+description: Analyze images using Dashscope (Qwen) Vision models for detailed description, OCR text extraction, object recognition, and visual Q&A. Use when the user needs to understand image content via Alibaba Cloud Dashscope API, especially for Chinese-language image analysis and documents.
+license: MIT
+metadata:
+  author: allbeingsfuture
+  version: "1.0.0"
+---
+
+# 图片理解技能 (Image Understanding)
+
+使用 **Dashscope（通义千问）** 视觉模型分析图片，支持详细描述、OCR文字提取、物体识别和图片问答。
+
+---
+
+## 简介
+
+图片理解技能是一个强大的视觉分析工具，通过调用 Dashscope（阿里云通义千问）的视觉大模型（qwen-vl-plus、qwen-vl-max），让 AI 能够理解和分析图像内容。
+
+**核心功能：**
+- 🖼️ 图片内容详细描述
+- 🔤 文字提取（OCR）
+- 🎯 物体识别
+- 💬 图片问答
+
+---
+
+## 使用场景
+
+### 📄 文档处理
+- 会议白板照片转文字
+- 纸质文档扫描识别
+- 手写笔记数字化
+
+### 🛒 工作应用
+- 产品图片分析
+- 竞品图片提取信息
+- 图表数据解读
+
+### 💬 图片问答
+- 针对图片提问获取答案
+- 理解复杂场景细节
+- 技术图纸逻辑分析
+
+---
+
+## 环境配置
+
+### 1️⃣ 安装依赖
+
+```bash
+pip install requests
+```
+
+### 2️⃣ 获取 Dashscope API Key
+
+1. 访问 [Dashscope 控制台](https://dashscope.console.aliyun.com/)
+2. 创建账号并开通服务
+3. 创建 API Key
+
+### 3️⃣ 配置 API Key
+
+```bash
+# 方式一：环境变量（推荐）
+set DASHSCOPE_API_KEY=sk-your-api-key-here
+
+# 方式二：运行时传入（见下方）
+```
+
+---
+
+## 使用方法
+
+### 基本命令
+
+```bash
+python scripts/image_understanding.py -i 图片路径 [选项]
+```
+
+### 常用参数
+
+| 参数 | 说明 |
+|------|------|
+| `-i, --image` | **必填** 图片路径或URL |
+| `-m, --model` | 模型选择：`qwen-vl-plus`(默认) 或 `qwen-vl-max` |
+| `-p, --custom-prompt` | 自定义分析提示词 |
+| `-e, --extract-text` | 提取文字(OCR) |
+| `-o, --identify-objects` | 识别物体 |
+| `--compact` | 输出紧凑JSON |
+
+### 使用示例
+
+```bash
+# 1. 基本描述（默认）
+python scripts/image_understanding.py -i photo.jpg
+
+# 2. 提取文字
+python scripts/image_understanding.py -i screenshot.png -e
+
+# 3. 识别物体
+python scripts/image_understanding.py -i photo.jpg -o
+
+# 4. 自定义问答
+python scripts/image_understanding.py -i photo.jpg -p "这个产品多少钱？"
+
+# 5. 使用更强的模型
+python scripts/image_understanding.py -i photo.jpg -m qwen-vl-max
+
+# 6. 网络图片
+python scripts/image_understanding.py -i "https://example.com/image.png" -e
+
+# 7. 设置API Key后运行
+set DASHSCOPE_API_KEY=sk-xxx
+python scripts/image_understanding.py -i photo.jpg
+```
+
+---
+
+## 最佳实践
+
+### 📸 图片质量
+- 确保图片清晰、亮度充足
+- 文字图片分辨率不低于 640x640
+- 避免模糊或过暗的图片
+
+### 💡 提示词技巧
+- 使用具体、明确的指令
+- 指定关注点（如"重点关注价格标签"）
+- 多语言场景可混合中英文
+
+### ✅ 结果验证
+- 重要信息建议人工复核
+- 涉及专业领域需专家确认
+- 妥善保存原始图片和分析结果
+
+---
+
+## API 配置
+
+| 配置项 | 值 |
+|--------|-----|
+| 服务商 | Dashscope (通义千问) |
+| 默认模型 | qwen-vl-plus |
+| 高级模型 | qwen-vl-max |
+| API Base | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 环境变量 | `DASHSCOPE_API_KEY` |
+
+---
+
+## 故障排除
+
+| 问题 | 解决方案 |
+|------|----------|
+| API Key 错误 | 检查 `DASHSCOPE_API_KEY` 是否正确 |
+| 图片格式不支持 | 使用 PNG/JPG/GIF/WEBP/BMP 格式 |
+| 网络超时 | 检查网络连接，尝试使用代理 |
+| 识别不准确 | 提高图片质量，添加更详细的提示词 |
+
+---
+
+运行 `python scripts/image_understanding.py --help` 查看完整帮助

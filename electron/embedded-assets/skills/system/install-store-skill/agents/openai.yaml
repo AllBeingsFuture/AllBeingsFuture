@@ -1,0 +1,8 @@
+interface:
+  display_name: Install Store Skill
+  short_description: Install a Skill from the AllBeingsFuture Platform Skill Store
+  default_prompt: Use $install-store-skill
+i18n:
+  zh:
+    name: 安装商店技能
+    description: 从 AllBeingsFuture 平台 Skill Store 安装技能。

@@ -1,0 +1,8 @@
+interface:
+  display_name: Run Skill Script
+  short_description: Execute a skill's script file with arguments
+  default_prompt: Use $run-skill-script
+i18n:
+  zh:
+    name: 运行技能脚本
+    description: 执行技能的脚本文件，运行技能功能或处理数据。

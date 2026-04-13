@@ -1,0 +1,110 @@
+{
+  "name": "allbeingsfuture",
+  "version": "1.5.0",
+  "private": true,
+  "description": "AllBeingsFuture - AI Workbench (Electron + React)",
+  "main": "electron/dist/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:electron\" \"npm run dev:renderer\"",
+    "dev:renderer": "cd frontend && npm run dev",
+    "dev:electron": "tsc -p electron/tsconfig.json && electron .",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "cd frontend && npm run build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "pack": "npm run build && electron-builder --win",
+    "pack:mac": "npm run build && electron-builder --mac",
+    "postinstall": "cd frontend && npm install"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.62",
+    "claude": "^0.1.1",
+    "electron-store": "^10.0.0",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.5.207",
+    "sharp": "^0.34.5",
+    "uuid": "^11.1.0",
+    "yauzl": "^3.2.1"
+  },
+  "optionalDependencies": {
+    "@karinjs/node-pty": "^1.1.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "@types/uuid": "^10.0.0",
+    "@types/yauzl": "^2.10.3",
+    "concurrently": "^9.1.0",
+    "electron": "^39.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "com.allbeingsfuture.app",
+    "productName": "AllBeingsFuture",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/dist/**/*",
+      "electron/preload.cjs"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "appicon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ],
+      "icon": "appicon.icns",
+      "category": "public.app-category.productivity",
+      "darkModeSupport": true
+    },
+    "dmg": {
+      "title": "AllBeingsFuture",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "npmRebuild": true,
+    "asarUnpack": [
+      "node_modules/@karinjs/node-pty/build/Release/**",
+      "node_modules/@karinjs/node-pty/dist/**",
+      "node_modules/@karinjs/node-pty/package.json",
+      "node_modules/@anthropic-ai/claude-agent-sdk/vendor/**"
+    ],
+    "extraResources": [
+      {
+        "from": "frontend/dist",
+        "to": "frontend/dist"
+      },
+      {
+        "from": "electron/embedded-assets/mcps",
+        "to": "mcps"
+      },
+      {
+        "from": "electron/embedded-assets/skills",
+        "to": "skills"
+      },
+      {
+        "from": "resources/prompts",
+        "to": "resources/prompts"
+      },
+      {
+        "from": "appicon.ico",
+        "to": "appicon.ico"
+      },
+      {
+        "from": "appicon.icns",
+        "to": "appicon.icns"
+      }
+    ]
+  }
+}

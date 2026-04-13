@@ -1,0 +1,8 @@
+interface:
+  display_name: Get Skill Info
+  short_description: Get skill detailed instructions and usage guide (Level 2 disc...
+  default_prompt: Use $get-skill-info
+i18n:
+  zh:
+    name: 技能详情
+    description: 获取技能的详细使用说明和指南，了解技能的功能和使用方法。

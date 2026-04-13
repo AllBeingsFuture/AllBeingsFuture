@@ -1,0 +1,8 @@
+interface:
+  display_name: Browser Navigate
+  short_description: Navigate browser to specified URL to open a webpage
+  default_prompt: Use $browser-navigate
+i18n:
+  zh:
+    name: 浏览器导航
+    description: 导航浏览器到指定 URL，打开网页或开始网页自动化操作。

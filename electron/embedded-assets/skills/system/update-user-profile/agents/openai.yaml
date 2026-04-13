@@ -1,0 +1,8 @@
+interface:
+  display_name: Update User Profile
+  short_description: Update user profile information when user shares preferences,...
+  default_prompt: Use $update-user-profile
+i18n:
+  zh:
+    name: 更新用户画像
+    description: 当用户分享偏好、习惯或工作信息时，更新用户画像。
