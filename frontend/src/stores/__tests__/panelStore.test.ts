@@ -34,6 +34,7 @@ describe('panelStore', () => {
     expect(state.activePanelLeft).toBe('sessions')
     expect(state.activePanelRight).toBe('timeline')
     expect(state.panelSides).not.toHaveProperty('tools')
+    expect(state.panelSides).not.toHaveProperty('explorer')
   })
 
   it('toggleSidebar toggles sidebarCollapsed', () => {
@@ -57,8 +58,8 @@ describe('panelStore', () => {
   })
 
   it('setActivePanelLeft updates activePanelLeft', () => {
-    usePanelStore.getState().setActivePanelLeft('explorer')
-    expect(usePanelStore.getState().activePanelLeft).toBe('explorer')
+    usePanelStore.getState().setActivePanelLeft('git')
+    expect(usePanelStore.getState().activePanelLeft).toBe('git')
     expect(usePanelStore.getState().panelRuntime.sidebar).toBe('active')
   })
 
@@ -104,32 +105,37 @@ describe('panelStore', () => {
     expect(usePanelStore.getState().floatingPanels['test-panel']).toBe(false)
   })
 
-  it('maps legacy tools panel id to safe active-panel defaults', () => {
+  it('maps legacy tools and explorer panel ids to safe active-panel defaults', () => {
     expect(resolvePanelId('tools', 'sessions')).toBe('sessions')
     expect(resolvePanelId('tools', 'timeline')).toBe('timeline')
-    expect(resolvePanelId('explorer', 'sessions')).toBe('explorer')
+    expect(resolvePanelId('explorer', 'sessions')).toBe('sessions')
+    expect(resolvePanelId('explorer', 'timeline')).toBe('timeline')
+    expect(resolvePanelId('git', 'sessions')).toBe('git')
     expect(resolvePanelId(undefined, 'sessions')).toBe('sessions')
   })
 
-  it('sanitizes legacy tools key out of panelSides snapshots', () => {
+  it('sanitizes legacy tools and explorer keys out of panelSides snapshots', () => {
     const legacy = {
       ...DEFAULT_PANEL_SIDES,
       tools: 'left',
+      explorer: 'left',
     }
     const { panelSides, migrated } = sanitizePanelSides(legacy)
     expect(migrated).toBe(true)
     expect(panelSides).not.toHaveProperty('tools')
+    expect(panelSides).not.toHaveProperty('explorer')
     expect(panelSides.sessions).toBe('left')
     expect(panelSides.timeline).toBe('right')
   })
 
-  it('migrates localStorage panelSides with tools and never activates tools', () => {
+  it('migrates localStorage panelSides with tools/explorer and never activates them', () => {
     window.localStorage.clear()
     window.localStorage.setItem(
       STORAGE_KEYS.panelSides,
       JSON.stringify({
         ...DEFAULT_PANEL_SIDES,
         tools: 'left',
+        explorer: 'left',
         sessions: 'left',
         timeline: 'right',
       }),
@@ -137,23 +143,64 @@ describe('panelStore', () => {
 
     const state = createDefaultPanelState()
     expect(state.panelSides).not.toHaveProperty('tools')
+    expect(state.panelSides).not.toHaveProperty('explorer')
     expect(state.activePanelLeft).toBe('sessions')
     expect(state.activePanelRight).toBe('timeline')
     expect(state.activePanelLeft).not.toBe('tools')
+    expect(state.activePanelLeft).not.toBe('explorer')
     expect(state.activePanelRight).not.toBe('tools')
+    expect(state.activePanelRight).not.toBe('explorer')
 
     const persisted = JSON.parse(
       window.localStorage.getItem(STORAGE_KEYS.panelSides) ?? '{}',
     ) as Record<string, unknown>
     expect(persisted).not.toHaveProperty('tools')
+    expect(persisted).not.toHaveProperty('explorer')
     expect(persisted.sessions).toBe('left')
   })
 
-  it('normalizes setActivePanelLeft/Right when given legacy tools id', () => {
+  it('falls back to sessions when left side only had explorer in legacy snapshot', () => {
+    window.localStorage.clear()
+    window.localStorage.setItem(
+      STORAGE_KEYS.panelSides,
+      JSON.stringify({
+        sessions: 'right',
+        explorer: 'left',
+        git: 'right',
+        dashboard: 'right',
+        files: 'right',
+        worktree: 'right',
+        kanban: 'right',
+        workflows: 'right',
+        missions: 'right',
+        mcp: 'right',
+        skills: 'right',
+        team: 'right',
+        tutorial: 'right',
+        timeline: 'right',
+        stats: 'right',
+      }),
+    )
+
+    const state = createDefaultPanelState()
+    expect(state.panelSides).not.toHaveProperty('explorer')
+    // After explorer is dropped, no panel is left-side in the legacy snapshot;
+    // firstPanelForSide falls back to sessions (safe default).
+    expect(state.activePanelLeft).toBe('sessions')
+    expect(state.activePanelRight).toBe('sessions')
+  })
+
+  it('normalizes setActivePanelLeft/Right when given legacy tools/explorer ids', () => {
     usePanelStore.getState().setActivePanelLeft('tools' as never)
     expect(usePanelStore.getState().activePanelLeft).toBe('sessions')
 
+    usePanelStore.getState().setActivePanelLeft('explorer' as never)
+    expect(usePanelStore.getState().activePanelLeft).toBe('sessions')
+
     usePanelStore.getState().setActivePanelRight('tools' as never)
+    expect(usePanelStore.getState().activePanelRight).toBe('timeline')
+
+    usePanelStore.getState().setActivePanelRight('explorer' as never)
     expect(usePanelStore.getState().activePanelRight).toBe('timeline')
   })
 })

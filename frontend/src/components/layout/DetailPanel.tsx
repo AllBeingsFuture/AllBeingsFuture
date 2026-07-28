@@ -7,7 +7,6 @@ import TimelinePanel from '../panels/TimelinePanel'
 import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
 import DashboardSidebarView from '../sidebar/DashboardSidebarView'
-import FileManagerPanel from '../files/FileManagerPanel'
 import WorktreePanel from '../git/WorktreePanel'
 
 export default function DetailPanel() {
@@ -19,7 +18,6 @@ export default function DetailPanel() {
       case 'stats':     return <StatsPanel />
       case 'sessions':  return <SessionsContent />
       case 'dashboard': return <DashboardSidebarView />
-      case 'explorer':  return <FileManagerPanel />
       case 'git':       return <WorktreePanel />
       default:          return <TimelinePanel />
     }

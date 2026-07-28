@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import type { ExplorerView, PaneContent, ViewMode, WorkspaceView } from './ui-helpers'
+import type { PaneContent, ViewMode, WorkspaceView } from './ui-helpers'
 import {
   STORAGE_KEYS,
   isViewMode,
@@ -20,7 +20,6 @@ export type {
   LayoutMode,
   PaneContent,
   PanelSide,
-  ExplorerView,
   PanelId,
 } from './ui-helpers'
 
@@ -32,7 +31,6 @@ export interface UIStateSnapshot {
   showSearchPanel: boolean
   showHistoryPanel: boolean
   showQuickOpen: boolean
-  explorerView: ExplorerView
   showLogViewer: boolean
   showNewTaskDialog: boolean
   showNewSessionDialog: boolean
@@ -47,7 +45,6 @@ interface UIState extends UIStateSnapshot {
   toggleSearchPanel: () => void
   toggleHistoryPanel: () => void
   toggleQuickOpen: () => void
-  setExplorerView: (view: ExplorerView) => void
   toggleLogViewer: () => void
   setSelectedTaskId: (id: string | null) => void
   toggleNewTaskDialog: () => void
@@ -66,7 +63,6 @@ export function createDefaultUIState(): UIStateSnapshot {
     showSearchPanel: false,
     showHistoryPanel: false,
     showQuickOpen: false,
-    explorerView: 'tree',
     showLogViewer: false,
     showNewTaskDialog: false,
     showNewSessionDialog: false,
@@ -123,7 +119,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleSearchPanel: () => set((state) => ({ showSearchPanel: !state.showSearchPanel })),
   toggleHistoryPanel: () => set((state) => ({ showHistoryPanel: !state.showHistoryPanel })),
   toggleQuickOpen: () => set((state) => ({ showQuickOpen: !state.showQuickOpen })),
-  setExplorerView: (view) => set({ explorerView: view }),
   toggleLogViewer: () => set((state) => ({ showLogViewer: !state.showLogViewer })),
   setSelectedTaskId: (id) => set({ selectedTaskId: id }),
   toggleNewTaskDialog: () => set((state) => ({ showNewTaskDialog: !state.showNewTaskDialog })),

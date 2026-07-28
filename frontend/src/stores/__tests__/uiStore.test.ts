@@ -15,12 +15,13 @@ describe('uiStore panel system', () => {
     resetAllStores()
   })
 
-  it('includes explorer view and claudeops-style panels', () => {
+  it('includes claudeops-style panels without explorer', () => {
     const panelState = createDefaultPanelState()
     const uiState = createDefaultUIState()
-    expect(uiState.explorerView).toBe('tree')
-    expect(panelState.panelSides).toHaveProperty('explorer')
+    expect(uiState).not.toHaveProperty('explorerView')
+    expect(panelState.panelSides).not.toHaveProperty('explorer')
     expect(panelState.panelSides).toHaveProperty('git')
+    expect(panelState.panelSides).toHaveProperty('sessions')
   })
 
   it('syncs workspace state when a left panel becomes active', () => {

@@ -66,7 +66,7 @@ export function createDefaultPanelState(): PanelStateSnapshot {
   const detailPanelCollapsed = readStorage<boolean>(STORAGE_KEYS.detailPanelCollapsed, false, isBooleanString)
   const shellPanelVisible = readStorage<boolean>(STORAGE_KEYS.shellPanelVisible, false, isBooleanString)
 
-  // Resolve via resolvePanelId so any legacy active id (e.g. tools) never becomes blank/invalid.
+  // Resolve via resolvePanelId so any legacy active id (e.g. tools/explorer) never becomes blank/invalid.
   const activePanelLeft = resolvePanelId(
     firstPanelForSide(panelSides, 'left', 'sessions'),
     'sessions',

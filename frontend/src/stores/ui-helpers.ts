@@ -12,11 +12,9 @@ export type ViewMode = 'grid' | 'tabs'
 export type LayoutMode = 'single' | 'split-h' | 'split-v'
 export type PaneContent = WorkspaceView
 export type PanelSide = 'left' | 'right'
-export type ExplorerView = 'tree' | 'search'
 
 export type PanelId =
   | 'sessions'
-  | 'explorer'
   | 'git'
   | 'dashboard'
   | 'files'
@@ -32,7 +30,7 @@ export type PanelId =
   | 'stats'
 
 /** Removed panel ids that may still appear in older localStorage / Zustand snapshots. */
-export const LEGACY_PANEL_IDS = ['tools'] as const
+export const LEGACY_PANEL_IDS = ['tools', 'explorer'] as const
 
 export const STORAGE_KEYS = {
   activeView: 'allbeingsfuture-active-view',
@@ -48,7 +46,6 @@ export const STORAGE_KEYS = {
 
 export const WORKSPACE_PANEL_MAP = {
   sessions: 'sessions',
-  explorer: 'files',
   git: 'worktree',
   dashboard: 'dashboard',
   files: 'files',
@@ -62,7 +59,6 @@ export type WorkspacePanelId = keyof typeof WORKSPACE_PANEL_MAP
 
 export const ALL_PANEL_IDS: PanelId[] = [
   'sessions',
-  'explorer',
   'git',
   'dashboard',
   'files',
@@ -80,7 +76,6 @@ export const ALL_PANEL_IDS: PanelId[] = [
 
 export const DEFAULT_PANEL_SIDES: Record<PanelId, PanelSide> = {
   sessions: 'left',
-  explorer: 'left',
   git: 'left',
   dashboard: 'left',
   files: 'left',
@@ -101,7 +96,7 @@ export function isPanelId(value: unknown): value is PanelId {
 }
 
 /**
- * Map a possibly-stale panel id (e.g. legacy `tools`) to a safe current PanelId.
+ * Map a possibly-stale panel id (e.g. legacy `tools` / `explorer`) to a safe current PanelId.
  * Unknown / removed ids fall back to the provided default (sessions left, timeline right).
  */
 export function resolvePanelId(value: unknown, fallback: PanelId): PanelId {
@@ -110,7 +105,7 @@ export function resolvePanelId(value: unknown, fallback: PanelId): PanelId {
 }
 
 /**
- * Normalize a stored panelSides object: drop removed keys (tools), fill missing panels
+ * Normalize a stored panelSides object: drop removed keys (tools, explorer), fill missing panels
  * from defaults, and flag whether migration rewrote anything.
  */
 export function sanitizePanelSides(raw: unknown): {
@@ -197,7 +192,7 @@ export function isPanelSideRecord(value: unknown): value is Record<PanelId, Pane
   if (!value || typeof value !== 'object') return false
 
   const record = value as Record<string, unknown>
-  // Reject legacy/unknown keys (e.g. tools) so callers re-sanitize & re-persist.
+  // Reject legacy/unknown keys (e.g. tools, explorer) so callers re-sanitize & re-persist.
   for (const key of Object.keys(record)) {
     if (!(ALL_PANEL_IDS as string[]).includes(key)) return false
   }
@@ -220,7 +215,7 @@ export function readPanelSides(): Record<PanelId, PanelSide> {
     if (isPanelSideRecord(parsed)) {
       return parsed
     }
-    // Migrate partial / legacy snapshots (including removed `tools` panel).
+    // Migrate partial / legacy snapshots (including removed `tools` / `explorer` panels).
     const { panelSides, migrated } = sanitizePanelSides(parsed)
     if (migrated) {
       persistPanelSides(panelSides)

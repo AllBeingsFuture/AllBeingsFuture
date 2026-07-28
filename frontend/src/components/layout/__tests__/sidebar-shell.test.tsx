@@ -17,9 +17,6 @@ vi.mock('../../sidebar/DashboardSidebarView', () => ({
 vi.mock('../../sidebar/TutorialSidebarView', () => ({
   default: () => <div data-testid="tutorial-view" />,
 }))
-vi.mock('../../files/FileManagerPanel', () => ({
-  default: () => <div data-testid="file-manager-panel" />,
-}))
 vi.mock('../../git/WorktreePanel', () => ({
   default: () => <div data-testid="worktree-panel" />,
 }))
@@ -55,9 +52,9 @@ describe('Sidebar shell', () => {
     expect(screen.getByTestId('dashboard-view')).toBeInTheDocument()
     u2()
 
-    uiState.activePanelLeft = 'explorer'
+    uiState.activePanelLeft = 'git'
     const { unmount: u3 } = renderWithProviders(<Sidebar />)
-    expect(screen.getByTestId('file-manager-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('worktree-panel')).toBeInTheDocument()
     u3()
   })
 

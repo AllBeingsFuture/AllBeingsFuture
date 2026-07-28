@@ -11,9 +11,6 @@ vi.mock('../../../stores/panelStore', () => ({
     typeof selector === 'function' ? selector(uiState) : uiState,
 }))
 
-vi.mock('../../files/FileManagerPanel', () => ({
-  default: () => <div data-testid="file-manager-panel" />,
-}))
 vi.mock('../../git/WorktreePanel', () => ({
   default: () => <div data-testid="worktree-panel" />,
 }))
@@ -30,12 +27,6 @@ describe('Sidebar', () => {
   it('renders sessions content when activePanelLeft is sessions', () => {
     renderWithProviders(<Sidebar />)
     expect(screen.getByTestId('sessions-content')).toBeInTheDocument()
-  })
-
-  it('renders file manager when activePanelLeft is explorer', () => {
-    uiState.activePanelLeft = 'explorer'
-    renderWithProviders(<Sidebar />)
-    expect(screen.getByTestId('file-manager-panel')).toBeInTheDocument()
   })
 
   it('renders worktree panel when activePanelLeft is git', () => {

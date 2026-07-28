@@ -6,7 +6,6 @@ const runtimeMocks = vi.hoisted(() => {
   const panelState = {
     panelSides: {
       sessions: 'left',
-      explorer: 'left',
       git: 'left',
       dashboard: 'left',
       files: 'left',
@@ -356,9 +355,9 @@ describe('workbench runtime', () => {
   })
 
   it('dispatches panel side changes through the runtime', async () => {
-    await workbenchApi.panel.setSide('explorer', 'right')
+    await workbenchApi.panel.setSide('git', 'right')
 
-    expect(panelState.setPanelSide).toHaveBeenCalledWith('explorer', 'right')
+    expect(panelState.setPanelSide).toHaveBeenCalledWith('git', 'right')
   })
 
   it('hides panels deterministically instead of toggling them back open', async () => {

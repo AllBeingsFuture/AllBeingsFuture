@@ -3,7 +3,6 @@
  */
 
 import { usePanelStore } from '../../stores/panelStore'
-import FileManagerPanel from '../files/FileManagerPanel'
 import WorktreePanel from '../git/WorktreePanel'
 import DashboardSidebarView from '../sidebar/DashboardSidebarView'
 import TutorialSidebarView from '../sidebar/TutorialSidebarView'
@@ -19,8 +18,6 @@ export default function Sidebar() {
   switch (activePanelLeft) {
     case 'dashboard':
       return <DashboardSidebarView />
-    case 'explorer':
-      return <FileManagerPanel />
     case 'git':
       return <WorktreePanel />
     case 'timeline':
