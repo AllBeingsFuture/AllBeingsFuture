@@ -135,4 +135,23 @@ describe('MessageInput', () => {
       )
     })
   })
+
+  it('disables repeated cancellation while a stop request is pending', () => {
+    const onStop = vi.fn()
+    renderWithProviders(
+      <MessageInput
+        sessionId="test-session"
+        streaming
+        cancelling
+        onSend={vi.fn()}
+        onStop={onStop}
+      />,
+    )
+
+    const stopButton = screen.getByRole('button', { name: '正在停止响应' })
+    expect(stopButton).toBeDisabled()
+    expect(stopButton).toHaveTextContent('正在停止')
+    fireEvent.click(stopButton)
+    expect(onStop).not.toHaveBeenCalled()
+  })
 })

@@ -334,6 +334,9 @@ export function registerAllIpcHandlers(
   ipcMain.handle('ProcessService.GetChatState', (_e, sessionId: string) => processService.getChatState(sessionId))
   ipcMain.handle('ProcessService.IsStreaming', (_e, sessionId: string) => processService.isStreaming(sessionId))
   ipcMain.handle('ProcessService.StopProcess', (_e, sessionId: string) => processService.stopProcess(sessionId))
+  // Provider-neutral permission response for ACP (and future adapters).
+  ipcMain.handle('agent:permission:respond', (_e, payload: { sessionId: string; requestId: string; optionId: string }) =>
+    processService.respondToPermission(payload))
   ipcMain.handle('ProcessService.ResumeSession', (_e, oldSessionId: string) => processService.resumeSession(oldSessionId))
   ipcMain.handle('ProcessService.SpawnChildSession', (_e, parentSessionId: string, options: any) => processService.spawnChildSession(parentSessionId, options))
   ipcMain.handle('ProcessService.SendToChild', (_e, parentSessionId: string, childSessionId: string, message: string) => processService.sendToChild(parentSessionId, childSessionId, message))

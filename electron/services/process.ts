@@ -27,11 +27,22 @@ import type { NotificationManager } from './notification-manager.js'
 import type { ChatMessage, ChatState, ChatPatchEvent, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
 import { AgentLifecycleManager } from './agent-lifecycle.js'
 import { SessionSearchService } from './session-search.js'
+import { AgentStreamNormalizer } from './agent-stream-normalizer.js'
+import type { AgentPermissionResponse, AgentStreamSource } from './agent-stream-types.js'
+import type { RequestPermissionOutcome } from '@agentclientprotocol/sdk'
 
 // Re-export types so existing consumers don't break
 export type { ChatMessage, ChatState, ChatPatchEvent } from './process-types.js'
 
 const STREAM_PATCH_INTERVAL_MS = 120
+
+interface PendingPermission {
+  resolve: (outcome: RequestPermissionOutcome) => void
+  requestId: string
+  optionIds: Set<string>
+  abortListener?: () => void
+  signal?: AbortSignal
+}
 
 export class ProcessService {
   private sessionStates = new Map<string, SessionState>()
@@ -58,6 +69,10 @@ export class ProcessService {
   private agentLifecycle: AgentLifecycleManager
   /** Session search service — cross-session awareness and search */
   private sessionSearch: SessionSearchService
+  /** Provider-neutral agent:stream normalizer (sequence + contract mapping) */
+  private agentStreamNormalizer = new AgentStreamNormalizer()
+  /** Pending UI permission responses keyed by sessionId:requestId */
+  private pendingPermissions = new Map<string, PendingPermission>()
 
   constructor(
     private db: Database,
@@ -191,6 +206,100 @@ export class ProcessService {
     }
   }
 
+  private emitAgentStream(sessionId: string, event: BridgeEvent): void {
+    const streamEvent = this.agentStreamNormalizer.normalize(sessionId, event)
+    if (!streamEvent) return
+    const window = this.getWindow()
+    if (window && !window.isDestroyed()) {
+      window.webContents.send('agent:stream', streamEvent)
+    }
+  }
+
+  private permissionKey(sessionId: string, requestId: string): string {
+    return `${sessionId}:${requestId}`
+  }
+
+  private cancelPendingPermissions(sessionId: string): void {
+    for (const [key, pending] of this.pendingPermissions) {
+      if (!key.startsWith(`${sessionId}:`)) continue
+      this.pendingPermissions.delete(key)
+      if (pending.signal && pending.abortListener) {
+        pending.signal.removeEventListener('abort', pending.abortListener)
+      }
+      pending.resolve({ outcome: 'cancelled' })
+    }
+  }
+
+  private awaitPermissionResponse(
+    sessionId: string,
+    requestId: string,
+    optionIds: string[],
+    signal: AbortSignal,
+  ): Promise<RequestPermissionOutcome> {
+    return new Promise((resolve) => {
+      const key = this.permissionKey(sessionId, requestId)
+      const previous = this.pendingPermissions.get(key)
+      if (previous) {
+        previous.resolve({ outcome: 'cancelled' })
+        if (previous.signal && previous.abortListener) {
+          previous.signal.removeEventListener('abort', previous.abortListener)
+        }
+      }
+
+      const abortListener = () => {
+        const current = this.pendingPermissions.get(key)
+        if (!current) return
+        this.pendingPermissions.delete(key)
+        current.resolve({ outcome: 'cancelled' })
+      }
+
+      this.pendingPermissions.set(key, {
+        resolve,
+        requestId,
+        optionIds: new Set(optionIds),
+        signal,
+        abortListener,
+      })
+
+      if (signal.aborted) {
+        abortListener()
+        return
+      }
+      signal.addEventListener('abort', abortListener, { once: true })
+    })
+  }
+
+  /**
+   * Resolve a pending ACP/UI permission prompt from the renderer.
+   * Channel: agent:permission:respond
+   */
+  respondToPermission(
+    payload: AgentPermissionResponse,
+  ): { accepted: true } | { accepted: false; error: string } {
+    const sessionId = payload?.sessionId
+    const requestId = payload?.requestId
+    const optionId = payload?.optionId
+    if (!sessionId || !requestId || !optionId) {
+      return { accepted: false, error: 'sessionId, requestId, and optionId are required' }
+    }
+
+    const key = this.permissionKey(sessionId, requestId)
+    const pending = this.pendingPermissions.get(key)
+    if (!pending) {
+      return { accepted: false, error: 'No pending permission request for this session' }
+    }
+    if (!pending.optionIds.has(optionId)) {
+      return { accepted: false, error: `Unknown permission option '${optionId}'` }
+    }
+
+    this.pendingPermissions.delete(key)
+    if (pending.signal && pending.abortListener) {
+      pending.signal.removeEventListener('abort', pending.abortListener)
+    }
+    pending.resolve({ outcome: 'selected', optionId })
+    return { accepted: true }
+  }
+
   private emitChatPatch(sessionId: string, patch: Omit<ChatPatchEvent, 'sessionId'>) {
     const window = this.getWindow()
     if (window && !window.isDestroyed()) {
@@ -263,7 +372,7 @@ export class ProcessService {
     }
   }
 
-  private buildRuntimeCapabilitiesPrompt(providerId: string): string {
+  private buildRuntimeCapabilitiesPrompt(providerId: string, adapterType = ''): string {
     const sections: string[] = []
     const enabledSkills = this.skillService.getEnabledSkillSummaries()
     const enabledMcps = this.mcpService.getEnabledServerSummaries()
@@ -280,6 +389,7 @@ export class ProcessService {
 
     if (enabledMcps.length > 0) {
       const supportsNativeMcp = ProviderCapabilityRegistry.supportsNativeMcp(providerId)
+        || this.isAcpAdapter(adapterType)
       sections.push([
         '## MCP 服务',
         supportsNativeMcp
@@ -351,10 +461,17 @@ export class ProcessService {
       throw new Error(`Provider is not runnable: ${provider.name}. Check that the CLI is installed or disable this provider.`)
     }
 
+    const isAcp = this.isAcpAdapter(provider.adapterType)
+    const streamSource: AgentStreamSource = isAcp
+      ? { kind: 'native-acp-v1', provider: provider.id }
+      : { kind: 'legacy-adapter', provider: provider.id }
+    this.agentStreamNormalizer.configureSession(sessionId, streamSource)
+
     // Initialize bridge adapter for this session
     const config: Record<string, unknown> = {
       workDir: effectiveWorkDir,
       command: provider.command || undefined,
+      defaultArgs: provider.defaultArgs || undefined,
       autoAccept: session.autoAccept,
       autoAcceptFlag: provider.autoAcceptFlag || undefined,
       permissionMode: session.permissionMode,
@@ -369,14 +486,28 @@ export class ProcessService {
       envOverrides: provider.envOverrides ? this.parseEnvOverrides(provider.envOverrides) : undefined,
     }
 
-    if (ProviderCapabilityRegistry.supportsNativeMcp(provider.id)) {
+    // Wire UI permission prompts for interactive ACP sessions (auto-accept bypasses this).
+    if (isAcp && !session.autoAccept) {
+      config.permissionHandler = (
+        request: { options?: Array<{ optionId: string }> },
+        signal: AbortSignal,
+        requestId: string,
+      ) => this.awaitPermissionResponse(
+        sessionId,
+        requestId,
+        (request.options || []).map((option) => option.optionId).filter(Boolean),
+        signal,
+      )
+    }
+
+    if (ProviderCapabilityRegistry.supportsNativeMcp(provider.id) || this.isAcpAdapter(provider.adapterType)) {
       const enabledMcpServers = this.mcpService.getEnabledServerConfigs()
       if (Object.keys(enabledMcpServers).length > 0) {
         config.mcpServers = enabledMcpServers
       }
     }
 
-    const runtimeCapabilitiesPrompt = this.buildRuntimeCapabilitiesPrompt(provider.id)
+    const runtimeCapabilitiesPrompt = this.buildRuntimeCapabilitiesPrompt(provider.id, provider.adapterType)
     if (runtimeCapabilitiesPrompt) {
       const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
       config.appendSystemPrompt = existingPrompt
@@ -403,7 +534,7 @@ export class ProcessService {
         const providerNames = this.providerService.getRunnable().map(p => p.name)
         const workDir = config.workDir as string
 
-        if (isClaudeBased || isCodex) {
+        if (isClaudeBased || isCodex || isAcp) {
           try {
             const apiPort = await this.ensureAgentApi()
             config.mcpServers = {
@@ -635,7 +766,9 @@ export class ProcessService {
         state.streaming = false
 
         // Check if the adapter stream is still alive for notification/idle decisions.
-        const adapterStillAlive = this.bridgeManager.isSessionActive(sessionId)
+        const adapterStillAlive = event.turnActive === false
+          ? false
+          : this.bridgeManager.isSessionActive(sessionId)
 
         // Send notification only when the stream truly ends (adapter no longer alive)
         if (!adapterStillAlive) {
@@ -787,6 +920,20 @@ export class ProcessService {
           this.stateInference.markWorkStarted(sessionId)
         }
         const childInfoTool = this.agentLifecycle.getActiveChildInfo(sessionId)
+        if (event.isUpdate && event.toolCallId) {
+          const existingTool = [...state.messages].reverse().find(
+            message => message.role === 'tool_use' && message.toolCallId === event.toolCallId
+          )
+          if (existingTool) {
+            existingTool.toolStatus = event.toolStatus
+            existingTool.toolOutput = event.output
+            if (event.name) existingTool.toolName = event.name
+            if (event.input) existingTool.toolInput = event.input
+            this.emitChatUpdate(sessionId)
+            break
+          }
+        }
+
         // Create a separate tool_use message for each tool invocation
         const toolMsg: ChatMessage = {
           role: 'tool_use',
@@ -794,6 +941,9 @@ export class ProcessService {
           timestamp: new Date().toISOString(),
           toolName: event.name || 'unknown',
           toolInput: event.input || {},
+          toolCallId: event.toolCallId,
+          toolStatus: event.toolStatus,
+          toolOutput: event.output,
         }
         if (childInfoTool) {
           toolMsg.childSessionId = childInfoTool.id
@@ -805,7 +955,13 @@ export class ProcessService {
         const prevMsg = state.messages.slice().reverse().find(m => m.role === 'assistant')
         if (prevMsg) {
           if (!prevMsg.toolUse) prevMsg.toolUse = []
-          prevMsg.toolUse.push({ name: event.name || 'unknown', input: event.input || {} })
+          prevMsg.toolUse.push({
+            name: event.name || 'unknown',
+            input: event.input || {},
+            toolCallId: event.toolCallId,
+            status: event.toolStatus,
+            output: event.output,
+          })
         }
 
         this.emitChatPatch(sessionId, {
@@ -878,7 +1034,16 @@ export class ProcessService {
         this.agentLifecycle.handleAgentTaskEvent(sessionId, event)
         break
       }
+
+      case 'plan':
+      case 'permission':
+      case 'status':
+        // Normalized agent:stream carries these; legacy chat state is unchanged.
+        break
     }
+
+    // Always emit the provider-neutral stream contract when mappable.
+    this.emitAgentStream(sessionId, event)
   }
 
   async sendMessage(sessionId: string, message: string): Promise<void> {
@@ -1046,6 +1211,8 @@ export class ProcessService {
     // Clear pending messages for this session
     const scheduler = this.schedulers.get(sessionId)
     if (scheduler) scheduler.clear()
+    // Cancel any waiting UI permission prompts before/while the adapter cancels.
+    this.cancelPendingPermissions(sessionId)
     await this.bridgeManager.stopSession(sessionId)
     this.concurrencyGuard.unregisterSession(sessionId)
     this.sessionService.updateStatus(sessionId, 'idle')
@@ -1053,6 +1220,8 @@ export class ProcessService {
     // Clean up parser state
     this.outputParser.clearSession(sessionId)
     this.stateInference.removeSession(sessionId)
+    // Keep stream sequence counters for the session lifetime so the renderer
+    // continues to accept later turns (sequences must stay strictly increasing).
     // Cancel all sub-agents when parent is stopped (including persistent)
     this.agentLifecycle.finalizeChildAgents(sessionId, 'cancelled', false)
     // Clean up supervisor prompt rules file
@@ -1234,6 +1403,11 @@ export class ProcessService {
     return t.includes('codex')
   }
 
+  private isAcpAdapter(adapterType: string): boolean {
+    const t = (adapterType || '').toLowerCase()
+    return t === 'acp' || t === 'acp-stdio'
+  }
+
   /**
    * Clean up parser and state inference resources.
    * Should be called on app quit / before-quit.
@@ -1242,5 +1416,12 @@ export class ProcessService {
     this.stateInference.stop()
     this.outputParser.stopWatching()
     this.outputParser.cleanupUsage()
+    for (const [key, pending] of this.pendingPermissions) {
+      this.pendingPermissions.delete(key)
+      if (pending.signal && pending.abortListener) {
+        pending.signal.removeEventListener('abort', pending.abortListener)
+      }
+      pending.resolve({ outcome: 'cancelled' })
+    }
   }
 }
