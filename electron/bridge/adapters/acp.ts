@@ -29,6 +29,7 @@ const MAX_STDERR_CHARS = 4_000
 export type AcpPermissionHandler = (
   request: RequestPermissionRequest,
   signal: AbortSignal,
+  requestId: string,
 ) => Promise<RequestPermissionOutcome> | RequestPermissionOutcome
 
 export interface AcpAdapterConfig {
@@ -248,8 +249,8 @@ export class AcpAdapter implements ProviderAdapter {
       }
 
       const app = client({ name: 'allbeingsfuture' })
-        .onRequest(methods.client.session.requestPermission, ({ params, signal }) =>
-          this.handlePermissionRequest(params, signal))
+        .onRequest(methods.client.session.requestPermission, ({ params, signal, requestId }) =>
+          this.handlePermissionRequest(params, signal, requestId))
         .onNotification(methods.client.session.update, ({ params }) => {
           this.handleSessionUpdate(params)
         })
@@ -556,7 +557,7 @@ export class AcpAdapter implements ProviderAdapter {
 
   private handleToolCall(update: ToolCall): void {
     const tracked = {
-      name: update.name || update.title || update.kind || 'tool',
+      name: update.title || update.name || update.kind || 'tool',
       input: toRecord(update.rawInput),
       status: update.status,
     }
@@ -577,7 +578,7 @@ export class AcpAdapter implements ProviderAdapter {
   private handleToolCallUpdate(update: ToolCallUpdate): void {
     const previous = this.toolCalls.get(update.toolCallId)
     const tracked: TrackedToolCall = {
-      name: update.name || update.title || previous?.name || update.kind || 'tool',
+      name: update.title || update.name || previous?.name || update.kind || 'tool',
       input: update.rawInput === undefined ? (previous?.input || {}) : toRecord(update.rawInput),
       status: update.status || previous?.status,
     }
@@ -598,12 +599,18 @@ export class AcpAdapter implements ProviderAdapter {
   private async handlePermissionRequest(
     request: RequestPermissionRequest,
     signal: AbortSignal,
+    requestId: unknown,
   ): Promise<{ outcome: RequestPermissionOutcome }> {
+    const permissionRequestId = requestId === undefined || requestId === null
+      ? `perm-${Date.now()}`
+      : String(requestId)
+
     this.emitEvent({
       event: 'permission',
       type: 'permission',
+      requestId: permissionRequestId,
       toolCallId: request.toolCall.toolCallId,
-      name: request.toolCall.name || request.toolCall.title || request.toolCall.kind || 'tool',
+      name: request.toolCall.title || request.toolCall.name || request.toolCall.kind || 'tool',
       input: toRecord(request.toolCall.rawInput),
       options: request.options,
     })
@@ -611,16 +618,17 @@ export class AcpAdapter implements ProviderAdapter {
     let outcome: RequestPermissionOutcome
     if (signal.aborted || this.turnController?.signal.aborted) {
       outcome = { outcome: 'cancelled' }
-    } else if (this.config.permissionHandler) {
-      outcome = await Promise.race([
-        Promise.resolve(this.config.permissionHandler(request, signal)),
-        this.permissionCancellation(signal),
-      ])
     } else if (this.config.autoAccept) {
+      // Prefer auto-accept over a UI handler so headless/tests stay deterministic.
       const option = this.preferredAllowOption(request.options)
       outcome = option
         ? { outcome: 'selected', optionId: option.optionId }
         : { outcome: 'cancelled' }
+    } else if (this.config.permissionHandler) {
+      outcome = await Promise.race([
+        Promise.resolve(this.config.permissionHandler(request, signal, permissionRequestId)),
+        this.permissionCancellation(signal),
+      ])
     } else {
       outcome = { outcome: 'cancelled' }
     }
@@ -635,6 +643,7 @@ export class AcpAdapter implements ProviderAdapter {
     this.emitEvent({
       event: 'permission',
       type: 'permission',
+      requestId: permissionRequestId,
       toolCallId: request.toolCall.toolCallId,
       options: request.options,
       outcome,

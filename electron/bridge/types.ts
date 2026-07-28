@@ -53,6 +53,8 @@ export interface BridgeEvent {
   entries?: PlanEntry[]
   options?: PermissionOption[]
   outcome?: RequestPermissionOutcome
+  /** JSON-RPC / UI permission request id for session/request_permission */
+  requestId?: string
   // agent_task fields used by the existing compatibility adapters.
   subtype?: 'task_started' | 'task_progress' | 'task_notification'
   task_id?: string

@@ -27,11 +27,22 @@ import type { NotificationManager } from './notification-manager.js'
 import type { ChatMessage, ChatState, ChatPatchEvent, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
 import { AgentLifecycleManager } from './agent-lifecycle.js'
 import { SessionSearchService } from './session-search.js'
+import { AgentStreamNormalizer } from './agent-stream-normalizer.js'
+import type { AgentPermissionResponse, AgentStreamSource } from './agent-stream-types.js'
+import type { RequestPermissionOutcome } from '@agentclientprotocol/sdk'
 
 // Re-export types so existing consumers don't break
 export type { ChatMessage, ChatState, ChatPatchEvent } from './process-types.js'
 
 const STREAM_PATCH_INTERVAL_MS = 120
+
+interface PendingPermission {
+  resolve: (outcome: RequestPermissionOutcome) => void
+  requestId: string
+  optionIds: Set<string>
+  abortListener?: () => void
+  signal?: AbortSignal
+}
 
 export class ProcessService {
   private sessionStates = new Map<string, SessionState>()
@@ -58,6 +69,10 @@ export class ProcessService {
   private agentLifecycle: AgentLifecycleManager
   /** Session search service — cross-session awareness and search */
   private sessionSearch: SessionSearchService
+  /** Provider-neutral agent:stream normalizer (sequence + contract mapping) */
+  private agentStreamNormalizer = new AgentStreamNormalizer()
+  /** Pending UI permission responses keyed by sessionId:requestId */
+  private pendingPermissions = new Map<string, PendingPermission>()
 
   constructor(
     private db: Database,
@@ -189,6 +204,100 @@ export class ProcessService {
         error: state.error,
       })
     }
+  }
+
+  private emitAgentStream(sessionId: string, event: BridgeEvent): void {
+    const streamEvent = this.agentStreamNormalizer.normalize(sessionId, event)
+    if (!streamEvent) return
+    const window = this.getWindow()
+    if (window && !window.isDestroyed()) {
+      window.webContents.send('agent:stream', streamEvent)
+    }
+  }
+
+  private permissionKey(sessionId: string, requestId: string): string {
+    return `${sessionId}:${requestId}`
+  }
+
+  private cancelPendingPermissions(sessionId: string): void {
+    for (const [key, pending] of this.pendingPermissions) {
+      if (!key.startsWith(`${sessionId}:`)) continue
+      this.pendingPermissions.delete(key)
+      if (pending.signal && pending.abortListener) {
+        pending.signal.removeEventListener('abort', pending.abortListener)
+      }
+      pending.resolve({ outcome: 'cancelled' })
+    }
+  }
+
+  private awaitPermissionResponse(
+    sessionId: string,
+    requestId: string,
+    optionIds: string[],
+    signal: AbortSignal,
+  ): Promise<RequestPermissionOutcome> {
+    return new Promise((resolve) => {
+      const key = this.permissionKey(sessionId, requestId)
+      const previous = this.pendingPermissions.get(key)
+      if (previous) {
+        previous.resolve({ outcome: 'cancelled' })
+        if (previous.signal && previous.abortListener) {
+          previous.signal.removeEventListener('abort', previous.abortListener)
+        }
+      }
+
+      const abortListener = () => {
+        const current = this.pendingPermissions.get(key)
+        if (!current) return
+        this.pendingPermissions.delete(key)
+        current.resolve({ outcome: 'cancelled' })
+      }
+
+      this.pendingPermissions.set(key, {
+        resolve,
+        requestId,
+        optionIds: new Set(optionIds),
+        signal,
+        abortListener,
+      })
+
+      if (signal.aborted) {
+        abortListener()
+        return
+      }
+      signal.addEventListener('abort', abortListener, { once: true })
+    })
+  }
+
+  /**
+   * Resolve a pending ACP/UI permission prompt from the renderer.
+   * Channel: agent:permission:respond
+   */
+  respondToPermission(
+    payload: AgentPermissionResponse,
+  ): { accepted: true } | { accepted: false; error: string } {
+    const sessionId = payload?.sessionId
+    const requestId = payload?.requestId
+    const optionId = payload?.optionId
+    if (!sessionId || !requestId || !optionId) {
+      return { accepted: false, error: 'sessionId, requestId, and optionId are required' }
+    }
+
+    const key = this.permissionKey(sessionId, requestId)
+    const pending = this.pendingPermissions.get(key)
+    if (!pending) {
+      return { accepted: false, error: 'No pending permission request for this session' }
+    }
+    if (!pending.optionIds.has(optionId)) {
+      return { accepted: false, error: `Unknown permission option '${optionId}'` }
+    }
+
+    this.pendingPermissions.delete(key)
+    if (pending.signal && pending.abortListener) {
+      pending.signal.removeEventListener('abort', pending.abortListener)
+    }
+    pending.resolve({ outcome: 'selected', optionId })
+    return { accepted: true }
   }
 
   private emitChatPatch(sessionId: string, patch: Omit<ChatPatchEvent, 'sessionId'>) {
@@ -352,6 +461,12 @@ export class ProcessService {
       throw new Error(`Provider is not runnable: ${provider.name}. Check that the CLI is installed or disable this provider.`)
     }
 
+    const isAcp = this.isAcpAdapter(provider.adapterType)
+    const streamSource: AgentStreamSource = isAcp
+      ? { kind: 'native-acp-v1', provider: provider.id }
+      : { kind: 'legacy-adapter', provider: provider.id }
+    this.agentStreamNormalizer.configureSession(sessionId, streamSource)
+
     // Initialize bridge adapter for this session
     const config: Record<string, unknown> = {
       workDir: effectiveWorkDir,
@@ -369,6 +484,20 @@ export class ProcessService {
       maxOutputTokens: provider.maxOutputTokens || undefined,
       preferResponsesApi: provider.preferResponsesApi || undefined,
       envOverrides: provider.envOverrides ? this.parseEnvOverrides(provider.envOverrides) : undefined,
+    }
+
+    // Wire UI permission prompts for interactive ACP sessions (auto-accept bypasses this).
+    if (isAcp && !session.autoAccept) {
+      config.permissionHandler = (
+        request: { options?: Array<{ optionId: string }> },
+        signal: AbortSignal,
+        requestId: string,
+      ) => this.awaitPermissionResponse(
+        sessionId,
+        requestId,
+        (request.options || []).map((option) => option.optionId).filter(Boolean),
+        signal,
+      )
     }
 
     if (ProviderCapabilityRegistry.supportsNativeMcp(provider.id) || this.isAcpAdapter(provider.adapterType)) {
@@ -402,7 +531,6 @@ export class ProcessService {
       try {
         const isClaudeBased = this.isClaudeAdapter(provider.adapterType)
         const isCodex = this.isCodexAdapter(provider.adapterType)
-        const isAcp = this.isAcpAdapter(provider.adapterType)
         const providerNames = this.providerService.getRunnable().map(p => p.name)
         const workDir = config.workDir as string
 
@@ -906,7 +1034,16 @@ export class ProcessService {
         this.agentLifecycle.handleAgentTaskEvent(sessionId, event)
         break
       }
+
+      case 'plan':
+      case 'permission':
+      case 'status':
+        // Normalized agent:stream carries these; legacy chat state is unchanged.
+        break
     }
+
+    // Always emit the provider-neutral stream contract when mappable.
+    this.emitAgentStream(sessionId, event)
   }
 
   async sendMessage(sessionId: string, message: string): Promise<void> {
@@ -1074,6 +1211,8 @@ export class ProcessService {
     // Clear pending messages for this session
     const scheduler = this.schedulers.get(sessionId)
     if (scheduler) scheduler.clear()
+    // Cancel any waiting UI permission prompts before/while the adapter cancels.
+    this.cancelPendingPermissions(sessionId)
     await this.bridgeManager.stopSession(sessionId)
     this.concurrencyGuard.unregisterSession(sessionId)
     this.sessionService.updateStatus(sessionId, 'idle')
@@ -1081,6 +1220,8 @@ export class ProcessService {
     // Clean up parser state
     this.outputParser.clearSession(sessionId)
     this.stateInference.removeSession(sessionId)
+    // Keep stream sequence counters for the session lifetime so the renderer
+    // continues to accept later turns (sequences must stay strictly increasing).
     // Cancel all sub-agents when parent is stopped (including persistent)
     this.agentLifecycle.finalizeChildAgents(sessionId, 'cancelled', false)
     // Clean up supervisor prompt rules file
@@ -1275,5 +1416,12 @@ export class ProcessService {
     this.stateInference.stop()
     this.outputParser.stopWatching()
     this.outputParser.cleanupUsage()
+    for (const [key, pending] of this.pendingPermissions) {
+      this.pendingPermissions.delete(key)
+      if (pending.signal && pending.abortListener) {
+        pending.signal.removeEventListener('abort', pending.abortListener)
+      }
+      pending.resolve({ outcome: 'cancelled' })
+    }
   }
 }

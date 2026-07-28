@@ -7,6 +7,8 @@
   },
   "include": [
     "bridge/**/*.ts",
+    "services/agent-stream-normalizer.ts",
+    "services/agent-stream-types.ts",
     "tests/**/*.ts"
   ],
   "exclude": [
