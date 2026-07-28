@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Session, SessionConfig } from '../../bindings/allbeingsfuture/internal/models/models'
+import type { ChatMessage, Session, SessionConfig } from '../../bindings/allbeingsfuture/internal/models/models'
 import {
   chatCore,
   type AgentInfo,
@@ -9,8 +9,19 @@ import {
   type AgentUpdateEvent,
   type ChatSnapshot,
 } from '../core/chat/chatCore'
+import {
+  createAgentSessionStreamState,
+  isAgentStreamActive,
+  reduceAgentStreamEvent,
+  requestAgentStreamCancellation,
+  resolveAgentStreamPermission,
+} from '../core/chat/agentStreamCore'
+import { respondToAgentPermission } from '../hooks/agentStreamIpc'
+import type { AgentSessionStreamState, AgentStreamEvent } from '../types/agentStreamTypes'
 
 interface SessionState extends ChatSnapshot {
+  agentStreams: Record<string, AgentSessionStreamState>
+  agentStreamMessages: Record<string, ChatMessage[]>
   loading: boolean
   load: () => Promise<void>
   create: (config: SessionConfig) => Promise<Session | null>
@@ -25,6 +36,8 @@ interface SessionState extends ChatSnapshot {
   handleChatUpdate: (data: ChatUpdateEvent) => void
   handleChatPatch: (data: ChatPatchEvent) => void
   handleAgentUpdate: (data: AgentUpdateEvent) => void
+  handleAgentStreamEvent: (data: AgentStreamEvent) => void
+  respondToPermission: (sessionId: string, requestId: string, optionId: string) => Promise<void>
   stopProcess: (id: string) => Promise<void>
   resumeSession: (oldSessionId: string) => Promise<{ success: boolean; sessionId?: string; error?: string }>
   spawnChild: (parentSessionId: string, name: string, prompt: string) => Promise<string | null>
@@ -54,6 +67,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   chatError: '',
   agents: {},
   childToParent: {},
+  agentStreams: {},
+  agentStreamMessages: {},
 
   load: async () => {
     set({ loading: true })
@@ -76,9 +91,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   select: (id) => {
-    const patch = chatCore.select(snapshotOf(get()), id)
+    const state = get()
+    const patch = chatCore.select(snapshotOf(state), id)
     if (!patch) return
-    set(patch)
+    const stream = id ? state.agentStreams[id] : undefined
+    const bufferedMessages = id ? state.agentStreamMessages[id] : undefined
+    set({
+      ...patch,
+      ...(bufferedMessages ? { messages: bufferedMessages } : {}),
+      streaming: isAgentStreamActive(stream),
+    })
     if (id) void get().pollChat(id)
   },
 
@@ -124,21 +146,38 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   pollChat: async (id) => {
+    if (isAgentStreamActive(get().agentStreams[id])) return
     try {
       const patch = await chatCore.poll(snapshotOf(get()), id)
-      if (patch) set(patch)
+      if (patch) {
+        set(patch)
+        if (get().selectedId === id && patch.messages) {
+          set(state => ({ agentStreamMessages: { ...state.agentStreamMessages, [id]: patch.messages! } }))
+        }
+      }
     } catch (err: unknown) {
       set({ chatError: chatCore.localizeChatError(err instanceof Error ? err.message : String(err)) })
     }
   },
 
   handleChatUpdate: (data) => {
+    if (isAgentStreamActive(get().agentStreams[data.sessionId])) return
     const patch = chatCore.applyChatUpdate(snapshotOf(get()), data)
-    if (patch) set(patch)
+    if (patch) {
+      set(patch)
+      if (get().selectedId === data.sessionId && patch.messages) {
+        set(state => ({ agentStreamMessages: { ...state.agentStreamMessages, [data.sessionId]: patch.messages! } }))
+      }
+    }
   },
 
   handleChatPatch: (data) => {
-    set(chatCore.applyChatPatch(snapshotOf(get()), data))
+    if (isAgentStreamActive(get().agentStreams[data.sessionId])) return
+    const patch = chatCore.applyChatPatch(snapshotOf(get()), data)
+    set(patch)
+    if (get().selectedId === data.sessionId && patch.messages) {
+      set(state => ({ agentStreamMessages: { ...state.agentStreamMessages, [data.sessionId]: patch.messages! } }))
+    }
   },
 
   handleAgentUpdate: (data) => {
@@ -149,9 +188,72 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  handleAgentStreamEvent: (data) => {
+    const state = get()
+    const currentStream = state.agentStreams[data.sessionId]
+    const selected = state.selectedId === data.sessionId
+    const bufferedMessages = state.agentStreamMessages[data.sessionId]
+    const reduction = reduceAgentStreamEvent(bufferedMessages || (selected ? state.messages : []), currentStream, data)
+    if (reduction.ignored) return
+
+    set({
+      agentStreams: { ...state.agentStreams, [data.sessionId]: reduction.stream },
+      agentStreamMessages: { ...state.agentStreamMessages, [data.sessionId]: reduction.messages },
+      sessions: chatCore.syncRuntimeStatus(state.sessions, data.sessionId, reduction.streaming),
+      ...(selected ? {
+        messages: reduction.messages,
+        streaming: reduction.streaming,
+        chatError: reduction.error,
+      } : {}),
+    })
+  },
+
+  respondToPermission: async (sessionId, requestId, optionId) => {
+    await respondToAgentPermission({ sessionId, requestId, optionId })
+    const state = get()
+    const current = state.agentStreams[sessionId]
+    const nextStream = resolveAgentStreamPermission(current, requestId)
+    if (nextStream === current) return
+    set({
+      agentStreams: { ...state.agentStreams, [sessionId]: nextStream },
+      ...(state.selectedId === sessionId ? { streaming: true } : {}),
+    })
+  },
+
   stopProcess: async (id) => {
-    await chatCore.stop(id)
-    await get().load()
+    const before = get()
+    const cancelling = requestAgentStreamCancellation(before.agentStreams[id])
+    set({
+      agentStreams: { ...before.agentStreams, [id]: cancelling },
+      ...(before.selectedId === id ? { streaming: true } : {}),
+    })
+    try {
+      await chatCore.stop(id)
+      const state = get()
+      const current = state.agentStreams[id] || createAgentSessionStreamState()
+      set({
+        agentStreams: {
+          ...state.agentStreams,
+          [id]: { ...current, phase: 'cancelled', permission: undefined },
+        },
+        sessions: chatCore.syncRuntimeStatus(state.sessions, id, false),
+        ...(state.selectedId === id ? { streaming: false } : {}),
+      })
+      await get().load()
+    } catch (err) {
+      const state = get()
+      const message = err instanceof Error ? err.message : String(err)
+      const current = state.agentStreams[id] || createAgentSessionStreamState()
+      set({
+        agentStreams: {
+          ...state.agentStreams,
+          [id]: { ...current, phase: 'error', terminalReason: message, permission: undefined },
+        },
+        sessions: chatCore.syncRuntimeStatus(state.sessions, id, false),
+        ...(state.selectedId === id ? { streaming: false, chatError: message } : {}),
+      })
+      throw err
+    }
   },
 
   resumeSession: async (oldSessionId) => {

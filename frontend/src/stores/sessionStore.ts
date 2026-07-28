@@ -6,3 +6,10 @@ export type {
   ChatPatchEvent,
   AgentUpdateEvent,
 } from './sessionSnapshotStore'
+export type {
+  AgentSessionStreamState,
+  AgentStreamEvent,
+  AgentPermissionRequest,
+  AgentPermissionOption,
+  AgentPlan,
+} from '../types/agentStreamTypes'
