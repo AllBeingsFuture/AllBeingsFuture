@@ -9,6 +9,8 @@
     "bridge/**/*.ts",
     "services/agent-stream-normalizer.ts",
     "services/agent-stream-types.ts",
+    "services/provider-defaults.ts",
+    "services/provider.ts",
     "tests/**/*.ts"
   ],
   "exclude": [

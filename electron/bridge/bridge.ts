@@ -35,6 +35,16 @@ const ADAPTER_ALIASES = new Map<string, string>([
   ['openai-api', 'openai-api'],
   ['acp', 'acp'],
   ['acp-stdio', 'acp'],
+  // Built-in ACP agent ids / short names map to the shared AcpAdapter
+  ['grok', 'acp'],
+  ['grok-build', 'acp'],
+  ['qwen', 'acp'],
+  ['qwen-code', 'acp'],
+  ['kimi', 'acp'],
+  ['kimi-cli', 'acp'],
+  ['copilot', 'acp'],
+  ['github-copilot', 'acp'],
+  ['github-copilot-cli', 'acp'],
 ])
 
 function normalizeAdapterType(adapterType: string, config?: Record<string, any>): string {
@@ -47,6 +57,15 @@ function normalizeAdapterType(adapterType: string, config?: Record<string, any>)
   if (command.includes('gemini')) return 'gemini-headless'
   if (command.includes('opencode')) return 'opencode-sdk'
   if (command.includes('openai')) return 'openai-api'
+  // Prefer shared ACP adapter for verified ACP CLI commands
+  if (
+    command.includes('grok')
+    || command.includes('qwen')
+    || command.includes('kimi')
+    || command.includes('copilot')
+  ) {
+    return 'acp'
+  }
   return adapterType
 }
 

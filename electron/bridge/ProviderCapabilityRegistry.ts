@@ -111,6 +111,52 @@ export class ProviderCapabilityRegistry {
         systemPrompt: true,
       },
     }],
+    // Native ACP agents: MCP is negotiated over the shared AcpAdapter session.
+    ['grok-build', {
+      providerId: 'grok-build',
+      mcpSupport: {
+        native: true,
+        fallback: 'none',
+      },
+      skillSupport: {
+        slashCommands: false,
+        systemPrompt: true,
+      },
+    }],
+    ['qwen-code', {
+      providerId: 'qwen-code',
+      mcpSupport: {
+        native: true,
+        fallback: 'none',
+      },
+      skillSupport: {
+        slashCommands: false,
+        systemPrompt: true,
+        nativeSkillDir: undefined,
+      },
+    }],
+    ['kimi-cli', {
+      providerId: 'kimi-cli',
+      mcpSupport: {
+        native: true,
+        fallback: 'none',
+      },
+      skillSupport: {
+        slashCommands: false,
+        systemPrompt: true,
+      },
+    }],
+    ['github-copilot', {
+      providerId: 'github-copilot',
+      mcpSupport: {
+        native: true,
+        fallback: 'none',
+      },
+      skillSupport: {
+        slashCommands: false,
+        systemPrompt: true,
+      },
+    }],
   ])
 
   /** 获取指定 Provider 的完整能力描述 */

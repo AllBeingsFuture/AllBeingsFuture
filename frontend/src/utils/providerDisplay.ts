@@ -8,6 +8,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   'iflow-cli': 'iFlow CLI',
   opencode: 'OpenCode',
   'openai-api': 'OpenAI API',
+  'grok-build': 'Grok Build',
+  'qwen-code': 'Qwen Code',
+  'kimi-cli': 'Kimi CLI',
+  'github-copilot': 'GitHub Copilot CLI',
 }
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -23,6 +27,12 @@ const PROVIDER_COLORS: Record<string, string> = {
   opencode: '#FB923C',
   'opencode-sdk': '#FB923C',
   'openai-api': '#10B981',
+  'grok-build': '#E8B84A',
+  'qwen-code': '#6366F1',
+  'kimi-cli': '#38BDF8',
+  'github-copilot': '#A3E635',
+  acp: '#A78BFA',
+  'acp-stdio': '#A78BFA',
 }
 
 export function resolveProviderDisplayInfo(

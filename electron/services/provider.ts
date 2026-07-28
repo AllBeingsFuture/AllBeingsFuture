@@ -66,7 +66,7 @@ function rowToProvider(row: any): AIProvider {
   }
 }
 
-function extractExecutableTarget(raw: string): string {
+export function extractExecutableTarget(raw: string): string {
   const trimmed = raw.trim()
   if (!trimmed) return ''
 
@@ -111,7 +111,7 @@ function executableExtensions(target: string): string[] {
   return [...extensions]
 }
 
-function resolveExecutable(target: string): boolean {
+export function resolveExecutable(target: string): boolean {
   const executable = extractExecutableTarget(target)
   if (!executable) return false
 

@@ -15,6 +15,7 @@ export const ADAPTER_OPTIONS: { key: AdapterType; label: string }[] = [
   { key: 'gemini-headless', label: 'Gemini Headless' },
   { key: 'opencode-sdk', label: 'OpenCode SDK' },
   { key: 'openai-api', label: 'OpenAI \u517C\u5BB9 API' },
+  { key: 'acp', label: 'ACP (stdio)' },
 ]
 
 const inputCls = 'w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-sm text-white placeholder-gray-500 outline-none focus:border-dark-accent/60 transition-colors'

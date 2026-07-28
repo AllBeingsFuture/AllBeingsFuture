@@ -109,6 +109,8 @@ const providerMetaByAdapter: Record<string, { icon: string; desc: string }> = {
   'opencode-sdk': { icon: '🟠', desc: '多模型切换' },
   'openai-api': { icon: '🟩', desc: 'OpenAI 兼容中转与多模型接入' },
   iflow: { icon: '🟡', desc: 'ACP 协议适配' },
+  acp: { icon: '⬡', desc: 'ACP stdio 原生协议' },
+  'acp-stdio': { icon: '⬡', desc: 'ACP stdio 原生协议' },
 }
 
 function resolveProviderMeta(provider: Pick<AIProvider, 'adapterType'>): { icon: string; desc: string } {

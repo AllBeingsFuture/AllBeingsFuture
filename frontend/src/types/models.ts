@@ -6,6 +6,8 @@ export type AdapterType =
   | 'gemini-headless'
   | 'opencode-sdk'
   | 'openai-api'
+  | 'acp'
+  | 'acp-stdio'
 
 export interface AIProvider {
   id: string

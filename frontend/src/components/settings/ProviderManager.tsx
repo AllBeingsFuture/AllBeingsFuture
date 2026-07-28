@@ -15,6 +15,7 @@ const ADAPTER_OPTIONS: { key: AdapterType; label: string }[] = [
   { key: 'gemini-headless', label: 'Gemini Headless' },
   { key: 'opencode-sdk', label: 'OpenCode SDK' },
   { key: 'openai-api', label: 'OpenAI 兼容 API' },
+  { key: 'acp', label: 'ACP (stdio)' },
 ]
 
 const ADAPTER_ICONS: Record<string, { icon: string; color: string }> = {
@@ -23,6 +24,8 @@ const ADAPTER_ICONS: Record<string, { icon: string; color: string }> = {
   'gemini-headless': { icon: '✦', color: '#34D399' },
   'opencode-sdk':    { icon: '⚡', color: '#FB923C' },
   'openai-api':      { icon: '◉', color: '#10B981' },
+  acp:               { icon: '⬡', color: '#A78BFA' },
+  'acp-stdio':       { icon: '⬡', color: '#A78BFA' },
 }
 
 const ADAPTER_CAPABILITIES: Record<string, string[]> = {
@@ -31,6 +34,8 @@ const ADAPTER_CAPABILITIES: Record<string, string[]> = {
   'gemini-headless': ['可自动接受', '确认检测'],
   'opencode-sdk':    ['可自动接受'],
   'openai-api':      ['API 兼容'],
+  acp:               ['ACP v1', 'stdio', '可自动接受', '权限协商'],
+  'acp-stdio':       ['ACP v1', 'stdio', '可自动接受', '权限协商'],
 }
 
 const inputCls = 'w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-sm text-white placeholder-gray-500 outline-none focus:border-dark-accent/60 transition-colors'
@@ -168,7 +173,9 @@ function ProviderCard({
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            <code className="text-xs text-gray-500">{p.command || p.adapterType}</code>
+            <code className="text-xs text-gray-500">
+              {[p.command || p.adapterType, p.defaultArgs].filter(Boolean).join(' ')}
+            </code>
             {p.defaultModel && (
               <>
                 <span className="text-gray-600">·</span>
@@ -256,6 +263,7 @@ function EditPanel({
 
   const hasChanges = JSON.stringify(form) !== JSON.stringify(provider)
   const isApiProvider = form.adapterType === 'openai-api'
+  const isAcpProvider = form.adapterType === 'acp' || form.adapterType === 'acp-stdio'
 
   const handleSave = async () => {
     setSaving(true)
@@ -330,8 +338,22 @@ function EditPanel({
           <input
             value={form.command}
             onChange={e => set('command', e.target.value)}
-            placeholder="e.g. claude, codex, gemini"
+            placeholder="e.g. claude, codex, gemini, grok"
             className={inputCls}
+          />
+        </Field>
+      )}
+
+      {isAcpProvider && (
+        <Field
+          label="ACP Launch Args"
+          hint="附加到 command 的 ACP 模式参数，例如 agent stdio、--acp、acp"
+        >
+          <input
+            value={form.defaultArgs || ''}
+            onChange={e => set('defaultArgs', e.target.value)}
+            placeholder="e.g. agent stdio  |  --acp  |  acp"
+            className={`${inputCls} font-mono`}
           />
         </Field>
       )}
@@ -462,14 +484,16 @@ function EditPanel({
         <div className="space-y-3 pl-0">
           {!isApiProvider && (
             <>
-              <Field label="Default Arguments" hint="Additional CLI flags passed on every invocation">
-                <input
-                  value={form.defaultArgs || ''}
-                  onChange={e => set('defaultArgs', e.target.value)}
-                  placeholder="e.g. --verbose --no-cache"
-                  className={inputCls}
-                />
-              </Field>
+              {!isAcpProvider && (
+                <Field label="Default Arguments" hint="Additional CLI flags passed on every invocation">
+                  <input
+                    value={form.defaultArgs || ''}
+                    onChange={e => set('defaultArgs', e.target.value)}
+                    placeholder="e.g. --verbose --no-cache"
+                    className={inputCls}
+                  />
+                </Field>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Auto-Accept Arg" hint="Flag to enable auto-accept mode">

@@ -219,6 +219,8 @@ export const AdapterType = {
     AdapterGemini: "gemini-headless",
     AdapterOpenCode: "opencode-sdk",
     AdapterOpenAIAPI: "openai-api",
+    AdapterAcp: "acp",
+    AdapterAcpStdio: "acp-stdio",
 };
 
 export class AppSettings {

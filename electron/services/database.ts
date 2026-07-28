@@ -10,6 +10,7 @@ import type { SQLInputValue } from 'node:sqlite'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
+import { builtinProviderSeedRows } from './provider-defaults.js'
 
 const DB_DIR = path.join(os.homedir(), '.allbeingsfuture')
 const DB_PATH = path.join(DB_DIR, 'allbeingsfuture.db')
@@ -318,14 +319,6 @@ export class Database {
       UPDATE sessions SET provider_id = 'opencode' WHERE provider_id = 'builtin-opencode';
       DELETE FROM providers WHERE id IN ('builtin-claude', 'builtin-codex', 'builtin-gemini', 'builtin-opencode');
 
-      -- Insert builtin providers if not exist
-      INSERT OR IGNORE INTO providers (id, name, command, is_builtin, adapter_type, is_enabled, sort_order)
-      VALUES
-        ('claude-code', 'Claude Code', 'claude', 1, 'claude-sdk', 1, 1),
-        ('codex', 'Codex CLI', 'codex', 1, 'codex-appserver', 1, 2),
-        ('gemini-cli', 'Gemini CLI', 'gemini', 1, 'gemini-headless', 1, 3),
-        ('opencode', 'OpenCode', 'opencode', 1, 'opencode-sdk', 1, 4);
-
       -- Insert default settings if not exist
       INSERT OR IGNORE INTO settings (key, value) VALUES
         ('theme', 'dark'),
@@ -369,5 +362,28 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_file_changes_session ON file_changes(session_id);
       CREATE INDEX IF NOT EXISTS idx_file_changes_path ON file_changes(file_path);
     `)
+
+    this.seedBuiltinProviders()
+  }
+
+  /** Insert built-in provider presets when missing (including new ACP agents). */
+  private seedBuiltinProviders(): void {
+    const insert = this.compat.prepare(`
+      INSERT OR IGNORE INTO providers (
+        id, name, command, is_builtin, adapter_type, default_args, is_enabled, sort_order
+      ) VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+    `)
+
+    for (const row of builtinProviderSeedRows()) {
+      insert.run(
+        row.id,
+        row.name,
+        row.command,
+        row.adapterType,
+        row.defaultArgs,
+        row.isEnabled,
+        row.sortOrder,
+      )
+    }
   }
 }
