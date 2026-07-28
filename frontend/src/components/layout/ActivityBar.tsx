@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Bot, FolderTree, GitBranch, Settings, Users, TerminalSquare, Wrench } from 'lucide-react'
+import { Bot, FolderTree, GitBranch, Settings, Users, TerminalSquare } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { workbenchApi } from '../../app/api/workbench'
 import type { PanelId, PanelSide } from '../../stores/ui-helpers'
@@ -25,7 +25,6 @@ const PANEL_DEFS: {
   { id: 'sessions',  icon: Bot,        label: '会话管理' },
   { id: 'explorer',  icon: FolderTree, label: '文件资源管理器' },
   { id: 'git',       icon: GitBranch,  label: 'Git 分支' },
-  { id: 'tools',     icon: Wrench,     label: '内置工具' },
 ]
 
 /** DropZone 必须定义在组件外部，避免拖拽事件链断裂 */

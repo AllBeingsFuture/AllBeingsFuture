@@ -16,7 +16,6 @@ const runtimeMocks = vi.hoisted(() => {
       missions: 'left',
       mcp: 'left',
       skills: 'left',
-      tools: 'left',
       team: 'left',
       tutorial: 'left',
       timeline: 'right',

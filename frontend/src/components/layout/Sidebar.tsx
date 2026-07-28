@@ -10,7 +10,6 @@ import TutorialSidebarView from '../sidebar/TutorialSidebarView'
 import TimelinePanel from '../panels/TimelinePanel'
 import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
-import ToolsCatalogPanel from '../tools/ToolsCatalogPanel'
 import SkillsTab from '../settings/SkillsTab'
 import McpTab from '../settings/McpTab'
 
@@ -24,8 +23,6 @@ export default function Sidebar() {
       return <FileManagerPanel />
     case 'git':
       return <WorktreePanel />
-    case 'tools':
-      return <ToolsCatalogPanel />
     case 'timeline':
       return <TimelinePanel />
     case 'stats':

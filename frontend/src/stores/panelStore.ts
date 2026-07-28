@@ -2,7 +2,6 @@ import { create } from 'zustand'
 
 import type { PanelId, PanelSide } from './ui-helpers'
 import {
-  ALL_PANEL_IDS,
   STORAGE_KEYS,
   WORKSPACE_PANEL_MAP,
   firstPanelForSide,
@@ -12,6 +11,7 @@ import {
   persistWorkspace,
   readPanelSides,
   readStorage,
+  resolvePanelId,
   writeStorage,
 } from './ui-helpers'
 import { useLayoutStore } from './layoutStore'
@@ -66,10 +66,20 @@ export function createDefaultPanelState(): PanelStateSnapshot {
   const detailPanelCollapsed = readStorage<boolean>(STORAGE_KEYS.detailPanelCollapsed, false, isBooleanString)
   const shellPanelVisible = readStorage<boolean>(STORAGE_KEYS.shellPanelVisible, false, isBooleanString)
 
+  // Resolve via resolvePanelId so any legacy active id (e.g. tools) never becomes blank/invalid.
+  const activePanelLeft = resolvePanelId(
+    firstPanelForSide(panelSides, 'left', 'sessions'),
+    'sessions',
+  )
+  const activePanelRight = resolvePanelId(
+    firstPanelForSide(panelSides, 'right', 'timeline'),
+    'timeline',
+  )
+
   return {
     panelSides,
-    activePanelLeft: firstPanelForSide(panelSides, 'left', 'sessions'),
-    activePanelRight: firstPanelForSide(panelSides, 'right', 'timeline'),
+    activePanelLeft,
+    activePanelRight,
     sidebarCollapsed,
     detailPanelCollapsed,
     shellPanelVisible,
@@ -84,21 +94,22 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   ...createDefaultPanelState(),
 
   setPanelSide: (panelId, side) => {
+    const safePanelId = resolvePanelId(panelId, side === 'left' ? 'sessions' : 'timeline')
     set((state) => {
-      if (state.panelSides[panelId] === side) {
+      if (state.panelSides[safePanelId] === side) {
         return state
       }
 
-      const panelSides = { ...state.panelSides, [panelId]: side }
+      const panelSides = { ...state.panelSides, [safePanelId]: side }
       persistPanelSides(panelSides)
 
-      let activePanelLeft = state.activePanelLeft
-      let activePanelRight = state.activePanelRight
+      let activePanelLeft = resolvePanelId(state.activePanelLeft, 'sessions')
+      let activePanelRight = resolvePanelId(state.activePanelRight, 'timeline')
       const nextState: Partial<PanelStateSnapshot> = { panelSides }
 
       if (side === 'left') {
-        activePanelLeft = panelId
-        if (state.activePanelRight === panelId) {
+        activePanelLeft = safePanelId
+        if (activePanelRight === safePanelId) {
           activePanelRight = firstPanelForSide(panelSides, 'right', 'timeline')
         }
         nextState.sidebarCollapsed = false
@@ -107,8 +118,8 @@ export const usePanelStore = create<PanelState>((set, get) => ({
           sidebar: 'active',
         }
       } else {
-        activePanelRight = panelId
-        if (state.activePanelLeft === panelId) {
+        activePanelRight = safePanelId
+        if (activePanelLeft === safePanelId) {
           activePanelLeft = firstPanelForSide(panelSides, 'left', 'sessions')
         }
         nextState.detailPanelCollapsed = false
@@ -121,8 +132,8 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       nextState.activePanelLeft = activePanelLeft
       nextState.activePanelRight = activePanelRight
 
-      if (side === 'left' && isWorkspacePanel(panelId)) {
-        const view = WORKSPACE_PANEL_MAP[panelId]
+      if (side === 'left' && isWorkspacePanel(safePanelId)) {
+        const view = WORKSPACE_PANEL_MAP[safePanelId]
         persistWorkspace(view, view)
         useUIStore.setState({ activeView: view, teamsMode: false })
         useLayoutStore.setState({ primaryPane: view })
@@ -133,9 +144,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   setActivePanelLeft: (panelId) => {
-    if (!isWorkspacePanel(panelId)) {
+    const safePanelId = resolvePanelId(panelId, 'sessions')
+    if (!isWorkspacePanel(safePanelId)) {
       set((state) => ({
-        activePanelLeft: panelId,
+        activePanelLeft: safePanelId,
         sidebarCollapsed: false,
         panelRuntime: {
           ...state.panelRuntime,
@@ -145,10 +157,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       return
     }
 
-    const view = WORKSPACE_PANEL_MAP[panelId]
+    const view = WORKSPACE_PANEL_MAP[safePanelId]
     persistWorkspace(view, view)
     set((state) => ({
-      activePanelLeft: panelId,
+      activePanelLeft: safePanelId,
       sidebarCollapsed: false,
       panelRuntime: {
         ...state.panelRuntime,
@@ -160,8 +172,9 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   setActivePanelRight: (panelId) => {
+    const safePanelId = resolvePanelId(panelId, 'timeline')
     set((state) => ({
-      activePanelRight: panelId,
+      activePanelRight: safePanelId,
       detailPanelCollapsed: false,
       panelRuntime: {
         ...state.panelRuntime,

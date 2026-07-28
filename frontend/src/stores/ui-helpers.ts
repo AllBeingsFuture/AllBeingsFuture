@@ -26,11 +26,13 @@ export type PanelId =
   | 'missions'
   | 'mcp'
   | 'skills'
-  | 'tools'
   | 'team'
   | 'tutorial'
   | 'timeline'
   | 'stats'
+
+/** Removed panel ids that may still appear in older localStorage / Zustand snapshots. */
+export const LEGACY_PANEL_IDS = ['tools'] as const
 
 export const STORAGE_KEYS = {
   activeView: 'allbeingsfuture-active-view',
@@ -70,7 +72,6 @@ export const ALL_PANEL_IDS: PanelId[] = [
   'missions',
   'mcp',
   'skills',
-  'tools',
   'team',
   'tutorial',
   'timeline',
@@ -89,11 +90,60 @@ export const DEFAULT_PANEL_SIDES: Record<PanelId, PanelSide> = {
   missions: 'left',
   mcp: 'left',
   skills: 'left',
-  tools: 'left',
   team: 'left',
   tutorial: 'left',
   timeline: 'right',
   stats: 'right',
+}
+
+export function isPanelId(value: unknown): value is PanelId {
+  return typeof value === 'string' && (ALL_PANEL_IDS as string[]).includes(value)
+}
+
+/**
+ * Map a possibly-stale panel id (e.g. legacy `tools`) to a safe current PanelId.
+ * Unknown / removed ids fall back to the provided default (sessions left, timeline right).
+ */
+export function resolvePanelId(value: unknown, fallback: PanelId): PanelId {
+  if (isPanelId(value)) return value
+  return fallback
+}
+
+/**
+ * Normalize a stored panelSides object: drop removed keys (tools), fill missing panels
+ * from defaults, and flag whether migration rewrote anything.
+ */
+export function sanitizePanelSides(raw: unknown): {
+  panelSides: Record<PanelId, PanelSide>
+  migrated: boolean
+} {
+  const panelSides: Record<PanelId, PanelSide> = { ...DEFAULT_PANEL_SIDES }
+  if (!raw || typeof raw !== 'object') {
+    return { panelSides, migrated: raw != null }
+  }
+
+  const source = raw as Record<string, unknown>
+  let migrated = false
+
+  for (const key of Object.keys(source)) {
+    if (!(ALL_PANEL_IDS as string[]).includes(key)) {
+      migrated = true
+      break
+    }
+  }
+
+  for (const panelId of ALL_PANEL_IDS) {
+    const side = source[panelId]
+    if (side === 'left' || side === 'right') {
+      panelSides[panelId] = side
+    } else if (panelId in source) {
+      migrated = true
+    } else {
+      migrated = true
+    }
+  }
+
+  return { panelSides, migrated }
 }
 
 export function readStorage<T>(key: string, fallback: T, validate?: (value: unknown) => value is T): T {
@@ -146,8 +196,14 @@ export function isBooleanString(value: unknown): value is boolean {
 export function isPanelSideRecord(value: unknown): value is Record<PanelId, PanelSide> {
   if (!value || typeof value !== 'object') return false
 
+  const record = value as Record<string, unknown>
+  // Reject legacy/unknown keys (e.g. tools) so callers re-sanitize & re-persist.
+  for (const key of Object.keys(record)) {
+    if (!(ALL_PANEL_IDS as string[]).includes(key)) return false
+  }
+
   return ALL_PANEL_IDS.every((panelId) => {
-    const side = (value as Record<string, unknown>)[panelId]
+    const side = record[panelId]
     return side === 'left' || side === 'right'
   })
 }
@@ -164,6 +220,12 @@ export function readPanelSides(): Record<PanelId, PanelSide> {
     if (isPanelSideRecord(parsed)) {
       return parsed
     }
+    // Migrate partial / legacy snapshots (including removed `tools` panel).
+    const { panelSides, migrated } = sanitizePanelSides(parsed)
+    if (migrated) {
+      persistPanelSides(panelSides)
+    }
+    return panelSides
   } catch {
     // Ignore invalid storage.
   }

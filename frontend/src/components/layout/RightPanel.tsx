@@ -9,7 +9,6 @@ import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
 import FileManagerPanel from '../files/FileManagerPanel'
 import WorktreePanel from '../git/WorktreePanel'
-import ToolsCatalogPanel from '../tools/ToolsCatalogPanel'
 
 export default function RightPanel() {
   const activePanelRight = usePanelStore(s => s.activePanelRight)
@@ -25,8 +24,6 @@ export default function RightPanel() {
       return <FileManagerPanel />
     case 'git':
       return <WorktreePanel />
-    case 'tools':
-      return <ToolsCatalogPanel />
     default:
       return <TimelinePanel />
   }

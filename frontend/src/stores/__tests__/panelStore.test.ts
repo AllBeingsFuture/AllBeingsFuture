@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createDefaultPanelState, usePanelStore } from '../panelStore'
 import { createDefaultLayoutState, useLayoutStore } from '../layoutStore'
 import { createDefaultUIState, useUIStore } from '../uiStore'
+import {
+  DEFAULT_PANEL_SIDES,
+  STORAGE_KEYS,
+  resolvePanelId,
+  sanitizePanelSides,
+} from '../ui-helpers'
 
 function resetAllStores() {
   window.localStorage.clear()
@@ -25,6 +31,9 @@ describe('panelStore', () => {
     expect(state.sidebarWidth).toBe(280)
     expect(state.detailPanelWidth).toBe(320)
     expect(state.floatingPanels).toEqual({})
+    expect(state.activePanelLeft).toBe('sessions')
+    expect(state.activePanelRight).toBe('timeline')
+    expect(state.panelSides).not.toHaveProperty('tools')
   })
 
   it('toggleSidebar toggles sidebarCollapsed', () => {
@@ -93,5 +102,58 @@ describe('panelStore', () => {
 
     usePanelStore.getState().closeFloatingPanel('test-panel')
     expect(usePanelStore.getState().floatingPanels['test-panel']).toBe(false)
+  })
+
+  it('maps legacy tools panel id to safe active-panel defaults', () => {
+    expect(resolvePanelId('tools', 'sessions')).toBe('sessions')
+    expect(resolvePanelId('tools', 'timeline')).toBe('timeline')
+    expect(resolvePanelId('explorer', 'sessions')).toBe('explorer')
+    expect(resolvePanelId(undefined, 'sessions')).toBe('sessions')
+  })
+
+  it('sanitizes legacy tools key out of panelSides snapshots', () => {
+    const legacy = {
+      ...DEFAULT_PANEL_SIDES,
+      tools: 'left',
+    }
+    const { panelSides, migrated } = sanitizePanelSides(legacy)
+    expect(migrated).toBe(true)
+    expect(panelSides).not.toHaveProperty('tools')
+    expect(panelSides.sessions).toBe('left')
+    expect(panelSides.timeline).toBe('right')
+  })
+
+  it('migrates localStorage panelSides with tools and never activates tools', () => {
+    window.localStorage.clear()
+    window.localStorage.setItem(
+      STORAGE_KEYS.panelSides,
+      JSON.stringify({
+        ...DEFAULT_PANEL_SIDES,
+        tools: 'left',
+        sessions: 'left',
+        timeline: 'right',
+      }),
+    )
+
+    const state = createDefaultPanelState()
+    expect(state.panelSides).not.toHaveProperty('tools')
+    expect(state.activePanelLeft).toBe('sessions')
+    expect(state.activePanelRight).toBe('timeline')
+    expect(state.activePanelLeft).not.toBe('tools')
+    expect(state.activePanelRight).not.toBe('tools')
+
+    const persisted = JSON.parse(
+      window.localStorage.getItem(STORAGE_KEYS.panelSides) ?? '{}',
+    ) as Record<string, unknown>
+    expect(persisted).not.toHaveProperty('tools')
+    expect(persisted.sessions).toBe('left')
+  })
+
+  it('normalizes setActivePanelLeft/Right when given legacy tools id', () => {
+    usePanelStore.getState().setActivePanelLeft('tools' as never)
+    expect(usePanelStore.getState().activePanelLeft).toBe('sessions')
+
+    usePanelStore.getState().setActivePanelRight('tools' as never)
+    expect(usePanelStore.getState().activePanelRight).toBe('timeline')
   })
 })

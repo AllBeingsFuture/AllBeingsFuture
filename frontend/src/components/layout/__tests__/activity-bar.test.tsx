@@ -9,7 +9,7 @@ const panelState = {
     sessions: 'left', explorer: 'left', git: 'left', dashboard: 'left',
     files: 'left', worktree: 'left', kanban: 'left', workflows: 'left',
     missions: 'left', mcp: 'left', skills: 'left', team: 'left',
-    tutorial: 'left', timeline: 'right', stats: 'right', tools: 'left',
+    tutorial: 'left', timeline: 'right', stats: 'right',
   },
   activePanelLeft: 'sessions',
   activePanelRight: 'timeline',
@@ -77,7 +77,7 @@ describe('ActivityBar', () => {
     renderWithProviders(<ActivityBar />)
 
     expect(screen.getByRole('button', { name: '会话管理' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '内置工具' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '内置工具' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '文件资源管理器' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Git 分支' })).toBeInTheDocument()
   })

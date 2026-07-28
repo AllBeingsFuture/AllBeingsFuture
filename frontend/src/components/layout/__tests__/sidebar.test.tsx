@@ -45,7 +45,7 @@ describe('Sidebar', () => {
   })
 
   it('renders coming soon for unknown panels', () => {
-    uiState.activePanelLeft = 'mcp'
+    uiState.activePanelLeft = 'team'
     renderWithProviders(<Sidebar />)
     expect(screen.getByText('即将推出')).toBeInTheDocument()
   })

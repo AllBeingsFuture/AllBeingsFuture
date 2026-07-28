@@ -23,9 +23,6 @@ vi.mock('../../files/FileManagerPanel', () => ({
 vi.mock('../../git/WorktreePanel', () => ({
   default: () => <div data-testid="worktree-panel" />,
 }))
-vi.mock('../../tools/ToolsCatalogPanel', () => ({
-  default: () => <div data-testid="tools-panel" />,
-}))
 vi.mock('../../panels/TimelinePanel', () => ({
   default: () => <div data-testid="timeline-panel" />,
 }))
@@ -34,6 +31,12 @@ vi.mock('../../panels/StatsPanel', () => ({
 }))
 vi.mock('../SessionsContent', () => ({
   default: () => <div data-testid="sessions-content" />,
+}))
+vi.mock('../../settings/SkillsTab', () => ({
+  default: () => <div data-testid="skills-tab" />,
+}))
+vi.mock('../../settings/McpTab', () => ({
+  default: () => <div data-testid="mcp-tab" />,
 }))
 
 describe('Sidebar shell', () => {
@@ -52,14 +55,14 @@ describe('Sidebar shell', () => {
     expect(screen.getByTestId('dashboard-view')).toBeInTheDocument()
     u2()
 
-    uiState.activePanelLeft = 'tools'
+    uiState.activePanelLeft = 'explorer'
     const { unmount: u3 } = renderWithProviders(<Sidebar />)
-    expect(screen.getByTestId('tools-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('file-manager-panel')).toBeInTheDocument()
     u3()
   })
 
   it('shows coming-soon placeholder for unimplemented panels', () => {
-    uiState.activePanelLeft = 'skills'
+    uiState.activePanelLeft = 'team'
     renderWithProviders(<Sidebar />)
     expect(screen.getByText('即将推出')).toBeInTheDocument()
   })
