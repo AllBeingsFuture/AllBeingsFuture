@@ -1,9 +1,9 @@
 # AllBeingsFuture ACP Architecture
 
-**Status:** architecture deliverable (docs only)  
-**Protocol target:** official stable **Agent Client Protocol (ACP) v1** (`protocolVersion: 1`)  
-**Stack:** TypeScript only — Electron main/Node + React renderer  
-**Scope of this document:** integration architecture, cross-process contracts, rollout, and explicit runtime/UI mismatches for the integration worker  
+**Status:** architecture deliverable (docs only)\
+**Protocol target:** official stable **Agent Client Protocol (ACP) v1** (`protocolVersion: 1`)\
+**Stack:** TypeScript only — Electron main/Node + React renderer\
+**Scope of this document:** integration architecture, cross-process contracts, rollout, and explicit runtime/UI mismatches for the integration worker
 
 **Implementation references inspected (read-only, not cherry-picked):**
 
@@ -105,7 +105,7 @@
 
 ## 3. Official stable ACP v1 lifecycle
 
-Transport: **JSON-RPC 2.0 over NDJSON stdio** (local agent as child process).  
+Transport: **JSON-RPC 2.0 over NDJSON stdio** (local agent as child process).\
 Wire compatibility is the integer negotiated in `initialize.protocolVersion`. Stable product value: **`1`**.
 
 ### 3.1 Client and agent initialization
@@ -268,7 +268,7 @@ interface AgentStreamEventBase {
 { optionId: string; label: string; kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' }
 ```
 
-**Plan entry status (renderer):** `pending | in_progress | completed | blocked`  
+**Plan entry status (renderer):** `pending | in_progress | completed | blocked`\
 ACP v1 plan statuses are only `pending | in_progress | completed`. Native mapping never invents `blocked` unless a legacy adapter synthesizes it.
 
 ### 4.3 Stable ACP v1 → `AgentStreamEvent` mapping
