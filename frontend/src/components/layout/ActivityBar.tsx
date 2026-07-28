@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Bot, GitBranch, Settings, Users, TerminalSquare } from 'lucide-react'
+import { Bot, GitBranch, Settings, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { workbenchApi } from '../../app/api/workbench'
 import type { PanelId, PanelSide } from '../../stores/ui-helpers'
@@ -60,12 +60,10 @@ export default function ActivityBar() {
     panelSides,
     activePanelLeft,
     activePanelRight,
-    shellPanelVisible,
   } = usePanelStore(useShallow((state) => ({
     panelSides: state.panelSides,
     activePanelLeft: state.activePanelLeft,
     activePanelRight: state.activePanelRight,
-    shellPanelVisible: state.shellPanelVisible,
   })))
 
   const teamsMode = useUIStore((state) => state.teamsMode)
@@ -196,25 +194,6 @@ export default function ActivityBar() {
       </DropZone>
 
       <div className="flex-1" />
-
-      {/* Shell 终端切换 */}
-      <div className="px-1 w-full mb-0.5">
-        <button
-          title="终端 (Ctrl+`)"
-          onClick={() => { void workbenchApi.panel.toggleShell() }}
-          className={[
-            'relative w-full h-10 flex items-center justify-center rounded-lg transition-all duration-200',
-            shellPanelVisible
-              ? 'bg-accent-green/10 text-accent-green'
-              : 'text-text-muted hover:text-text-secondary hover:bg-white/[0.06]',
-          ].join(' ')}
-        >
-          {shellPanelVisible && (
-            <span className="absolute top-1.5 bottom-1.5 left-0 w-[3px] bg-accent-green rounded-full shadow-[0_0_6px_rgba(63,185,80,0.4)]" />
-          )}
-          <TerminalSquare className="w-[18px] h-[18px]" />
-        </button>
-      </div>
 
       {/* Teams 按钮 */}
       <div className="px-1 w-full mb-0.5">

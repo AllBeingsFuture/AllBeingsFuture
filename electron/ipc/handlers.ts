@@ -18,7 +18,6 @@ import { SettingsService } from '../services/settings.js'
 import { ProcessService } from '../services/process.js'
 import { TaskService } from '../services/task.js'
 import { GitService } from '../services/git.js'
-import { PTYService } from '../services/pty.js'
 import { LogService } from '../services/log.js'
 
 // Expanded services
@@ -189,7 +188,6 @@ export function registerAllIpcHandlers(
   )
   const taskService = new TaskService(db)
   const gitService = new GitService()
-  const ptyService = new PTYService(getWindow)
   const logService = new LogService()
   const workflowService = new WorkflowService(db)
   const missionService = new MissionService(db)
@@ -388,15 +386,6 @@ export function registerAllIpcHandlers(
     }
     return result
   })
-
-  // ==============================================================
-  // PTYService
-  // ==============================================================
-  ipcMain.handle('PTYService.GetShells', () => ptyService.getShells())
-  ipcMain.handle('PTYService.Create', (_e, shell: string, cwd: string) => ptyService.create(shell, cwd))
-  ipcMain.handle('PTYService.Write', (_e, id: string, data: string) => ptyService.write(id, data))
-  ipcMain.handle('PTYService.Resize', (_e, id: string, cols: number, rows: number) => ptyService.resize(id, cols, rows))
-  ipcMain.handle('PTYService.Kill', (_e, id: string) => ptyService.kill(id))
 
   // ==============================================================
   // LogService

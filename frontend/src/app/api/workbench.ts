@@ -214,71 +214,16 @@ export const workbenchApi = {
     toggleDetail() {
       return dispatch({ type: 'panel.toggle-detail' })
     },
-    setShellVisible(visible: boolean) {
-      return dispatch({
-        type: 'panel.set-shell-visible',
-        payload: { visible },
-      })
-    },
-    toggleShell() {
-      return dispatch({ type: 'panel.toggle-shell' })
-    },
-    hide(target: 'sidebar' | 'detail' | 'shell') {
+    hide(target: 'sidebar' | 'detail') {
       return dispatch({
         type: 'panel.hide',
         payload: { target },
       })
     },
-    freeze(target: 'sidebar' | 'detail' | 'shell') {
+    freeze(target: 'sidebar' | 'detail') {
       return dispatch({
         type: 'panel.hide',
         payload: { target },
-      })
-    },
-  },
-  terminal: {
-    initialize(): Promise<() => void> {
-      return dispatch({ type: 'terminal.initialize' }) as Promise<() => void>
-    },
-    createTab(shell?: string, cwd?: string) {
-      return dispatch({
-        type: 'terminal.create-tab',
-        payload: { shell, cwd },
-      })
-    },
-    activateTab(tabId: string) {
-      return dispatch({
-        type: 'terminal.activate-tab',
-        payload: { tabId },
-      })
-    },
-    closeTab(tabId: string) {
-      return dispatch({
-        type: 'terminal.close-tab',
-        payload: { tabId },
-      })
-    },
-    write(tabId: string, data: string) {
-      return dispatch({
-        type: 'terminal.write',
-        payload: { tabId, data },
-      })
-    },
-    run(command: string, options: { shell?: string; cwd?: string; tabId?: string } = {}) {
-      return dispatch({
-        type: 'terminal.run',
-        payload: {
-          command,
-          shell: options.shell,
-          cwd: options.cwd,
-          tabId: options.tabId,
-        },
-      })
-    },
-    stop(tabId: string) {
-      return dispatch({
-        type: 'terminal.stop',
-        payload: { tabId },
       })
     },
   },

@@ -16,8 +16,6 @@ const panelState = {
   setPanelSide: vi.fn(),
   setActivePanelLeft: vi.fn(),
   setActivePanelRight: vi.fn(),
-  shellPanelVisible: false,
-  toggleShellPanel: vi.fn(),
 }
 
 const uiState = {
@@ -40,7 +38,6 @@ vi.mock('../../../app/api/workbench', () => ({
     panel: {
       setSide: vi.fn(),
       show: vi.fn(),
-      toggleShell: vi.fn(),
     },
     ui: {
       setTeamsMode: vi.fn(),
@@ -66,19 +63,14 @@ describe('ActivityBar', () => {
     expect(workbenchApi.ui.setSettingsVisible).toHaveBeenCalledWith(true)
   })
 
-  it('routes shell toggle through workbench api', () => {
-    renderWithProviders(<ActivityBar />)
-
-    fireEvent.click(screen.getByRole('button', { name: '终端 (Ctrl+`)' }))
-    expect(workbenchApi.panel.toggleShell).toHaveBeenCalled()
-  })
-
-  it('renders panel buttons without explorer', () => {
+  it('renders panel buttons without explorer or terminal entry', () => {
     renderWithProviders(<ActivityBar />)
 
     expect(screen.getByRole('button', { name: '会话管理' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '内置工具' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '文件资源管理器' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '终端 (Ctrl+`)' })).not.toBeInTheDocument()
+    expect(screen.queryByTitle('终端 (Ctrl+`)')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Git 分支' })).toBeInTheDocument()
   })
 })

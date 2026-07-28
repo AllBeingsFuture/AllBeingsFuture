@@ -18,7 +18,7 @@ import { useLayoutStore } from './layoutStore'
 import { useUIStore } from './uiStore'
 
 export type PanelLifecycleState = 'active' | 'inactive' | 'frozen'
-export type RuntimePanelId = 'sidebar' | 'detail' | 'shell'
+export type RuntimePanelId = 'sidebar' | 'detail'
 
 export interface PanelStateSnapshot {
   panelSides: Record<PanelId, PanelSide>
@@ -26,7 +26,6 @@ export interface PanelStateSnapshot {
   activePanelRight: PanelId
   sidebarCollapsed: boolean
   detailPanelCollapsed: boolean
-  shellPanelVisible: boolean
   panelRuntime: Record<RuntimePanelId, PanelLifecycleState>
   sidebarWidth: number
   detailPanelWidth: number
@@ -39,8 +38,6 @@ interface PanelState extends PanelStateSnapshot {
   setActivePanelRight: (panelId: PanelId) => void
   toggleSidebar: () => void
   toggleDetailPanel: () => void
-  setShellPanelVisible: (visible: boolean) => void
-  toggleShellPanel: () => void
   setPanelRuntimeState: (panelId: RuntimePanelId, nextState: PanelLifecycleState) => void
   setSidebarWidth: (width: number) => void
   setDetailPanelWidth: (width: number) => void
@@ -51,20 +48,33 @@ interface PanelState extends PanelStateSnapshot {
 function derivePanelRuntime(
   sidebarCollapsed: boolean,
   detailPanelCollapsed: boolean,
-  shellPanelVisible: boolean,
 ): Record<RuntimePanelId, PanelLifecycleState> {
   return {
     sidebar: sidebarCollapsed ? 'frozen' : 'inactive',
     detail: detailPanelCollapsed ? 'frozen' : 'inactive',
-    shell: shellPanelVisible ? 'active' : 'frozen',
+  }
+}
+
+/**
+ * Clear legacy independent-shell terminal persistence so upgrades never reopen it.
+ * Old values (shellPanelVisible / shell tabs) are discarded; panel stays closed.
+ */
+export function clearLegacyShellPanelPersistence(): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.removeItem(STORAGE_KEYS.shellPanelVisible)
+  } catch {
+    // ignore storage errors
   }
 }
 
 export function createDefaultPanelState(): PanelStateSnapshot {
+  // Always normalize away legacy shell-terminal visibility on load.
+  clearLegacyShellPanelPersistence()
+
   const panelSides = readPanelSides()
   const sidebarCollapsed = readStorage<boolean>(STORAGE_KEYS.sidebarCollapsed, false, isBooleanString)
   const detailPanelCollapsed = readStorage<boolean>(STORAGE_KEYS.detailPanelCollapsed, false, isBooleanString)
-  const shellPanelVisible = readStorage<boolean>(STORAGE_KEYS.shellPanelVisible, false, isBooleanString)
 
   // Resolve via resolvePanelId so any legacy active id (e.g. tools/explorer) never becomes blank/invalid.
   const activePanelLeft = resolvePanelId(
@@ -82,15 +92,14 @@ export function createDefaultPanelState(): PanelStateSnapshot {
     activePanelRight,
     sidebarCollapsed,
     detailPanelCollapsed,
-    shellPanelVisible,
-    panelRuntime: derivePanelRuntime(sidebarCollapsed, detailPanelCollapsed, shellPanelVisible),
+    panelRuntime: derivePanelRuntime(sidebarCollapsed, detailPanelCollapsed),
     sidebarWidth: 280,
     detailPanelWidth: 320,
     floatingPanels: {},
   }
 }
 
-export const usePanelStore = create<PanelState>((set, get) => ({
+export const usePanelStore = create<PanelState>((set) => ({
   ...createDefaultPanelState(),
 
   setPanelSide: (panelId, side) => {
@@ -206,31 +215,6 @@ export const usePanelStore = create<PanelState>((set, get) => ({
         panelRuntime: {
           ...state.panelRuntime,
           detail: detailPanelCollapsed ? 'frozen' : 'active',
-        },
-      }
-    })
-  },
-
-  setShellPanelVisible: (visible) => {
-    writeStorage(STORAGE_KEYS.shellPanelVisible, String(visible))
-    set((state) => ({
-      shellPanelVisible: visible,
-      panelRuntime: {
-        ...state.panelRuntime,
-        shell: visible ? 'active' : 'frozen',
-      },
-    }))
-  },
-
-  toggleShellPanel: () => {
-    set((state) => {
-      const shellPanelVisible = !state.shellPanelVisible
-      writeStorage(STORAGE_KEYS.shellPanelVisible, String(shellPanelVisible))
-      return {
-        shellPanelVisible,
-        panelRuntime: {
-          ...state.panelRuntime,
-          shell: shellPanelVisible ? 'active' : 'frozen',
         },
       }
     })

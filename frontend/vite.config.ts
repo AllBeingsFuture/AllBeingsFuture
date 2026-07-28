@@ -23,7 +23,6 @@ export default defineConfig({
           if (!id.includes('node_modules')) return
 
           if (id.includes('monaco-editor')) return 'vendor-monaco'
-          if (id.includes('@xterm') || id.includes('/xterm')) return 'vendor-xterm'
           if (id.includes('recharts') || id.includes('/d3-')) return 'vendor-charts'
           if (
             id.includes('react-markdown')

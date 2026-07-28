@@ -5,7 +5,6 @@ import * as LogService from "./logservice.js";
 import * as MCPService from "./mcpservice.js";
 import * as MissionService from "./missionservice.js";
 import * as NotificationService from "./notificationservice.js";
-import * as PTYService from "./ptyservice.js";
 import * as PolicyService from "./policyservice.js";
 import * as ProactiveService from "./proactiveservice.js";
 import * as ProcessService from "./processservice.js";
@@ -32,7 +31,6 @@ export {
     MCPService,
     MissionService,
     NotificationService,
-    PTYService,
     PolicyService,
     ProactiveService,
     ProcessService,

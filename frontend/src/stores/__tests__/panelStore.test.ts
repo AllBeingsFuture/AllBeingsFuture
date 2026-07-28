@@ -27,7 +27,8 @@ describe('panelStore', () => {
     expect(state.detailPanelCollapsed).toBe(false)
     expect(state.panelRuntime.sidebar).toBe('inactive')
     expect(state.panelRuntime.detail).toBe('inactive')
-    expect(state.panelRuntime.shell).toBe('frozen')
+    expect(state.panelRuntime).not.toHaveProperty('shell')
+    expect(state).not.toHaveProperty('shellPanelVisible')
     expect(state.sidebarWidth).toBe(280)
     expect(state.detailPanelWidth).toBe(320)
     expect(state.floatingPanels).toEqual({})
@@ -69,14 +70,14 @@ describe('panelStore', () => {
     expect(usePanelStore.getState().panelRuntime.detail).toBe('active')
   })
 
-  it('setShellPanelVisible updates shell runtime state', () => {
-    usePanelStore.getState().setShellPanelVisible(true)
-    expect(usePanelStore.getState().shellPanelVisible).toBe(true)
-    expect(usePanelStore.getState().panelRuntime.shell).toBe('active')
+  it('clears legacy shellPanelVisible persistence and never restores it open', () => {
+    window.localStorage.clear()
+    window.localStorage.setItem(STORAGE_KEYS.shellPanelVisible, 'true')
 
-    usePanelStore.getState().setShellPanelVisible(false)
-    expect(usePanelStore.getState().shellPanelVisible).toBe(false)
-    expect(usePanelStore.getState().panelRuntime.shell).toBe('frozen')
+    const state = createDefaultPanelState()
+    expect(state).not.toHaveProperty('shellPanelVisible')
+    expect(state.panelRuntime).not.toHaveProperty('shell')
+    expect(window.localStorage.getItem(STORAGE_KEYS.shellPanelVisible)).toBeNull()
   })
 
   it('setSidebarWidth updates sidebarWidth', () => {

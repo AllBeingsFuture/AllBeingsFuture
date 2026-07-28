@@ -188,7 +188,7 @@ export type WorkbenchCommand =
   | {
       type: 'panel.hide'
       payload: {
-        target: 'sidebar' | 'detail' | 'shell'
+        target: 'sidebar' | 'detail'
       }
     }
   | {
@@ -203,59 +203,6 @@ export type WorkbenchCommand =
     }
   | {
       type: 'panel.toggle-detail'
-    }
-  | {
-      type: 'panel.set-shell-visible'
-      payload: {
-        visible: boolean
-      }
-    }
-  | {
-      type: 'panel.toggle-shell'
-    }
-  | {
-      type: 'terminal.initialize'
-    }
-  | {
-      type: 'terminal.create-tab'
-      payload: {
-        shell?: string
-        cwd?: string
-      }
-    }
-  | {
-      type: 'terminal.activate-tab'
-      payload: {
-        tabId: string
-      }
-    }
-  | {
-      type: 'terminal.close-tab'
-      payload: {
-        tabId: string
-      }
-    }
-  | {
-      type: 'terminal.write'
-      payload: {
-        tabId: string
-        data: string
-      }
-    }
-  | {
-      type: 'terminal.run'
-      payload: {
-        command: string
-        shell?: string
-        cwd?: string
-        tabId?: string
-      }
-    }
-  | {
-      type: 'terminal.stop'
-      payload: {
-        tabId: string
-      }
     }
   | {
       type: 'workflow.load'

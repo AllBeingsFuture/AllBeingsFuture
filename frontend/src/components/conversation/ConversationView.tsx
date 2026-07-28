@@ -14,8 +14,6 @@ import SessionToolbar from './SessionToolbar'
 import ToolOperationGroup from './ToolOperationGroup'
 import FileChangeCard from './FileChangeCard'
 import StickerCard from './StickerCard'
-import ShellTerminalView from '../terminal/ShellTerminalView'
-import { usePanelStore } from '../../stores/panelStore'
 import type { ConversationMessage, FileChangeInfo } from '../../types/conversationTypes'
 import { useConversationScroll } from './useConversationScroll'
 import { useVirtualizedList } from './useVirtualizedList'
@@ -862,7 +860,6 @@ export default function ConversationView({ session }: Props) {
     return () => clearInterval(timer)
   }, [pollChat, session.id])
 
-  const shellPanelVisible = usePanelStore((state) => state.shellPanelVisible)
   const deferredMessages = useDeferredValue(messages)
   // 流式期间以及刚结束的短暂缓冲期内直接渲染实时消息，
   // 避免 deferred 快照回退到旧内容，造成会话区闪屏。
@@ -1097,18 +1094,6 @@ export default function ConversationView({ session }: Props) {
           />
         </div>
       )}
-
-      <div
-        className={[
-          'shrink-0 overflow-hidden transition-[height,border-color] duration-150 ease-out',
-          shellPanelVisible ? 'h-[200px] border-t border-white/10' : 'h-0 border-t border-transparent',
-        ].join(' ')}
-        aria-hidden={!shellPanelVisible}
-      >
-        <div className="h-[200px]">
-          <ShellTerminalView />
-        </div>
-      </div>
     </section>
   )
 }

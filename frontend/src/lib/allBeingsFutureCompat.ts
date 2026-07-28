@@ -9,11 +9,9 @@ const api = () => window.electronAPI
 
 type ShortcutName =
   | 'view-mode'
-  | 'cycle-terminal'
   | 'new-session'
   | 'new-task-session'
   | 'toggle-sidebar'
-  | 'toggle-shell-panel'
   | 'quick-open'
   | 'replace-in-files'
 
@@ -53,23 +51,12 @@ export interface AllBeingsFutureCompatAPI {
     getRecent: (limit?: number) => Promise<unknown[]>
     openFile: () => Promise<void>
   }
-  pty: {
-    getShells: () => Promise<Array<{ id: string; name: string; path: string }>>
-    create: (opts: { shell?: string; cwd?: string }) => Promise<{ id: string; shell: string; error?: string }>
-    write: (id: string, data: string) => Promise<void>
-    resize: (id: string, cols: number, rows: number) => Promise<void>
-    kill: (id: string) => Promise<void>
-    onData: (handler: (id: string, data: string) => void) => () => void
-    onExit: (handler: (id: string, exitCode: number) => void) => () => void
-  }
   shortcut: {
     configureFeatureShortcuts: (config: Record<string, boolean>) => void
     onViewMode: (handler: ShortcutHandler<string>) => () => void
-    onCycleTerminal: (handler: ShortcutHandler<void>) => () => void
     onNewSession: (handler: ShortcutHandler<void>) => () => void
     onNewTaskSession: (handler: ShortcutHandler<void>) => () => void
     onToggleSidebar: (handler: ShortcutHandler<void>) => () => void
-    onToggleShellPanel: (handler: ShortcutHandler<void>) => () => void
     onQuickOpen: (handler: ShortcutHandler<void>) => () => void
     onReplaceInFiles: (handler: ShortcutHandler<void>) => () => void
     dispose: () => void
@@ -177,33 +164,12 @@ export function installAllBeingsFutureCompat() {
         if (logPath) await api().invoke('app:openInExplorer', logPath)
       },
     },
-    pty: {
-      getShells: () => api().invoke('PTYService.GetShells'),
-      create: (opts) => api().invoke('PTYService.Create', opts.shell ?? '', opts.cwd ?? ''),
-      write: (id, data) => api().invoke('PTYService.Write', id, data),
-      resize: (id, cols, rows) => api().invoke('PTYService.Resize', id, cols, rows),
-      kill: (id) => api().invoke('PTYService.Kill', id),
-      onData: (handler) => {
-        return api().on('pty:data', (payload: any) => {
-          const { id, data } = payload ?? {}
-          if (id && data) handler(id, data)
-        })
-      },
-      onExit: (handler) => {
-        return api().on('pty:exit', (payload: any) => {
-          const { id, exitCode } = payload ?? {}
-          if (id !== undefined) handler(id, exitCode ?? 0)
-        })
-      },
-    },
     shortcut: {
       configureFeatureShortcuts: () => {},
       onViewMode: (handler) => trackedOnShortcut('view-mode', handler),
-      onCycleTerminal: (handler) => trackedOnShortcut('cycle-terminal', handler),
       onNewSession: (handler) => trackedOnShortcut('new-session', handler),
       onNewTaskSession: (handler) => trackedOnShortcut('new-task-session', handler),
       onToggleSidebar: (handler) => trackedOnShortcut('toggle-sidebar', handler),
-      onToggleShellPanel: (handler) => trackedOnShortcut('toggle-shell-panel', handler),
       onQuickOpen: (handler) => trackedOnShortcut('quick-open', handler),
       onReplaceInFiles: (handler) => trackedOnShortcut('replace-in-files', handler),
       dispose: () => {

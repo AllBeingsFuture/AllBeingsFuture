@@ -22,7 +22,6 @@ const runtimeMocks = vi.hoisted(() => {
     },
     sidebarCollapsed: false,
     detailPanelCollapsed: false,
-    shellPanelVisible: false,
     setPanelSide: vi.fn(),
     setActivePanelLeft: vi.fn(),
     setActivePanelRight: vi.fn(),
@@ -32,23 +31,7 @@ const runtimeMocks = vi.hoisted(() => {
     toggleDetailPanel: vi.fn(() => {
       panelState.detailPanelCollapsed = !panelState.detailPanelCollapsed
     }),
-    setShellPanelVisible: vi.fn((visible: boolean) => {
-      panelState.shellPanelVisible = visible
-    }),
     subscribe: vi.fn(),
-  }
-
-  const shellState = {
-    activeTabId: null as string | null,
-    setPanelVisibility: vi.fn(),
-    fetchShells: vi.fn().mockResolvedValue(undefined),
-    initListeners: vi.fn().mockReturnValue(vi.fn()),
-    createTab: vi.fn().mockResolvedValue('pty-1'),
-    activateTab: vi.fn((tabId: string) => {
-      shellState.activeTabId = tabId
-    }),
-    closeTab: vi.fn().mockResolvedValue(undefined),
-    writeToTab: vi.fn().mockResolvedValue(undefined),
   }
 
   const fileTabState = {
@@ -139,7 +122,6 @@ const runtimeMocks = vi.hoisted(() => {
 
   return {
     panelState,
-    shellState,
     fileTabState,
     fileManagerState,
     layoutState,
@@ -150,7 +132,7 @@ const runtimeMocks = vi.hoisted(() => {
   }
 })
 
-const { panelState, shellState, sessionState } = runtimeMocks
+const { panelState, sessionState } = runtimeMocks
 
 vi.mock('../../stores/panelStore', () => ({
   usePanelStore: {
@@ -162,12 +144,6 @@ vi.mock('../../stores/panelStore', () => ({
 vi.mock('../../stores/layoutStore', () => ({
   useLayoutStore: {
     getState: () => runtimeMocks.layoutState,
-  },
-}))
-
-vi.mock('../../stores/shellTerminalStore', () => ({
-  useShellTerminalStore: {
-    getState: () => runtimeMocks.shellState,
   },
 }))
 
@@ -212,8 +188,6 @@ describe('workbench runtime', () => {
     vi.clearAllMocks()
     panelState.sidebarCollapsed = false
     panelState.detailPanelCollapsed = false
-    panelState.shellPanelVisible = false
-    shellState.activeTabId = null
     runtimeMocks.layoutState.layoutMode = 'single'
     runtimeMocks.layoutState.primaryPane = 'sessions'
     window.electronAPI = {
@@ -338,22 +312,6 @@ describe('workbench runtime', () => {
     expect(window.electronAPI.invoke).toHaveBeenCalledWith('app:openInExplorer', 'C:/logs/app.log')
   })
 
-  it('shows shell panel before terminal creation', async () => {
-    await workbenchApi.terminal.createTab('cmd.exe', 'C:/repo')
-
-    expect(panelState.setShellPanelVisible).toHaveBeenCalledWith(true)
-    expect(shellState.setPanelVisibility).toHaveBeenCalledWith(true)
-    expect(shellState.createTab).toHaveBeenCalledWith('cmd.exe', 'C:/repo')
-  })
-
-  it('initializes terminal runtime through the command bus', async () => {
-    const cleanup = await workbenchApi.terminal.initialize()
-
-    expect(shellState.fetchShells).toHaveBeenCalled()
-    expect(shellState.initListeners).toHaveBeenCalled()
-    expect(typeof cleanup).toBe('function')
-  })
-
   it('dispatches panel side changes through the runtime', async () => {
     await workbenchApi.panel.setSide('git', 'right')
 
@@ -361,41 +319,13 @@ describe('workbench runtime', () => {
   })
 
   it('hides panels deterministically instead of toggling them back open', async () => {
-    const initialShellHideCalls = panelState.setShellPanelVisible.mock.calls.length
-    const initialShellVisibilitySyncCalls = shellState.setPanelVisibility.mock.calls.length
-
     await workbenchApi.panel.hide('sidebar')
     await workbenchApi.panel.hide('sidebar')
     await workbenchApi.panel.hide('detail')
     await workbenchApi.panel.hide('detail')
-    await workbenchApi.panel.hide('shell')
-    await workbenchApi.panel.hide('shell')
 
     expect(panelState.toggleSidebar).toHaveBeenCalledTimes(1)
     expect(panelState.toggleDetailPanel).toHaveBeenCalledTimes(1)
-    expect(panelState.setShellPanelVisible.mock.calls.length).toBe(initialShellHideCalls)
-    expect(shellState.setPanelVisibility.mock.calls.length).toBe(initialShellVisibilitySyncCalls)
-
-    panelState.shellPanelVisible = true
-    await workbenchApi.panel.freeze('shell')
-
-    expect(panelState.setShellPanelVisible).toHaveBeenCalledWith(false)
-    expect(shellState.setPanelVisibility).toHaveBeenCalledWith(false)
-  })
-
-  it('resolves terminal cwd from the selected session when none is provided', async () => {
-    await workbenchApi.terminal.createTab('cmd.exe')
-
-    expect(shellState.createTab).toHaveBeenCalledWith('cmd.exe', 'C:/repo/session-1')
-  })
-
-  it('creates a tab and writes the command when terminal.run is used', async () => {
-    const tabId = await workbenchApi.terminal.run('dir', { cwd: 'C:/repo' })
-
-    expect(tabId).toBe('pty-1')
-    expect(shellState.createTab).toHaveBeenCalledWith(undefined, 'C:/repo')
-    expect(shellState.activateTab).toHaveBeenCalledWith('pty-1')
-    expect(shellState.writeToTab).toHaveBeenCalledWith('pty-1', 'dir\r')
   })
 
   it('dispatches editor commands through the runtime', async () => {

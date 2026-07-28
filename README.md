@@ -37,9 +37,9 @@ AllBeingsFuture 是一个面向多 Agent 协作场景的桌面 AI 工作台，�
 | 桌面运行时 | Electron 33 |
 | 前端 | React 18 + TypeScript 5.7 + Vite 6 |
 | 状态管理 | Zustand 5 |
-| UI 能力 | TailwindCSS 3 + Framer Motion + Allotment + Monaco + xterm.js |
+| UI 能力 | TailwindCSS 3 + Framer Motion + Allotment + Monaco |
 | 本地数据 | better-sqlite3（SQLite） + electron-store |
-| 终端/进程 | node-pty + Node.js child_process |
+| 进程 | Node.js child_process（ACP Agent/Provider CLI stdio） |
 | Provider 接入 | Claude Agent SDK、CLI subprocess、JSON-RPC app server |
 | 打包 | electron-builder |
 | 测试 | Vitest + JSDOM + Testing Library |
@@ -263,7 +263,7 @@ release/                       # 打包产物输出目录
 说明：
 
 - 数据库启用 SQLite WAL 模式
-- `better-sqlite3` 和 `node-pty` 属于 native 模块，打包时通过 `asarUnpack` 处理
+- `@anthropic-ai/claude-agent-sdk` 等 native/vendor 资源打包时通过 `asarUnpack` 处理
 - `mcps/`、`skills/`、`resources/` 会作为 `extraResources` 一起打包
 
 ## 开发说明

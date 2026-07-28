@@ -3,7 +3,6 @@ import { useFileManagerStore } from '../../stores/fileManagerStore'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { usePanelStore } from '../../stores/panelStore'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useShellTerminalStore } from '../../stores/shellTerminalStore'
 import { useTaskStore } from '../../stores/taskStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -16,32 +15,11 @@ type QuickOpenBridge = {
 
 let runtimeInstalled = false
 
-function syncShellPanelVisibility(visible: boolean) {
-  usePanelStore.getState().setShellPanelVisible(visible)
-  useShellTerminalStore.getState().setPanelVisibility(visible)
-}
-
 function ensureFilesPaneVisible() {
   const { layoutMode, primaryPane, setPaneContent } = useLayoutStore.getState()
   if (layoutMode === 'single' && primaryPane !== 'files') {
     setPaneContent('primary', 'files')
   }
-}
-
-function resolveTerminalCwd(preferredCwd?: string) {
-  if (preferredCwd) return preferredCwd
-
-  const { sessions, selectedId } = useSessionStore.getState()
-  if (selectedId) {
-    const selectedSession = sessions.find((session) => session.id === selectedId)
-    if (selectedSession?.workingDirectory) return selectedSession.workingDirectory
-  }
-
-  for (const session of sessions) {
-    if (session.workingDirectory) return session.workingDirectory
-  }
-
-  return ''
 }
 
 async function handleCommand(command: WorkbenchCommand) {
@@ -217,74 +195,9 @@ async function handleCommand(command: WorkbenchCommand) {
         if (!panelState.detailPanelCollapsed) {
           panelState.toggleDetailPanel()
         }
-        return
-      }
-      if (panelState.shellPanelVisible) {
-        syncShellPanelVisibility(false)
       }
       return
     }
-
-    case 'panel.set-shell-visible':
-      syncShellPanelVisibility(command.payload.visible)
-      return
-
-    case 'panel.toggle-shell':
-      syncShellPanelVisibility(!usePanelStore.getState().shellPanelVisible)
-      return
-
-    case 'terminal.initialize': {
-      const store = useShellTerminalStore.getState()
-      await store.fetchShells()
-      return store.initListeners()
-    }
-
-    case 'terminal.create-tab':
-      syncShellPanelVisibility(true)
-      return useShellTerminalStore.getState().createTab(
-        command.payload.shell,
-        resolveTerminalCwd(command.payload.cwd),
-      )
-
-    case 'terminal.activate-tab':
-      syncShellPanelVisibility(true)
-      useShellTerminalStore.getState().activateTab(command.payload.tabId)
-      return
-
-    case 'terminal.close-tab':
-      return useShellTerminalStore.getState().closeTab(command.payload.tabId)
-
-    case 'terminal.write':
-      return useShellTerminalStore.getState().writeToTab(
-        command.payload.tabId,
-        command.payload.data,
-      )
-
-    case 'terminal.run': {
-      const store = useShellTerminalStore.getState()
-      syncShellPanelVisibility(true)
-
-      let tabId = command.payload.tabId || store.activeTabId
-      if (!tabId) {
-        tabId = await store.createTab(
-          command.payload.shell,
-          resolveTerminalCwd(command.payload.cwd),
-        ) || null
-      }
-      if (!tabId) return null
-
-      store.activateTab(tabId)
-
-      const commandText = /[\r\n]$/.test(command.payload.command)
-        ? command.payload.command
-        : `${command.payload.command}\r`
-
-      await store.writeToTab(tabId, commandText)
-      return tabId
-    }
-
-    case 'terminal.stop':
-      return useShellTerminalStore.getState().closeTab(command.payload.tabId)
 
     case 'workflow.run':
       return useWorkflowStore.getState().start(
@@ -396,15 +309,6 @@ async function handleCommand(command: WorkbenchCommand) {
 export function installWorkbenchRuntime() {
   if (runtimeInstalled) return
   runtimeInstalled = true
-
-  syncShellPanelVisibility(usePanelStore.getState().shellPanelVisible)
-
-  let lastShellPanelVisible = usePanelStore.getState().shellPanelVisible
-  usePanelStore.subscribe((state) => {
-    if (state.shellPanelVisible === lastShellPanelVisible) return
-    lastShellPanelVisible = state.shellPanelVisible
-    useShellTerminalStore.getState().setPanelVisibility(state.shellPanelVisible)
-  })
 
   workbenchCommandBus.subscribe(handleCommand)
 }

@@ -37,10 +37,6 @@ const storeState = {
   childToParent: {} as Record<string, unknown>,
 }
 
-const uiState = {
-  shellPanelVisible: false,
-}
-
 const toolOperationGroupMock = vi.fn(({ messages }: { messages: ConversationMessage[] }) => (
   <div data-testid="tool-group">{messages.map((message) => message.toolName).join(',')}</div>
 ))
@@ -52,11 +48,6 @@ const fileChangeCardMock = vi.fn(({ message }: { message: ConversationMessage })
 vi.mock('../../../stores/sessionStore', () => ({
   useSessionStore: (selector?: (state: typeof storeState) => unknown) =>
     typeof selector === 'function' ? selector(storeState) : storeState,
-}))
-
-vi.mock('../../../stores/uiStore', () => ({
-  useUIStore: (selector?: (state: typeof uiState) => unknown) =>
-    typeof selector === 'function' ? selector(uiState) : uiState,
 }))
 
 vi.mock('../../../hooks/useIpcEvent', () => ({
@@ -95,10 +86,6 @@ vi.mock('../ToolOperationGroup', () => ({
 
 vi.mock('../FileChangeCard', () => ({
   default: (props: { message: ConversationMessage }) => fileChangeCardMock(props),
-}))
-
-vi.mock('../../terminal/ShellTerminalView', () => ({
-  default: () => null,
 }))
 
 function makeSession(status: Session['status']): Session {

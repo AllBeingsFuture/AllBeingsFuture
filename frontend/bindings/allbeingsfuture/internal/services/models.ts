@@ -43,35 +43,6 @@ export class GitService {
 }
 
 /**
- * PTYCreateResult is the return value of Create.
- */
-export class PTYCreateResult {
-    "id": string;
-    "shell": string;
-    "error"?: string;
-
-    /** Creates a new PTYCreateResult instance. */
-    constructor($$source: Partial<PTYCreateResult> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("shell" in $$source)) {
-            this["shell"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new PTYCreateResult instance from a string or object.
-     */
-    static createFrom($$source: any = {}): PTYCreateResult {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new PTYCreateResult($$parsedSource as Partial<PTYCreateResult>);
-    }
-}
-
-/**
  * Platform 目标平台类型
  */
 export enum Platform {
@@ -124,38 +95,6 @@ export class PreparedFile {
             $$parsedSource["data"] = $$createField0_0($$parsedSource["data"]);
         }
         return new PreparedFile($$parsedSource as Partial<PreparedFile>);
-    }
-}
-
-/**
- * ShellDef describes an available shell.
- */
-export class ShellDef {
-    "id": string;
-    "name": string;
-    "path": string;
-
-    /** Creates a new ShellDef instance. */
-    constructor($$source: Partial<ShellDef> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ShellDef instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ShellDef {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ShellDef($$parsedSource as Partial<ShellDef>);
     }
 }
 
