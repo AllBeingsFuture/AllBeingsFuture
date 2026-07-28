@@ -85,6 +85,8 @@ function resetStore() {
     chatError: '',
     agents: {},
     childToParent: {},
+    agentStreams: {},
+    agentStreamMessages: {},
   })
 }
 
@@ -417,6 +419,84 @@ describe('sessionStore runtime status sync', () => {
     expect(state.messages).toEqual([{ role: 'assistant', content: 'foreground', timestamp: 'fg-ts' }])
     expect(state.streaming).toBe(false)
     expect(state.sessions.find((session) => session.id === 'session-2')?.status).toBe('running')
+  })
+
+  it('applies normalized deltas once and shields the active turn from legacy patches', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'idle' })],
+      messages: [{ role: 'user', content: 'hello' } as never],
+    })
+
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta', sessionId: 'session-1', sequence: 1, itemId: 'reply-1', delta: 'Hello ',
+    })
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta', sessionId: 'session-1', sequence: 2, itemId: 'reply-1', delta: 'world',
+    })
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta', sessionId: 'session-1', sequence: 2, itemId: 'reply-1', delta: 'world',
+    })
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-1',
+      type: 'upsert_last',
+      message: { role: 'assistant', content: 'Hello worldworld', timestamp: 'legacy' } as never,
+      streaming: true,
+      error: '',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.messages.map(message => message.content)).toEqual(['hello', 'Hello world'])
+    expect(state.agentStreamMessages['session-1']).toBe(state.messages)
+    expect(state.agentStreams['session-1']?.lastSequence).toBe(2)
+    expect(state.streaming).toBe(true)
+  })
+
+  it('buffers background normalized streams without replacing the selected conversation', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [
+        makeSession({ id: 'session-1', status: 'idle' }),
+        makeSession({ id: 'session-2', status: 'idle' }),
+      ],
+      messages: [{ role: 'assistant', content: 'foreground' } as never],
+    })
+
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta', sessionId: 'session-2', sequence: 1, itemId: 'reply-2', delta: 'background',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.messages[0]?.content).toBe('foreground')
+    expect(state.streaming).toBe(false)
+    expect(state.agentStreamMessages['session-2']?.[0]?.content).toBe('background')
+    expect(state.sessions.find(session => session.id === 'session-2')?.status).toBe('running')
+  })
+
+  it('shows cancellation immediately and settles after the process stops', async () => {
+    let finishStop: (() => void) | undefined
+    serviceMocks.processService.StopProcess.mockImplementation(() => (
+      new Promise<void>(resolve => { finishStop = resolve })
+    ))
+    serviceMocks.sessionService.GetAll.mockResolvedValue([makeSession({ status: 'idle' })])
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'running' })],
+      streaming: true,
+      agentStreams: {
+        'session-1': { phase: 'running', lastSequence: 2 },
+      },
+    })
+
+    const stopping = useSessionStore.getState().stopProcess('session-1')
+    expect(useSessionStore.getState().agentStreams['session-1']?.phase).toBe('cancelling')
+    expect(useSessionStore.getState().streaming).toBe(true)
+
+    finishStop?.()
+    await stopping
+
+    expect(useSessionStore.getState().agentStreams['session-1']?.phase).toBe('cancelled')
+    expect(useSessionStore.getState().streaming).toBe(false)
   })
 
   it('routes image messages through SendMessageWithImages without extra local image cache state', async () => {

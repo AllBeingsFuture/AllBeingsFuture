@@ -7,6 +7,7 @@ import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/mod
 import { workbenchApi } from '../../app/api/workbench'
 import { useSessionStore, type ChatUpdateEvent, type ChatPatchEvent, type AgentUpdateEvent } from '../../stores/sessionStore'
 import { useIpcEvent } from '../../hooks/useIpcEvent'
+import { parseAgentStreamEvent } from '../../hooks/agentStreamIpc'
 import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
 import SessionToolbar from './SessionToolbar'
@@ -19,6 +20,7 @@ import type { ConversationMessage, FileChangeInfo } from '../../types/conversati
 import { useConversationScroll } from './useConversationScroll'
 import { useVirtualizedList } from './useVirtualizedList'
 import { resolveProviderDisplayInfo } from '../../utils/providerDisplay'
+import AgentActivityPanel from './AgentActivityPanel'
 
 interface Props {
   session: Session
@@ -39,6 +41,11 @@ function toConversationMessage(
     timestamp: (msg as any).timestamp || new Date().toISOString(),
     toolName: (msg as any).toolName,
     toolInput: (msg as any).toolInput as Record<string, unknown> | undefined,
+    toolResult: (msg as any).toolResult,
+    toolOutputs: (msg as any).toolOutputs,
+    toolUseId: (msg as any).toolUseId,
+    isDelta: (msg as any).isDelta,
+    isError: (msg as any).isError,
     isThinking: (msg as any).isThinking,
     thinkingText: (msg as any).isThinking ? msg.content : undefined,
     usage: (msg as any).usage,
@@ -138,7 +145,7 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
     flushChildGroup()
 
     // New format: explicit tool_use role messages
-    if (msg.role === 'tool_use') {
+    if (msg.role === 'tool_use' || msg.role === 'tool_result') {
       pushToolMsg(msg, i)
       continue
     }
@@ -734,6 +741,9 @@ export default function ConversationView({ session }: Props) {
     handleChatUpdate,
     handleChatPatch,
     handleAgentUpdate,
+    handleAgentStreamEvent,
+    respondToPermission,
+    agentStream,
     childToParent,
   } = useSessionStore(useShallow((state) => ({
     messages: state.messages,
@@ -743,6 +753,9 @@ export default function ConversationView({ session }: Props) {
     handleChatUpdate: state.handleChatUpdate,
     handleChatPatch: state.handleChatPatch,
     handleAgentUpdate: state.handleAgentUpdate,
+    handleAgentStreamEvent: state.handleAgentStreamEvent,
+    respondToPermission: state.respondToPermission,
+    agentStream: state.agentStreams?.[session.id],
     childToParent: state.childToParent,
   })))
 
@@ -814,6 +827,13 @@ export default function ConversationView({ session }: Props) {
     handleAgentUpdate(event)
   })
 
+  useIpcEvent<unknown>('agent:stream', (payload) => {
+    const event = parseAgentStreamEvent(payload)
+    if (!event) return
+    lastEventTimeRef.current = Date.now()
+    handleAgentStreamEvent(event)
+  })
+
   // Initialize session on first mount / session switch.
   // IMPORTANT: Do NOT depend on session.status here — status changes frequently
   // during streaming (idle ↔ running) and would toggle `ready`, disabling the
@@ -875,6 +895,9 @@ export default function ConversationView({ session }: Props) {
   const handleStop = useCallback(() => {
     void workbenchApi.chat.stop(session.id)
   }, [session.id])
+  const handlePermissionResponse = useCallback((requestId: string, optionId: string) => (
+    respondToPermission(session.id, requestId, optionId)
+  ), [respondToPermission, session.id])
   const inputPlaceholder = ready ? '输入消息，Enter 发送' : '正在初始化...'
 
   useLayoutEffect(() => {
@@ -909,11 +932,14 @@ export default function ConversationView({ session }: Props) {
       const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
       const fileOps = extractFileChanges(group.convMessages)
       const fileOpMessageIds = new Set(fileOps.map((operation) => operation.id))
+      const fileOpToolUseIds = new Set(fileOps.map(operation => operation.toolUseId).filter(Boolean))
       const stickerMsgs = group.convMessages.filter(
         (m) => m.toolName === 'send_sticker' && m.toolInput?.mood,
       )
       const nonStickerMsgs = group.convMessages.filter(
-        (m) => m.toolName !== 'send_sticker' && !fileOpMessageIds.has(m.id),
+        (m) => m.toolName !== 'send_sticker'
+          && !fileOpMessageIds.has(m.id)
+          && !fileOpToolUseIds.has(m.toolUseId),
       )
       return (
         <React.Fragment key={`tool-${group.index}`}>
@@ -1030,6 +1056,11 @@ export default function ConversationView({ session }: Props) {
             )
           )}
 
+          <AgentActivityPanel
+            stream={agentStream}
+            onPermissionResponse={handlePermissionResponse}
+          />
+
           <AnimatePresence>
             {(shouldRenderLiveMessages || ['starting', 'running'].includes(session.status)) && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !(messages[messages.length - 1] as any)?.content?.trim())) && (
               <StreamingIndicator messages={messages} providerId={session.providerId} />
@@ -1059,6 +1090,7 @@ export default function ConversationView({ session }: Props) {
             sessionId={session.id}
             disabled={!ready}
             streaming={streaming}
+            cancelling={agentStream?.phase === 'cancelling'}
             placeholder={inputPlaceholder}
             onSend={handleSend}
             onStop={handleStop}

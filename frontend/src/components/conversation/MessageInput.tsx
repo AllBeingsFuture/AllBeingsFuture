@@ -1,4 +1,4 @@
-import { SendHorizonal, Square, X, Upload, Paperclip, Smile, FileIcon, FolderIcon } from 'lucide-react'
+import { SendHorizonal, Square, X, Upload, Paperclip, Smile, FileIcon, FolderIcon, LoaderCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import StickerPicker from '../sticker/StickerPicker'
 import MessageTextEditor from './MessageTextEditor'
@@ -17,6 +17,7 @@ interface Props {
   disabled?: boolean
   placeholder?: string
   streaming?: boolean
+  cancelling?: boolean
   sessionId: string
   onSend: (text: string, images?: Array<{data: string, mimeType: string}>) => Promise<void> | void
   onStop?: () => void
@@ -26,6 +27,7 @@ function MessageInput({
   disabled = false,
   placeholder = '输入消息，Enter 发送',
   streaming = false,
+  cancelling = false,
   sessionId,
   onSend,
   onStop,
@@ -538,11 +540,16 @@ function MessageInput({
             <button
               type="button"
               onClick={onStop}
-              className="flex h-[42px] items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 text-sm text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-gray-200"
-              aria-label="停止响应"
+              disabled={cancelling}
+              className="flex h-[42px] items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 text-sm text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-gray-200 disabled:cursor-wait disabled:opacity-60"
+              aria-label={cancelling ? '正在停止响应' : '停止响应'}
             >
-              <Square size={12} className="fill-current" />
-              <span className="text-xs">停止</span>
+              {cancelling ? (
+                <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Square size={12} className="fill-current" aria-hidden="true" />
+              )}
+              <span className="text-xs" aria-live="polite">{cancelling ? '正在停止' : '停止'}</span>
             </button>
           </div>
         ) : (
