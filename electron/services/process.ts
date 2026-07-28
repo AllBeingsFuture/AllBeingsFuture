@@ -263,7 +263,7 @@ export class ProcessService {
     }
   }
 
-  private buildRuntimeCapabilitiesPrompt(providerId: string): string {
+  private buildRuntimeCapabilitiesPrompt(providerId: string, adapterType = ''): string {
     const sections: string[] = []
     const enabledSkills = this.skillService.getEnabledSkillSummaries()
     const enabledMcps = this.mcpService.getEnabledServerSummaries()
@@ -280,6 +280,7 @@ export class ProcessService {
 
     if (enabledMcps.length > 0) {
       const supportsNativeMcp = ProviderCapabilityRegistry.supportsNativeMcp(providerId)
+        || this.isAcpAdapter(adapterType)
       sections.push([
         '## MCP 服务',
         supportsNativeMcp
@@ -355,6 +356,7 @@ export class ProcessService {
     const config: Record<string, unknown> = {
       workDir: effectiveWorkDir,
       command: provider.command || undefined,
+      defaultArgs: provider.defaultArgs || undefined,
       autoAccept: session.autoAccept,
       autoAcceptFlag: provider.autoAcceptFlag || undefined,
       permissionMode: session.permissionMode,
@@ -369,14 +371,14 @@ export class ProcessService {
       envOverrides: provider.envOverrides ? this.parseEnvOverrides(provider.envOverrides) : undefined,
     }
 
-    if (ProviderCapabilityRegistry.supportsNativeMcp(provider.id)) {
+    if (ProviderCapabilityRegistry.supportsNativeMcp(provider.id) || this.isAcpAdapter(provider.adapterType)) {
       const enabledMcpServers = this.mcpService.getEnabledServerConfigs()
       if (Object.keys(enabledMcpServers).length > 0) {
         config.mcpServers = enabledMcpServers
       }
     }
 
-    const runtimeCapabilitiesPrompt = this.buildRuntimeCapabilitiesPrompt(provider.id)
+    const runtimeCapabilitiesPrompt = this.buildRuntimeCapabilitiesPrompt(provider.id, provider.adapterType)
     if (runtimeCapabilitiesPrompt) {
       const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
       config.appendSystemPrompt = existingPrompt
@@ -400,10 +402,11 @@ export class ProcessService {
       try {
         const isClaudeBased = this.isClaudeAdapter(provider.adapterType)
         const isCodex = this.isCodexAdapter(provider.adapterType)
+        const isAcp = this.isAcpAdapter(provider.adapterType)
         const providerNames = this.providerService.getRunnable().map(p => p.name)
         const workDir = config.workDir as string
 
-        if (isClaudeBased || isCodex) {
+        if (isClaudeBased || isCodex || isAcp) {
           try {
             const apiPort = await this.ensureAgentApi()
             config.mcpServers = {
@@ -635,7 +638,9 @@ export class ProcessService {
         state.streaming = false
 
         // Check if the adapter stream is still alive for notification/idle decisions.
-        const adapterStillAlive = this.bridgeManager.isSessionActive(sessionId)
+        const adapterStillAlive = event.turnActive === false
+          ? false
+          : this.bridgeManager.isSessionActive(sessionId)
 
         // Send notification only when the stream truly ends (adapter no longer alive)
         if (!adapterStillAlive) {
@@ -787,6 +792,20 @@ export class ProcessService {
           this.stateInference.markWorkStarted(sessionId)
         }
         const childInfoTool = this.agentLifecycle.getActiveChildInfo(sessionId)
+        if (event.isUpdate && event.toolCallId) {
+          const existingTool = [...state.messages].reverse().find(
+            message => message.role === 'tool_use' && message.toolCallId === event.toolCallId
+          )
+          if (existingTool) {
+            existingTool.toolStatus = event.toolStatus
+            existingTool.toolOutput = event.output
+            if (event.name) existingTool.toolName = event.name
+            if (event.input) existingTool.toolInput = event.input
+            this.emitChatUpdate(sessionId)
+            break
+          }
+        }
+
         // Create a separate tool_use message for each tool invocation
         const toolMsg: ChatMessage = {
           role: 'tool_use',
@@ -794,6 +813,9 @@ export class ProcessService {
           timestamp: new Date().toISOString(),
           toolName: event.name || 'unknown',
           toolInput: event.input || {},
+          toolCallId: event.toolCallId,
+          toolStatus: event.toolStatus,
+          toolOutput: event.output,
         }
         if (childInfoTool) {
           toolMsg.childSessionId = childInfoTool.id
@@ -805,7 +827,13 @@ export class ProcessService {
         const prevMsg = state.messages.slice().reverse().find(m => m.role === 'assistant')
         if (prevMsg) {
           if (!prevMsg.toolUse) prevMsg.toolUse = []
-          prevMsg.toolUse.push({ name: event.name || 'unknown', input: event.input || {} })
+          prevMsg.toolUse.push({
+            name: event.name || 'unknown',
+            input: event.input || {},
+            toolCallId: event.toolCallId,
+            status: event.toolStatus,
+            output: event.output,
+          })
         }
 
         this.emitChatPatch(sessionId, {
@@ -1232,6 +1260,11 @@ export class ProcessService {
   private isCodexAdapter(adapterType: string): boolean {
     const t = (adapterType || '').toLowerCase()
     return t.includes('codex')
+  }
+
+  private isAcpAdapter(adapterType: string): boolean {
+    const t = (adapterType || '').toLowerCase()
+    return t === 'acp' || t === 'acp-stdio'
   }
 
   /**

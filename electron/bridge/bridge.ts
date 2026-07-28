@@ -11,12 +11,12 @@ import { CodexAdapter } from './adapters/codex.js'
 import { GeminiAdapter } from './adapters/gemini.js'
 import { OpenCodeAdapter } from './adapters/opencode.js'
 import { OpenAIAdapter } from './adapters/openai.js'
-
-type EventCallback = (event: any) => void
+import { AcpAdapter } from './adapters/acp.js'
+import type { BridgeEventCallback, ProviderAdapter } from './types.js'
 
 interface AdapterInstance {
-  adapter: any
-  eventCallback: EventCallback
+  adapter: ProviderAdapter
+  eventCallback: BridgeEventCallback
 }
 
 const ADAPTER_ALIASES = new Map<string, string>([
@@ -33,6 +33,8 @@ const ADAPTER_ALIASES = new Map<string, string>([
   ['opencode-cli', 'opencode-sdk'],
   ['openai', 'openai-api'],
   ['openai-api', 'openai-api'],
+  ['acp', 'acp'],
+  ['acp-stdio', 'acp'],
 ])
 
 function normalizeAdapterType(adapterType: string, config?: Record<string, any>): string {
@@ -48,7 +50,11 @@ function normalizeAdapterType(adapterType: string, config?: Record<string, any>)
   return adapterType
 }
 
-function createAdapter(adapterType: string, config: Record<string, any>, emit: EventCallback): any {
+function createAdapter(
+  adapterType: string,
+  config: Record<string, any>,
+  emit: BridgeEventCallback,
+): ProviderAdapter {
   const normalized = normalizeAdapterType(adapterType, config)
   switch (normalized) {
     case 'claude-sdk':
@@ -61,6 +67,8 @@ function createAdapter(adapterType: string, config: Record<string, any>, emit: E
       return new OpenCodeAdapter(config, emit)
     case 'openai-api':
       return new OpenAIAdapter(config, emit)
+    case 'acp':
+      return new AcpAdapter(config, emit)
     default:
       throw new Error(`Unknown adapter: ${adapterType} (normalized: ${normalized})`)
   }
@@ -73,7 +81,7 @@ export class BridgeManager {
     sessionId: string,
     adapterType: string,
     config: Record<string, any>,
-    eventCallback: EventCallback,
+    eventCallback: BridgeEventCallback,
   ): Promise<void> {
     // Destroy existing session if any
     if (this.sessions.has(sessionId)) {

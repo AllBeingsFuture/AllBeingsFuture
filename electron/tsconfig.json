@@ -16,5 +16,5 @@
     "noEmit": false
   },
   "include": ["./**/*.ts"],
-  "exclude": ["dist", "embedded-assets"]
+  "exclude": ["dist", "embedded-assets", "tests"]
 }
