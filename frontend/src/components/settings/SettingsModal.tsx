@@ -3,44 +3,58 @@ import {
   Settings2,
   Palette,
   Bot,
-  Wrench,
   MessageSquareHeart,
   ScrollText,
-  Shield,
-  Server,
 } from 'lucide-react'
 import GeneralSettings from './GeneralSettings'
 import ProviderManager from './ProviderManager'
 import ThemeTab from './ThemeTab'
 import AppearanceTab from './AppearanceTab'
-import ExtensionsTab from './ExtensionsTab'
 import FeedbackTab from './FeedbackTab'
 import LogsTab from './LogsTab'
-import PolicyTab from './PolicyTab'
-import SystemSettingsTab from './SystemSettingsTab'
 import DraggableDialog from '../common/DraggableDialog'
 
 type TabId =
   | 'general'
   | 'theme'
   | 'providers'
-  | 'skills'
-  | 'system'
-  | 'policy'
   | 'feedback'
   | 'logs'
+
+/** Removed settings tabs that may still appear in persisted/deep-link state. */
+const REMOVED_TAB_IDS = new Set([
+  'extensions',
+  'skills',
+  'policy',
+  'system',
+])
+
+const VALID_TAB_IDS = new Set<TabId>([
+  'general',
+  'theme',
+  'providers',
+  'feedback',
+  'logs',
+])
+
+export function resolveSettingsTab(tab: string | undefined | null): TabId {
+  if (!tab || REMOVED_TAB_IDS.has(tab) || !VALID_TAB_IDS.has(tab as TabId)) {
+    return 'general'
+  }
+  return tab as TabId
+}
 
 interface TabDefinition {
   id: TabId
   label: string
   description: string
-  group: 'core' | 'integrations' | 'security' | 'support'
+  group: 'core' | 'integrations' | 'support'
   icon: ReactNode
 }
 
 interface Props {
   onClose: () => void
-  initialTab?: TabId
+  initialTab?: string
 }
 
 const TABS: TabDefinition[] = [
@@ -66,27 +80,6 @@ const TABS: TabDefinition[] = [
     icon: <Bot size={15} />,
   },
   {
-    id: 'skills',
-    label: '扩展',
-    description: 'MCP 服务器与技能管理',
-    group: 'integrations',
-    icon: <Wrench size={15} />,
-  },
-  {
-    id: 'system',
-    label: '系统配置',
-    description: '底层参数与遥测',
-    group: 'support',
-    icon: <Server size={15} />,
-  },
-  {
-    id: 'policy',
-    label: '安全与治理',
-    description: '策略引擎与审计日志',
-    group: 'security',
-    icon: <Shield size={15} />,
-  },
-  {
     id: 'feedback',
     label: '反馈',
     description: '问题回报与体验收集',
@@ -105,22 +98,25 @@ const TABS: TabDefinition[] = [
 const GROUP_LABELS: Record<TabDefinition['group'], string> = {
   core: '基本',
   integrations: '能力',
-  security: '安全',
   support: '诊断',
 }
 
+const GROUP_ORDER: TabDefinition['group'][] = ['core', 'integrations', 'support']
+
 export default function SettingsModal({ onClose, initialTab = 'general' }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab)
+  const resolvedInitial = resolveSettingsTab(initialTab)
+  const [activeTab, setActiveTab] = useState<TabId>(resolvedInitial)
   const [visitedTabs, setVisitedTabs] = useState<Record<TabId, boolean>>(() => ({
-    [initialTab]: true,
+    [resolvedInitial]: true,
   } as Record<TabId, boolean>))
 
   useEffect(() => {
-    setActiveTab(initialTab)
+    const next = resolveSettingsTab(initialTab)
+    setActiveTab(next)
     setVisitedTabs((current) => (
-      current[initialTab]
+      current[next]
         ? current
-        : { ...current, [initialTab]: true }
+        : { ...current, [next]: true }
     ))
   }, [initialTab])
 
@@ -150,7 +146,7 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
       <div className="flex h-full min-h-0 flex-1 overflow-hidden">
         <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/10 bg-slate-950">
           <div className="flex-1 overflow-y-auto px-2 py-3">
-            {(['core', 'integrations', 'security', 'support'] as const).map((group) => {
+            {GROUP_ORDER.map((group) => {
               const groupTabs = TABS.filter((tab) => tab.group === group)
 
               return (
@@ -237,12 +233,6 @@ function renderTab(activeTab: TabId, isActive: boolean) {
       )
     case 'providers':
       return <ProviderManager />
-    case 'skills':
-      return <ExtensionsTab />
-    case 'system':
-      return <SystemSettingsTab />
-    case 'policy':
-      return <PolicyTab />
     case 'feedback':
       return <FeedbackTab />
     case 'logs':
