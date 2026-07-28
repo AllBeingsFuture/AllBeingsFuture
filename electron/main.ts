@@ -275,13 +275,11 @@ app.whenReady().then(async () => {
   bridgeManager = new BridgeManager()
 
   const services = registerAllIpcHandlers(db, bridgeManager, () => mainWindow)
-  const botPushService = services.botPushService
   processService = services.processService
 
   registerAppIpcHandlers()
 
   notificationManager = new NotificationManager(() => mainWindow)
-  notificationManager.setBotPushService(botPushService)
   processService!.setNotificationManager(notificationManager)
 
   await createWindow()

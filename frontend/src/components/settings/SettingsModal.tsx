@@ -16,7 +16,6 @@ import AppearanceTab from './AppearanceTab'
 import ExtensionsTab from './ExtensionsTab'
 import FeedbackTab from './FeedbackTab'
 import LogsTab from './LogsTab'
-import BotManagementTab from './BotManagementTab'
 import PolicyTab from './PolicyTab'
 import SystemSettingsTab from './SystemSettingsTab'
 import DraggableDialog from '../common/DraggableDialog'
@@ -30,13 +29,12 @@ type TabId =
   | 'policy'
   | 'feedback'
   | 'logs'
-  | 'botmanagement'
 
 interface TabDefinition {
   id: TabId
   label: string
   description: string
-  group: 'core' | 'integrations' | 'security' | 'support' | 'botmanagement'
+  group: 'core' | 'integrations' | 'security' | 'support'
   icon: ReactNode
 }
 
@@ -102,13 +100,6 @@ const TABS: TabDefinition[] = [
     group: 'support',
     icon: <ScrollText size={15} />,
   },
-  {
-    id: 'botmanagement',
-    label: 'Bot 管理',
-    description: '统一管理所有 IM 机器人',
-    group: 'botmanagement',
-    icon: <Bot size={15} />,
-  },
 ]
 
 const GROUP_LABELS: Record<TabDefinition['group'], string> = {
@@ -116,7 +107,6 @@ const GROUP_LABELS: Record<TabDefinition['group'], string> = {
   integrations: '能力',
   security: '安全',
   support: '诊断',
-  botmanagement: 'Bot',
 }
 
 export default function SettingsModal({ onClose, initialTab = 'general' }: Props) {
@@ -160,7 +150,7 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
       <div className="flex h-full min-h-0 flex-1 overflow-hidden">
         <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/10 bg-slate-950">
           <div className="flex-1 overflow-y-auto px-2 py-3">
-            {(['core', 'integrations', 'security', 'support', 'botmanagement'] as const).map((group) => {
+            {(['core', 'integrations', 'security', 'support'] as const).map((group) => {
               const groupTabs = TABS.filter((tab) => tab.group === group)
 
               return (
@@ -257,8 +247,6 @@ function renderTab(activeTab: TabId, isActive: boolean) {
       return <FeedbackTab />
     case 'logs':
       return <LogsTab isActive={isActive} />
-    case 'botmanagement':
-      return <BotManagementTab />
     default:
       return <GeneralSettings />
   }

@@ -26,14 +26,6 @@ interface PlatformLimits {
 }
 
 const PLATFORM_LIMITS: Record<string, PlatformLimits> = {
-  telegram: {
-    maxFileSize: 50 * 1024 * 1024, // 50MB
-    allowedTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'],
-  },
-  qq: {
-    maxFileSize: 30 * 1024 * 1024, // 30MB
-    allowedTypes: ['image/png', 'image/jpeg', 'image/gif', 'application/pdf'],
-  },
   default: {
     maxFileSize: 100 * 1024 * 1024,
     allowedTypes: [],

@@ -42,11 +42,6 @@ import { QueueService } from '../services/queue.js'
 import { FileTransferService } from '../services/file-transfer.js'
 import { TrackerService } from '../services/tracker.js'
 import { UsageService } from '../services/usage.js'
-import { BotService } from '../services/bot.js'
-import { BotPushService } from '../services/bot-push.js'
-import { TelegramService } from '../services/telegram.js'
-import { QQBotService } from '../services/qqbot.js'
-import { QQOfficialService } from '../services/qqofficial.js'
 import { WorkspaceService } from '../services/workspace.js'
 
 type GithubIssuePayload = {
@@ -175,7 +170,7 @@ export function registerAllIpcHandlers(
   db: Database,
   bridgeManager: BridgeManager,
   getWindow: () => BrowserWindow | null,
-): { botPushService: BotPushService; processService: ProcessService } {
+): { processService: ProcessService } {
   // ---- Initialize ALL services ----
   const sessionService = new SessionService(db)
   const providerService = new ProviderService(db)
@@ -212,11 +207,6 @@ export function registerAllIpcHandlers(
   const fileTransferService = new FileTransferService()
   const trackerService = new TrackerService(getWindow, db)
   const usageService = new UsageService(db)
-  const botService = new BotService(db)
-  const botPushService = new BotPushService(botService)
-  const telegramService = new TelegramService(db, botService, sessionService, providerService, processService)
-  const qqBotService = new QQBotService(db)
-  const qqOfficialService = new QQOfficialService(db)
   const workspaceService = new WorkspaceService(db)
 
   // Initialize async services
@@ -308,8 +298,6 @@ export function registerAllIpcHandlers(
   void cleanupManagedWorktreesOnStartup().catch(err => {
     console.warn('[startup-worktree-cleanup] failed', err)
   })
-
-  telegramService.start()
 
   // ==============================================================
   // SessionService
@@ -665,63 +653,6 @@ export function registerAllIpcHandlers(
   ipcMain.handle('UsageService.GetSessionMessages', (_e, sessionId: string) => usageService.getSessionMessages(sessionId))
 
   // ==============================================================
-  // BotService
-  // ==============================================================
-  ipcMain.handle('BotService.List', () => botService.list())
-  ipcMain.handle('BotService.GetCatalog', () => botService.getCatalog())
-  ipcMain.handle('BotService.Create', (_e, bot: any) => botService.create(bot))
-  ipcMain.handle('BotService.Update', (_e, botId: string, bot: any) => botService.update(botId, bot))
-  ipcMain.handle('BotService.Delete', (_e, botId: string) => botService.delete(botId))
-  ipcMain.handle('BotService.Toggle', (_e, botId: string, enabled: boolean) => botService.toggle(botId, enabled))
-  ipcMain.handle('BotService.TestPush', (_e, botId: string) => botPushService.testPush(botId))
-
-  // ==============================================================
-  // TelegramService
-  // ==============================================================
-  ipcMain.handle('TelegramService.Start', () => telegramService.start())
-  ipcMain.handle('TelegramService.Stop', () => telegramService.stop())
-  ipcMain.handle('TelegramService.Reload', () => telegramService.reload())
-  ipcMain.handle('TelegramService.Restart', () => telegramService.restart())
-  ipcMain.handle('TelegramService.Status', () => telegramService.status())
-  ipcMain.handle('TelegramService.GetConfig', () => telegramService.getConfig())
-  ipcMain.handle('TelegramService.UpdateConfig', (_e, key: string, value: any) => telegramService.updateConfig(key, value))
-  ipcMain.handle('TelegramService.GetAllowedUsers', () => telegramService.getAllowedUsers())
-  ipcMain.handle('TelegramService.AddAllowedUser', (_e, uid: string, uname: string, role: string) => telegramService.addAllowedUser(uid, uname, role))
-  ipcMain.handle('TelegramService.RemoveAllowedUser', (_e, uid: string) => telegramService.removeAllowedUser(uid))
-  ipcMain.handle('TelegramService.GetAIProviders', () => telegramService.getAIProviders())
-  ipcMain.handle('TelegramService.AddAIProvider', (_e, name: string, apiKey: string, model: string) => telegramService.addAIProvider(name, apiKey, model))
-  ipcMain.handle('TelegramService.UpdateAIProvider', (_e, id: string, updates: any) => telegramService.updateAIProvider(id, updates))
-  ipcMain.handle('TelegramService.DeleteAIProvider', (_e, id: string) => telegramService.deleteAIProvider(id))
-
-  // ==============================================================
-  // QQBotService
-  // ==============================================================
-  ipcMain.handle('QQBotService.Start', () => qqBotService.start())
-  ipcMain.handle('QQBotService.Stop', () => qqBotService.stop())
-  ipcMain.handle('QQBotService.Reload', () => qqBotService.reload())
-  ipcMain.handle('QQBotService.Restart', () => qqBotService.restart())
-  ipcMain.handle('QQBotService.Status', () => qqBotService.status())
-  ipcMain.handle('QQBotService.GetConfig', () => qqBotService.getConfig())
-  ipcMain.handle('QQBotService.UpdateConfig', (_e, key: string, value: any) => qqBotService.updateConfig(key, value))
-  ipcMain.handle('QQBotService.GetAllowedUsers', () => qqBotService.getAllowedUsers())
-  ipcMain.handle('QQBotService.AddAllowedUser', (_e, uid: string, nick: string, role: string) => qqBotService.addAllowedUser(uid, nick, role))
-  ipcMain.handle('QQBotService.RemoveAllowedUser', (_e, uid: string) => qqBotService.removeAllowedUser(uid))
-  ipcMain.handle('QQBotService.GetAllowedGroups', () => qqBotService.getAllowedGroups())
-  ipcMain.handle('QQBotService.AddAllowedGroup', (_e, gid: string, gname: string, role: string) => qqBotService.addAllowedGroup(gid, gname, role))
-  ipcMain.handle('QQBotService.RemoveAllowedGroup', (_e, gid: string) => qqBotService.removeAllowedGroup(gid))
-
-  // ==============================================================
-  // QQOfficialService
-  // ==============================================================
-  ipcMain.handle('QQOfficialService.Start', () => qqOfficialService.start())
-  ipcMain.handle('QQOfficialService.Stop', () => qqOfficialService.stop())
-  ipcMain.handle('QQOfficialService.Reload', () => qqOfficialService.reload())
-  ipcMain.handle('QQOfficialService.Restart', () => qqOfficialService.restart())
-  ipcMain.handle('QQOfficialService.Status', () => qqOfficialService.status())
-  ipcMain.handle('QQOfficialService.GetConfig', () => qqOfficialService.getConfig())
-  ipcMain.handle('QQOfficialService.UpdateConfig', (_e, key: string, value: any) => qqOfficialService.updateConfig(key, value))
-
-  // ==============================================================
   // WorkspaceService
   // ==============================================================
   ipcMain.handle('WorkspaceService.List', () => workspaceService.list())
@@ -768,5 +699,5 @@ export function registerAllIpcHandlers(
     if (filePath) shell.openPath(filePath)
   })
 
-  return { botPushService, processService }
+  return { processService }
 }

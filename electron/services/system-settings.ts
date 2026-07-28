@@ -15,7 +15,6 @@ export interface SystemConfig {
   mcp: { enabled: boolean; maxServers: number }
   skill: { enabled: boolean; autoSync: boolean }
   notification: { enabled: boolean; sound: boolean }
-  telegram: { enabled: boolean }
   update: { autoCheck: boolean; channel: string }
 }
 
@@ -29,7 +28,6 @@ const DEFAULT_CONFIG: SystemConfig = {
   mcp: { enabled: true, maxServers: 20 },
   skill: { enabled: true, autoSync: true },
   notification: { enabled: true, sound: true },
-  telegram: { enabled: false },
   update: { autoCheck: true, channel: 'stable' },
 }
 

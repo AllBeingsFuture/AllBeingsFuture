@@ -12,7 +12,6 @@
 
 import { EventEmitter } from 'events'
 import { Notification, BrowserWindow } from 'electron'
-import type { BotPushService } from './bot-push.js'
 
 /** Notification types */
 export type NotificationType = 'confirmation' | 'taskComplete' | 'error' | 'stuck'
@@ -63,17 +62,9 @@ export class NotificationManager extends EventEmitter {
   /** Window accessor */
   private getWindow: () => BrowserWindow | null
 
-  /** Optional bot push service — forwards every notification to enabled IM bots */
-  private botPushService: BotPushService | null = null
-
   constructor(getWindow: () => BrowserWindow | null) {
     super()
     this.getWindow = getWindow
-  }
-
-  /** Attach a BotPushService so notifications are also sent via Telegram etc. */
-  setBotPushService(service: BotPushService): void {
-    this.botPushService = service
   }
 
   // ------------------------------------------------------------------
@@ -179,17 +170,7 @@ export class NotificationManager extends EventEmitter {
 
     // Send system notification
     this.sendSystemNotification(title, body, sessionId)
-
-    // Forward to IM bots (Telegram, etc.)
-    const hasBotPush = !!this.botPushService
-    console.log(`[NotificationManager] Sending: ${type} "${title}" → system ✓, bot push ${hasBotPush ? 'attempting...' : 'N/A (no service)'}`)
-    if (hasBotPush) {
-      this.botPushService!.push(title, body)
-        .then(() => console.log(`[NotificationManager] Bot push succeeded: ${type} for ${sessionName}`))
-        .catch((err: any) =>
-          console.error('[NotificationManager] Bot push failed:', err?.message ?? err),
-        )
-    }
+    console.log(`[NotificationManager] Sending: ${type} "${title}" → system ✓`)
 
     // Emit event for other listeners (e.g. badge update)
     this.emit('notification-sent', { type, sessionId, sessionName, detail })

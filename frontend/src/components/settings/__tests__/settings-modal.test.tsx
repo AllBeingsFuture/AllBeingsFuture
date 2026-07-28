@@ -19,9 +19,11 @@ describe('Settings modal', () => {
 
     expect(screen.getByTestId('settings-modal')).toBeInTheDocument()
     expect(screen.getByText('设置')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Bot 管理' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Telegram 机器人' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'QQ 机器人' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'QQ 官方机器人' })).not.toBeInTheDocument()
+    // lucide Bot icon is still used by AI Provider tab — keep that core tab
     fireEvent.click(screen.getByRole('button', { name: 'AI Provider' }))
     expect(await screen.findByTestId('providers-tab')).toBeInTheDocument()
     expect(screen.getByTestId('general-tab')).toBeInTheDocument()
