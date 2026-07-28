@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../.task/allbeingsfuture-backend-tests",
+    "rootDir": ".",
+    "sourceMap": false
+  },
+  "include": [
+    "bridge/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "embedded-assets"
+  ]
+}
