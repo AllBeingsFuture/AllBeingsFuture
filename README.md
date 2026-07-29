@@ -223,13 +223,11 @@ electron/
 ├── bridge/
 │   ├── bridge.ts              # BridgeManager
 │   ├── ProviderCapabilityRegistry.ts
-│   ├── toolMapping.ts
+│   ├── runtime.ts             # 子进程命令 / 环境解析
 │   └── adapters/
-│       ├── claude.ts
-│       ├── codex.ts
-│       ├── gemini.ts
-│       └── opencode.ts
-├── parser/                    # 各 Provider 输出解析规则
+│       ├── acp.ts             # 内置 CLI 共享 ACP v1 适配器
+│       └── openai.ts          # OpenAI 兼容 HTTP API
+├── parser/                    # 输出解析 / 状态推断
 └── services/                  # 会话、Provider、MCP、Git、通知、Agent 生命周期等服务
 
 frontend/

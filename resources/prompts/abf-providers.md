@@ -66,18 +66,9 @@ opencode / opencode-cli            →  opencode-sdk
 
 ### 输出解析
 
-- 每个 Provider 在 `electron/parser/` 下有对应的 `*Rules.ts` 解析规则
-- `OutputParser.ts` 根据 Provider 类型选择对应规则
-- 所有输出最终转为统一的 `ActivityEventType`（定义在 `toolMapping.ts`）
-
-### 工具映射 (toolMapping.ts)
-
-不同 Provider 的工具名称不同，但需要映射到统一的 ActivityEventType：
-
-- Claude 的 `Read` / Codex 的 `read_file` → 统一为 `file_read` 事件
-- Claude 的 `Edit` / Codex 的 `apply_patch` → 统一为 `file_edit` 事件
-
-开发时注意：新增 Provider 的工具必须在 `toolMapping.ts` 中添加映射，否则 UI 无法正确显示工具执行状态。
+- 内置 CLI Agent 统一走 `AcpAdapter`，通过 ACP `session/update` 映射为 `BridgeEvent`
+- `AgentStreamNormalizer` 再转为前端 `AgentStreamEvent`（`agent:stream`）
+- `OutputParser` 仅做文本侧活动/状态推断，不再依赖按 Provider 工具名表
 
 ## Supervisor 与子 Agent 的 Provider 选择
 

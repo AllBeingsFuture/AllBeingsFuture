@@ -10,12 +10,6 @@
 export interface ProviderMcpCapability {
   /** Whether the provider natively supports MCP */
   native: boolean
-  /** MCP config flag (legacy; unused for ACP negotiation) */
-  configFlag?: string
-  /** MCP config environment variable */
-  configEnvVar?: string
-  /** MCP config file format */
-  configFormat?: 'json' | 'json-opencode'
   /** Fallback when native MCP is unavailable */
   fallback: 'prompt-injection' | 'none'
 }
@@ -86,18 +80,8 @@ export class ProviderCapabilityRegistry {
         systemPrompt: true,
       },
     }],
-    // Optional legacy id still referenced in older DBs
-    ['iflow', {
-      providerId: 'iflow',
-      mcpSupport: {
-        native: true,
-        fallback: 'none',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-      },
-    }],
+    // Optional legacy id still referenced in older DBs / UI labels
+    ['iflow', acpNativeCapability('iflow')],
   ])
 
   /** Get full capability description for a provider */
@@ -129,10 +113,5 @@ export class ProviderCapabilityRegistry {
   /** Whether the provider natively supports MCP */
   static supportsNativeMcp(providerId: string): boolean {
     return this.capabilities.get(providerId)?.mcpSupport.native ?? false
-  }
-
-  /** Whether MCP prompt-injection fallback is enabled */
-  static supportsMcpFallback(providerId: string): boolean {
-    return this.capabilities.get(providerId)?.mcpSupport.fallback === 'prompt-injection'
   }
 }

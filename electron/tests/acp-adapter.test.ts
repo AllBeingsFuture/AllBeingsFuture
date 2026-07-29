@@ -81,10 +81,9 @@ test('ACP bridge negotiates v1 and normalizes streaming updates', async () => {
       event.event === 'plan' && event.entries?.[0].content === 'Verify adapter'))
     assert.ok(events.some((event) =>
       event.event === 'plan' && event.planId === 'plan-1' && event.entries?.[0].status === 'in_progress'))
-    assert.ok(events.some((event) =>
-      event.event === 'status' && event.phase === 'mode' && event.detail === 'code'))
-    assert.ok(events.some((event) =>
-      event.event === 'status' && event.phase === 'usage' && event.data?.used === 128))
+    // Mode / usage session updates are intentionally ignored (no product consumer).
+    assert.equal(events.some((event) => event.event === 'status' && event.phase === 'mode'), false)
+    assert.equal(events.some((event) => event.event === 'status' && event.phase === 'usage'), false)
 
     const done = events.find((event) => event.event === 'done')
     assert.equal(done?.stopReason, 'end_turn')

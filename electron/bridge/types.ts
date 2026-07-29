@@ -1,5 +1,4 @@
 import type {
-  AgentCapabilities,
   InitializeResponse,
   PermissionOption,
   PlanEntry,
@@ -43,7 +42,6 @@ export interface BridgeEvent {
   turnActive?: boolean
   phase?: string
   detail?: string
-  capabilities?: AgentCapabilities
   initializeResponse?: InitializeResponse
   toolCallId?: string
   toolKind?: ToolKind

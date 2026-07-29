@@ -41,7 +41,6 @@ export interface AcpAdapterConfig {
   mcpServers?: unknown
   resumeSessionId?: string
   autoAccept?: boolean
-  permissionMode?: string
   customInstructions?: string
   appendSystemPrompt?: string
   startupTimeoutMs?: number
@@ -137,15 +136,13 @@ function normalizeMcpServers(input: unknown): McpServer[] {
 
 function assertMcpCapabilities(servers: McpServer[], capabilities: AgentCapabilities | undefined): void {
   for (const server of servers) {
+    // normalizeMcpServers only produces stdio / http / sse entries.
     const transport = 'type' in server ? server.type : 'stdio'
     if (transport === 'http' && !capabilities?.mcpCapabilities?.http) {
       throw new Error(`ACP agent did not negotiate HTTP MCP support required by '${server.name}'`)
     }
     if (transport === 'sse' && !capabilities?.mcpCapabilities?.sse) {
       throw new Error(`ACP agent did not negotiate SSE MCP support required by '${server.name}'`)
-    }
-    if (transport === 'acp' && !capabilities?.mcpCapabilities?.acp) {
-      throw new Error(`ACP agent did not negotiate ACP-tunneled MCP support required by '${server.name}'`)
     }
   }
 }
@@ -322,7 +319,6 @@ export class AcpAdapter implements ProviderAdapter {
         phase: 'ready',
         detail: initializeResponse.agentInfo?.name || 'ACP agent ready',
         conversationId: this.remoteSessionId,
-        capabilities: initializeResponse.agentCapabilities,
         initializeResponse,
       })
     } catch (error) {
@@ -516,47 +512,13 @@ export class AcpAdapter implements ProviderAdapter {
           data: { operation: 'removed' },
         })
         break
+      // Mode / config / usage / commands / session_info updates are accepted from
+      // agents but have no product consumer yet (stream normalizer drops them).
       case 'usage_update':
-        this.emitEvent({
-          event: 'status',
-          type: 'status',
-          phase: 'usage',
-          data: { used: update.used, size: update.size, cost: update.cost },
-        })
-        break
       case 'current_mode_update':
-        this.emitEvent({
-          event: 'status',
-          type: 'status',
-          phase: 'mode',
-          detail: update.currentModeId,
-        })
-        break
       case 'config_option_update':
-        this.emitEvent({
-          event: 'status',
-          type: 'status',
-          phase: 'config',
-          data: { configOptions: update.configOptions },
-        })
-        break
       case 'session_info_update':
-        this.emitEvent({
-          event: 'status',
-          type: 'status',
-          phase: 'session_info',
-          detail: update.title || undefined,
-          data: { updatedAt: update.updatedAt },
-        })
-        break
       case 'available_commands_update':
-        this.emitEvent({
-          event: 'status',
-          type: 'status',
-          phase: 'commands',
-          data: { availableCommands: update.availableCommands },
-        })
-        break
       case 'user_message_chunk':
         break
     }
