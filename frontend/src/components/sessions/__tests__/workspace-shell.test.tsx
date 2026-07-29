@@ -175,7 +175,7 @@ describe('Session workspace', () => {
     const promptInput = screen.getByPlaceholderText('创建后自动发送的指令...')
     fireEvent.change(promptInput, { target: { value: '检查仓库并按规则执行' } })
 
-    await screen.findByText(/当前目录属于 Git 仓库/)
+    await screen.findByText(/将创建独立 worktree/)
 
     const createButton = screen.getByRole('button', { name: '创建' })
     fireEvent.click(createButton)
@@ -183,7 +183,7 @@ describe('Session workspace', () => {
     await waitFor(() => {
       expect(createSessionMock).toHaveBeenCalledWith(expect.objectContaining({
         workingDirectory: 'C:/repo/project',
-        worktreeEnabled: false,
+        worktreeEnabled: true,
         gitRepoPath: 'C:/repo/project',
         gitBranch: '',
         name: 'Worktree Rule Session',

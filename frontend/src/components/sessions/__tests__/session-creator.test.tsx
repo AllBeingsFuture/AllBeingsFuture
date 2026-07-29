@@ -93,7 +93,7 @@ describe('SessionCreator', () => {
     fireEvent.click(screen.getByRole('button', { name: /高级选项/ }))
   }
 
-  it('keeps session creation on the selected directory but records the git repo for later worktree entry', async () => {
+  it('isolates into a worktree by default when the selected directory is a git repo', async () => {
     getRepoRootMock.mockResolvedValue('C:/repo')
 
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
@@ -103,6 +103,31 @@ describe('SessionCreator', () => {
     })
 
     await expandAdvanced()
+    await screen.findByText(/将创建独立 worktree/)
+
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+
+    await waitFor(() => {
+      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+        workingDirectory: 'C:/repo',
+        worktreeEnabled: true,
+        gitRepoPath: 'C:/repo',
+      }))
+    })
+  })
+
+  it('can opt out of isolation and stay on the main working directory', async () => {
+    getRepoRootMock.mockResolvedValue('C:/repo')
+
+    renderWithProviders(<SessionCreator onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByPlaceholderText('选择工作区，或输入/浏览目录'), {
+      target: { value: 'C:/repo' },
+    })
+
+    await expandAdvanced()
+    await screen.findByText('改代码时再隔离')
+    fireEvent.click(screen.getByRole('button', { name: /改代码时再隔离/ }))
     await screen.findByText(/当前目录属于 Git 仓库/)
 
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
@@ -139,7 +164,7 @@ describe('SessionCreator', () => {
     })
   })
 
-  it('fills workdir from workspace primary repo and can isolate on create', async () => {
+  it('fills workdir from workspace primary repo and isolates by default', async () => {
     workspaceListMock.mockResolvedValue([
       {
         id: 'ws-1',
@@ -158,7 +183,7 @@ describe('SessionCreator', () => {
 
     await expandAdvanced()
     await screen.findByText('创建时立即隔离')
-    fireEvent.click(screen.getByRole('button', { name: /创建时立即隔离/ }))
+    // 默认已选中「创建时立即隔离」，无需再点
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
     await waitFor(() => {
