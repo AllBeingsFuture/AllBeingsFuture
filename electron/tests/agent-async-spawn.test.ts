@@ -63,14 +63,15 @@ test('ProcessService wires GitService + SettingsService into AgentLifecycleManag
 
 test('abf-supervisor prompt documents async spawn, parent idle, close safety', () => {
   const source = read('resources/prompts/abf-supervisor.md')
-  assert.match(source, /异步派活/)
-  assert.match(source, /父空闲|保持可空闲|进入空闲/)
+  assert.match(source, /async dispatch/i)
+  assert.match(source, /parent (session )?free|keep the parent session free|parent free/i)
   assert.match(source, /wait=true/)
-  assert.match(source, /独立 git worktree/)
+  assert.match(source, /isolated git worktree/i)
   assert.match(source, /close_agent/)
   assert.match(source, /worktree/)
   assert.match(source, /workDir/)
-  assert.doesNotMatch(source, /等待首轮结束.*默认/)
+  assert.match(source, /Brevity is mandatory/i)
+  assert.doesNotMatch(source, /wait for the first turn.*by default/i)
 })
 
 test('abf-worker prompt documents worktree isolation, commit, mempalace', () => {
@@ -78,10 +79,9 @@ test('abf-worker prompt documents worktree isolation, commit, mempalace', () => 
   assert.match(source, /worktree/i)
   assert.match(source, /mempalace/)
   assert.match(source, /mempalace_checkpoint/)
-  assert.match(source, /commit|提交/)
+  assert.match(source, /commit/i)
   assert.match(source, /workDir/)
 })
-
 test('trackedAgentToInfo fills workDir from child session', () => {
   const source = read('electron/services/agent-lifecycle.ts')
   assert.match(source, /trackedAgentToInfo/)
