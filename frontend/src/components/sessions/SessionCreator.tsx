@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp, GitBranch, Layers } from 'lucide-react'
 import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
+import { ipc } from '../../../bindings/electron-api'
 import { workbenchApi } from '../../app/api/workbench'
 import { useSettingsStore } from '../../stores/settingsStore'
 import DraggableDialog from '../common/DraggableDialog'
 import type { AIProvider, SessionConfig } from '../../../bindings/allbeingsfuture/internal/models/models'
+import type { Workspace } from '../../types/workspaceTypes'
 
 interface Props {
   onClose: () => void
@@ -19,6 +21,8 @@ interface RecentDir {
 }
 
 const RECENT_DIRS_KEY = 'allbeingsfuture-recent-directories'
+const LAST_WORKDIR_KEY = 'allbeingsfuture-last-workdir'
+const LAST_WORKSPACE_KEY = 'allbeingsfuture-last-workspace-id'
 const PROVIDER_CHECK_CACHE_TTL_MS = 30_000
 const WORKDIR_CHECK_DEBOUNCE_MS = 120
 
@@ -56,6 +60,68 @@ function addRecentDir(path: string, pin = false): RecentDir[] {
 function shortDirName(p: string): string {
   const parts = p.replace(/\\/g, '/').split('/').filter(Boolean)
   return parts.length > 2 ? parts.slice(-2).join('/') : parts.join('/')
+}
+
+function loadLastWorkDir(): string {
+  try {
+    return localStorage.getItem(LAST_WORKDIR_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function saveLastWorkDir(path: string) {
+  try {
+    if (path) localStorage.setItem(LAST_WORKDIR_KEY, path)
+  } catch { /* ignore */ }
+}
+
+function loadLastWorkspaceId(): string {
+  try {
+    return localStorage.getItem(LAST_WORKSPACE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function saveLastWorkspaceId(id: string) {
+  try {
+    if (id) localStorage.setItem(LAST_WORKSPACE_KEY, id)
+    else localStorage.removeItem(LAST_WORKSPACE_KEY)
+  } catch { /* ignore */ }
+}
+
+function resolveWorkspacePrimaryPath(workspace: Workspace): string {
+  const primary = workspace.repos.find(repo => repo.isPrimary) || workspace.repos[0]
+  return (primary?.repoPath || workspace.rootPath || '').trim()
+}
+
+function resolveDefaultWorkDir(recentDirs: RecentDir[], workspaces: Workspace[]): {
+  workDir: string
+  workspaceId: string
+} {
+  const lastWorkspaceId = loadLastWorkspaceId()
+  if (lastWorkspaceId) {
+    const matched = workspaces.find(ws => ws.id === lastWorkspaceId)
+    const path = matched ? resolveWorkspacePrimaryPath(matched) : ''
+    if (path) return { workDir: path, workspaceId: matched!.id }
+  }
+
+  const lastWorkDir = loadLastWorkDir()
+  if (lastWorkDir) return { workDir: lastWorkDir, workspaceId: '' }
+
+  const pinned = recentDirs.filter(d => d.isPinned).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))
+  if (pinned[0]?.path) return { workDir: pinned[0].path, workspaceId: '' }
+
+  const sorted = [...recentDirs].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))
+  if (sorted[0]?.path) return { workDir: sorted[0].path, workspaceId: '' }
+
+  if (workspaces[0]) {
+    const path = resolveWorkspacePrimaryPath(workspaces[0])
+    if (path) return { workDir: path, workspaceId: workspaces[0].id }
+  }
+
+  return { workDir: '', workspaceId: '' }
 }
 
 function getProviderCacheKey(provider: Pick<AIProvider, 'id' | 'command' | 'executablePath'>): string {
@@ -148,13 +214,50 @@ export default function SessionCreator({ onClose }: Props) {
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [worktreeState, setWorktreeState] = useState<'idle' | 'git' | 'plain'>('idle')
+  /** 创建时立即进入 worktree；默认 false 保持「先在主目录启动」 */
+  const [isolateOnCreate, setIsolateOnCreate] = useState(false)
 
-  // 常用目录
+  // 常用目录 / 工作区
   const [recentDirs, setRecentDirs] = useState<RecentDir[]>([])
   const [showAllDirs, setShowAllDirs] = useState(false)
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const [defaultsReady, setDefaultsReady] = useState(false)
 
   useEffect(() => {
-    setRecentDirs(loadRecentDirs())
+    const dirs = loadRecentDirs()
+    setRecentDirs(dirs)
+
+    // 同步先用最近目录填默认路径，避免空白等待
+    const syncDefaults = resolveDefaultWorkDir(dirs, [])
+    if (syncDefaults.workDir) {
+      setWorkDir(syncDefaults.workDir)
+    }
+
+    let cancelled = false
+    void ipc('WorkspaceService.List')
+      .then((list: Workspace[] | null) => {
+        if (cancelled) return
+        const workspacesList = list || []
+        setWorkspaces(workspacesList)
+        // 仅在用户尚未手动改路径时，用工作区/最近路径补默认值
+        setWorkDir((current) => {
+          if (current.trim()) return current
+          return resolveDefaultWorkDir(dirs, workspacesList).workDir
+        })
+        setSelectedWorkspaceId((current) => {
+          if (current) return current
+          return resolveDefaultWorkDir(dirs, workspacesList).workspaceId
+        })
+        setDefaultsReady(true)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setWorkspaces([])
+        setDefaultsReady(true)
+      })
+
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -276,6 +379,7 @@ export default function SessionCreator({ onClose }: Props) {
 
   const handleSelectDir = (path: string) => {
     setWorkDir(path)
+    setSelectedWorkspaceId('')
     // Update lastUsedAt
     const dirs = loadRecentDirs()
     const dir = dirs.find(d => d.path === path)
@@ -285,11 +389,24 @@ export default function SessionCreator({ onClose }: Props) {
     }
   }
 
+  const handleSelectWorkspace = (workspaceId: string) => {
+    if (!workspaceId) {
+      setSelectedWorkspaceId('')
+      return
+    }
+    const workspace = workspaces.find(ws => ws.id === workspaceId)
+    if (!workspace) return
+    const path = resolveWorkspacePrimaryPath(workspace)
+    setSelectedWorkspaceId(workspaceId)
+    if (path) setWorkDir(path)
+  }
+
   const handleBrowse = async () => {
     try {
       const dir = await workbenchApi.app.selectDirectory()
       if (dir) {
         setWorkDir(dir)
+        setSelectedWorkspaceId('')
         const updated = addRecentDir(dir)
         setRecentDirs(updated)
       }
@@ -300,23 +417,22 @@ export default function SessionCreator({ onClose }: Props) {
 
   const handleCreate = async () => {
     if (!workDir) {
-      setError('请填写工作目录')
+      setError('请选择工作区或填写工作目录')
       return
     }
     setError('')
     setCreating(true)
     try {
       const trimmedWorkDir = workDir.trim()
-      const gitRepoPath = autoWorktree
-        ? (
-            repoRootCache.has(trimmedWorkDir)
-              ? repoRootCache.get(trimmedWorkDir) || ''
-              : await GitService.GetRepoRoot(trimmedWorkDir).catch(() => '')
-          )
-        : ''
-      if (autoWorktree) {
-        repoRootCache.set(trimmedWorkDir, gitRepoPath)
-      }
+      // 始终解析 git 根，便于会话后续一键进入 worktree
+      const gitRepoPath = (
+        repoRootCache.has(trimmedWorkDir)
+          ? repoRootCache.get(trimmedWorkDir) || ''
+          : await GitService.GetRepoRoot(trimmedWorkDir).catch(() => '')
+      ) || ''
+      repoRootCache.set(trimmedWorkDir, gitRepoPath)
+
+      const shouldIsolate = Boolean(autoWorktree && isolateOnCreate && gitRepoPath)
 
       const config = {
         name,
@@ -325,12 +441,15 @@ export default function SessionCreator({ onClose }: Props) {
         mode: mode as any,
         initialPrompt: prompt,
         autoAccept,
-        worktreeEnabled: false,
+        worktreeEnabled: shouldIsolate,
         gitRepoPath,
         gitBranch: '',
       } as SessionConfig
       const session = await workbenchApi.session.create(config)
       if (session) {
+        saveLastWorkDir(trimmedWorkDir)
+        saveLastWorkspaceId(selectedWorkspaceId)
+        addRecentDir(trimmedWorkDir)
         // Init may fail transiently — still select the session so
         // ConversationView can retry on mount. sendMessage also auto-inits.
         try { await workbenchApi.session.init(session.id) } catch {}
@@ -368,26 +487,77 @@ export default function SessionCreator({ onClose }: Props) {
           />
         </div>
 
-        {/* ── 2. 工作目录 ── */}
+        {/* ── 2. 工作区（优先，免手填路径） ── */}
         <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1.5">工作目录 <span className="text-red-400">*</span></label>
+          <label className="block text-xs font-medium text-gray-400 mb-1.5">
+            <span className="inline-flex items-center gap-1.5">
+              <Layers size={12} />
+              工作区
+            </span>
+          </label>
+          {workspaces.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {workspaces.map(ws => {
+                const primaryPath = resolveWorkspacePrimaryPath(ws)
+                const selected = selectedWorkspaceId === ws.id
+                return (
+                  <button
+                    key={ws.id}
+                    type="button"
+                    onClick={() => handleSelectWorkspace(ws.id)}
+                    title={primaryPath || ws.name}
+                    className={`max-w-full rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors ${
+                      selected
+                        ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                        : 'border-white/10 text-gray-300 hover:border-white/20 hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="truncate font-medium">{ws.name}</div>
+                    {primaryPath && (
+                      <div className="mt-0.5 max-w-[180px] truncate text-[10px] text-gray-500">
+                        {shortDirName(primaryPath)}
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-600">
+              尚未配置工作区。可在「设置 → 工作区」添加项目，或下方直接选目录。
+            </p>
+          )}
+        </div>
+
+        {/* ── 3. 工作目录 ── */}
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1.5">
+            工作目录 <span className="text-red-400">*</span>
+            {defaultsReady && workDir && (
+              <span className="ml-2 font-normal text-gray-600">已自动填入上次/默认路径</span>
+            )}
+          </label>
           <div className="flex gap-2">
             <input
               value={workDir}
-              onChange={e => setWorkDir(e.target.value)}
-              placeholder="C:\Users\project"
+              onChange={e => {
+                setWorkDir(e.target.value)
+                setSelectedWorkspaceId('')
+              }}
+              placeholder="选择工作区，或输入/浏览目录"
               className={`flex-1 px-3 py-2 bg-slate-900 border rounded-lg text-sm text-white outline-none focus:border-blue-400/60 ${error && !workDir ? 'border-red-500/60' : 'border-white/10'}`}
             />
             <button
               onClick={handleBrowse}
               className="px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-gray-400 hover:text-white hover:bg-slate-800 transition-colors"
+              title="浏览目录"
             >
               <FolderOpen size={16} />
             </button>
           </div>
         </div>
 
-        {/* ── 3. 常用目录 ── */}
+        {/* ── 4. 常用目录 ── */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-medium text-gray-400">常用目录</label>
@@ -406,7 +576,7 @@ export default function SessionCreator({ onClose }: Props) {
                   key={dir.path}
                   onClick={() => handleSelectDir(dir.path)}
                   className={`group flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors text-xs ${
-                    workDir === dir.path
+                    workDir === dir.path && !selectedWorkspaceId
                       ? 'bg-blue-500/15 border border-blue-400/40 text-blue-300'
                       : 'border border-transparent hover:bg-white/5 text-gray-300 hover:text-white'
                   }`}
@@ -445,7 +615,43 @@ export default function SessionCreator({ onClose }: Props) {
           )}
         </div>
 
-        {/* ── 4. 初始指令 ── */}
+        {/* ── 5. Worktree 隔离策略 ── */}
+        {autoWorktree && worktreeState === 'git' && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-300">
+              <GitBranch size={12} className="text-emerald-400" />
+              Git Worktree 隔离
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setIsolateOnCreate(false)}
+                className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                  !isolateOnCreate
+                    ? 'border-emerald-400/40 bg-emerald-500/10'
+                    : 'border-white/10 hover:border-white/20 hover:bg-white/5'
+                }`}
+              >
+                <div className="text-[11px] font-medium text-white">改代码时再隔离</div>
+                <div className="mt-0.5 text-[10px] text-gray-500">先在主目录启动，会话内可一键进入 worktree</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsolateOnCreate(true)}
+                className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                  isolateOnCreate
+                    ? 'border-emerald-400/40 bg-emerald-500/10'
+                    : 'border-white/10 hover:border-white/20 hover:bg-white/5'
+                }`}
+              >
+                <div className="text-[11px] font-medium text-white">创建时立即隔离</div>
+                <div className="mt-0.5 text-[10px] text-gray-500">直接在独立 worktree 中启动会话</div>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── 6. 初始指令 ── */}
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1.5">初始指令（可选）</label>
           <textarea
@@ -459,16 +665,18 @@ export default function SessionCreator({ onClose }: Props) {
             {autoWorktree
               ? (
                   worktreeState === 'git'
-                    ? '当前目录属于 Git 仓库。会话会先在当前目录启动；如果后续要修改代码，Agent 必须先进入独立 worktree，再进行写入、提交和合并。'
+                    ? (isolateOnCreate
+                        ? '将创建独立 worktree 并在其中启动会话；完成后可在工具栏合并回主分支。'
+                        : '当前目录属于 Git 仓库。会话会先在主目录启动；需要改代码时，可在会话工具栏一键进入 Worktree，或由 Agent 按规则进入。')
                     : worktreeState === 'plain'
-                      ? '当前目录不是 Git 仓库。会话将直接在该目录启动；如果后续需要改代码，建议改用 Git 仓库目录。'
-                      : '已开启 Git worktree 规则。选择 Git 仓库目录后，会话先正常启动；真正改代码前，Agent 会被要求先进入独立 worktree。'
+                      ? '当前目录不是 Git 仓库。会话将直接在该目录启动；如果后续需要改代码，建议选择 Git 仓库或工作区。'
+                      : '已开启 Git worktree 规则。选择 Git 仓库或工作区后，可选择立即隔离或延迟隔离。'
                 )
               : '已关闭 Git worktree 规则。新会话会直接使用当前目录；如果你要做代码修改，建议在设置中重新开启。'}
           </p>
         </div>
 
-        {/* ── 5. AI 提供者 ── */}
+        {/* ── 7. AI 提供者 ── */}
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-2">AI 提供者</label>
           {providerCards.length > 0 ? (
@@ -498,7 +706,7 @@ export default function SessionCreator({ onClose }: Props) {
           )}
         </div>
 
-        {/* ── 6. 会话模式 ── */}
+        {/* ── 8. 会话模式 ── */}
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-2">会话模式</label>
           <div className="flex gap-2">
