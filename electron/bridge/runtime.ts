@@ -156,6 +156,22 @@ export function buildChildProcessEnv(envOverrides?: Record<string, string>): Nod
     prependPathEntry(pathEntries, npmGlobalBin)
   }
 
+  // Electron GUI launches (Finder/Dock) inherit a minimal PATH that omits
+  // user CLI installs. Mirror getCommandSearchPathEntries so child agents
+  // (especially Grok at ~/.grok/bin) remain spawnable.
+  for (const candidate of [
+    path.join(os.homedir(), '.npm-global', 'bin'),
+    path.join(os.homedir(), '.grok', 'bin'),
+    path.join(os.homedir(), '.local', 'bin'),
+    path.join(os.homedir(), 'homebrew', 'bin'),
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+  ]) {
+    if (existsSync(candidate)) {
+      prependPathEntry(pathEntries, candidate)
+    }
+  }
+
   // Ensure Git is on PATH — Electron may inherit a PATH without Git
   if (process.platform === 'win32') {
     const gitPath = detectGitCmdPath()

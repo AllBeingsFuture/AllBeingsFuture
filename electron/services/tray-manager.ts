@@ -27,7 +27,7 @@ export class TrayManager {
    * Reveal the main window: restore if minimized, show if hidden, then focus.
    */
   private revealMainWindow(): void {
-    if (!this.mainWindow) return
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
     if (this.mainWindow.isMinimized()) {
       this.mainWindow.restore()
     }
@@ -35,6 +35,15 @@ export class TrayManager {
       this.mainWindow.show()
     }
     this.mainWindow.focus()
+    if (process.platform === 'darwin') {
+      app.dock?.show()
+      app.focus({ steal: true })
+    }
+  }
+
+  /** Re-bind tray actions after the main window is recreated. */
+  setMainWindow(mainWindow: BrowserWindow): void {
+    this.mainWindow = mainWindow
   }
 
   /**

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import {
   BUILTIN_PROVIDER_DEFAULTS,
@@ -182,6 +184,23 @@ test('executable detection parses command targets and resolves PATH / absolute p
 
   assert.equal(resolveExecutable(process.execPath), true)
   assert.equal(resolveExecutable('definitely-not-a-real-binary-xyz-12345'), false)
+})
+
+test('resolveExecutable finds grok under ~/.grok/bin even when PATH is minimal', () => {
+  const home = process.env.HOME || ''
+  const grokBin = path.join(home, '.grok', 'bin', 'grok')
+  if (!existsSync(grokBin)) {
+    // CI / machines without Grok installed — skip without failing the suite.
+    return
+  }
+
+  const previousPath = process.env.PATH
+  process.env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+  try {
+    assert.equal(resolveExecutable('grok'), true, 'should resolve via ~/.grok/bin fallback')
+  } finally {
+    process.env.PATH = previousPath
+  }
 })
 
 test('no private per-model runtime adapter strings remain in defaults', () => {

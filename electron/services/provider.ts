@@ -116,6 +116,50 @@ function executableExtensions(target: string): string[] {
   return [...extensions]
 }
 
+/**
+ * Extra directories to search when resolving CLI tools.
+ * Electron apps launched from Finder/Dock inherit a minimal PATH that often
+ * omits user installs such as ~/.grok/bin, Homebrew, and npm global bins.
+ */
+function getCommonUserBinDirs(): string[] {
+  const home = process.env.HOME || process.env.USERPROFILE || ''
+  const dirs: string[] = []
+
+  // Explicit overrides: accept a binary path (use its dirname) or a bin directory.
+  for (const envKey of ['GROK_PATH', 'CODEX_PATH'] as const) {
+    const value = process.env[envKey]?.trim()
+    if (!value) continue
+    try {
+      if (fs.statSync(value).isDirectory()) {
+        dirs.push(value)
+      } else {
+        dirs.push(path.dirname(value))
+      }
+    } catch {
+      // Path may not exist yet; still search its parent if it looks like a file path.
+      dirs.push(path.dirname(value))
+    }
+  }
+
+  if (home) {
+    dirs.push(
+      path.join(home, '.grok', 'bin'),
+      path.join(home, '.npm-global', 'bin'),
+      path.join(home, '.local', 'bin'),
+      path.join(home, 'homebrew', 'bin'),
+    )
+  }
+
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || (home ? path.join(home, 'AppData', 'Roaming') : '')
+    if (appData) dirs.push(path.join(appData, 'npm'))
+  } else {
+    dirs.push('/opt/homebrew/bin', '/usr/local/bin')
+  }
+
+  return dirs
+}
+
 export function resolveExecutable(target: string): boolean {
   const executable = extractExecutableTarget(target)
   if (!executable) return false
@@ -130,8 +174,15 @@ export function resolveExecutable(target: string): boolean {
     return pathExists(candidate)
   })
 
+  // Absolute / relative path, or env override that points at a full binary.
   if (path.isAbsolute(executable) || executable.includes('/') || executable.includes('\\')) {
     return tryCandidate(path.resolve(executable)) || tryCandidate(executable)
+  }
+
+  // GROK_PATH may point directly at the binary (e.g. ~/.grok/bin/grok).
+  const grokPath = process.env.GROK_PATH?.trim()
+  if (executable === 'grok' && grokPath && tryCandidate(grokPath)) {
+    return true
   }
 
   const pathEntries = (process.env.PATH || '')
@@ -154,7 +205,12 @@ export function resolveExecutable(target: string): boolean {
     localBins.unshift(path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', '.bin'))
   }
 
-  for (const entry of [...localBins, ...pathEntries]) {
+  // Prefer well-known user bins ahead of the (often stripped) Electron PATH.
+  const searchDirs = [...localBins, ...getCommonUserBinDirs(), ...pathEntries]
+  const seen = new Set<string>()
+  for (const entry of searchDirs) {
+    if (!entry || seen.has(entry)) continue
+    seen.add(entry)
     if (tryCandidate(path.join(entry, executable))) {
       return true
     }

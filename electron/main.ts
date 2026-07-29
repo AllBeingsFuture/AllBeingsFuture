@@ -157,7 +157,10 @@ process.on('unhandledRejection', (reason) => {
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
+  // Another instance owns the lock; quit immediately so we don't keep
+  // registering handlers or creating a headless process.
   app.quit()
+  process.exit(0)
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -273,16 +276,39 @@ async function createWindow() {
 }
 
 function createTray() {
+  if (!mainWindow) return
+  if (trayManager) {
+    trayManager.setMainWindow(mainWindow)
+    return
+  }
   trayManager = new TrayManager()
-  trayManager.init(mainWindow!)
+  trayManager.init(mainWindow)
+}
+
+function revealMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+  if (process.platform === 'darwin') {
+    app.dock?.show()
+    app.focus({ steal: true })
+  }
+  return true
+}
+
+async function ensureMainWindowVisible() {
+  if (revealMainWindow()) return
+  await createWindow()
+  createTray()
+  revealMainWindow()
 }
 
 app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
-  }
+  // Another process tried to launch; bring the existing window forward.
+  void ensureMainWindowVisible()
 })
 
 app.whenReady().then(async () => {
@@ -303,6 +329,13 @@ app.whenReady().then(async () => {
 
   await createWindow()
   createTray()
+})
+
+// macOS: clicking the Dock icon while the app is running (window often hidden
+// to tray on close) must re-show the window. Without this handler the Dock
+// click appears to do nothing.
+app.on('activate', () => {
+  void ensureMainWindowVisible()
 })
 
 app.on('window-all-closed', () => {
