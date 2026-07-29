@@ -3,13 +3,13 @@
  *
  * 按 Provider 差异化注入规则：
  * - Claude:  写 .claude/rules/abf-*.md（自动发现，不用 appendSystemPrompt）
- * - Codex:   将 ABF 规则注入/合并到 AGENTS.md，确保 Codex 文件发现链路能拿到提示词
- * - 其他:    通过 appendSystemPrompt 注入
+ * - 其他 CLI/Agent（含 Codex、Gemini、OpenCode、Grok 等）:
+ *     1) 将 ABF 规则注入/合并到 AGENTS.md（文件发现链路）
+ *     2) 同时通过 appendSystemPrompt 双通道注入（兼容不读 AGENTS.md 的 Agent）
+ * - Codex 额外：AGENTS.md 内附带 codex-agents.md 专有配置
  *
  * 共享规则（abf-common.md）：中文要求、Windows 环境、开发规范
- * 所有 Provider 共享：providers 适配 + git-workflow
- * Claude 额外：supervisor 调度指引
- * Codex 额外：codex-agents.md 专有配置 + supervisor 调度指引
+ * 所有 Provider 共享：providers 适配 + git-workflow + supervisor 调度指引
  *
  * 模板文件位于 resources/prompts/ 目录下，打包后通过 extraResources 分发。
  */
@@ -27,10 +27,18 @@ const ABF_RULES_FILES = [
   'abf-git-workflow.md',
 ] as const
 
-/** Codex: AGENTS.md 文件名 */
-const CODEX_AGENTS_FILE = 'AGENTS.md'
-const CODEX_INJECT_START = '<!-- ABF:CODEX-RULES:START -->'
-const CODEX_INJECT_END = '<!-- ABF:CODEX-RULES:END -->'
+/** 通用：AGENTS.md（Codex / 多数 coding agent 的文件发现入口） */
+const AGENTS_MD_FILE = 'AGENTS.md'
+/** 保持历史标记名，避免已有仓库内残留块无法被清理/更新 */
+const AGENTS_INJECT_START = '<!-- ABF:CODEX-RULES:START -->'
+const AGENTS_INJECT_END = '<!-- ABF:CODEX-RULES:END -->'
+
+export interface AgentsMdInjectOptions {
+  /** 是否附带 Codex 专用 codex-agents.md（默认 false） */
+  includeCodexExtras?: boolean
+  /** 是否包含 Supervisor 调度指引（默认 true） */
+  includeSupervisor?: boolean
+}
 
 // ==================== 模板加载 ====================
 
@@ -90,57 +98,84 @@ function buildGitWorkflowRules(): string {
   return loadTemplate('abf-git-workflow.md')
 }
 
-// ==================== 规则内容构建（供 system prompt 注入） ====================
+// ==================== 规则内容构建 ====================
 
 /**
- * 构建全套 ABF 规则内容（字符串拼接，供注入到 system prompt）
+ * 构建全套 ABF 规则内容（字符串拼接）
+ * 用于 appendSystemPrompt，以及非 Codex 的 AGENTS.md 注入块。
  *
  * @param availableProviders - 可用的 AI Provider 名称列表
  * @param includeSupervisor - 是否包含 Supervisor 调度指引（默认 true）
- * @returns 拼接后的规则文本
- */
-/**
- * 构建 ABF 规则内容（仅用于非 Claude/Codex 的 Provider 的 appendSystemPrompt 注入）
- * Claude 和 Codex 各自通过文件发现机制获取规则，不需要 appendSystemPrompt。
  */
 export function buildAllRulesContent(
   availableProviders: string[],
   includeSupervisor = true,
 ): string {
+  return buildAgentsMdRulesContent(availableProviders, {
+    includeCodexExtras: false,
+    includeSupervisor,
+  })
+}
+
+/**
+ * 构建写入 AGENTS.md / 双通道注入用的规则正文。
+ */
+export function buildAgentsMdRulesContent(
+  availableProviders: string[] = [],
+  options: AgentsMdInjectOptions = {},
+): string {
+  const includeCodexExtras = options.includeCodexExtras === true
+  const includeSupervisor = options.includeSupervisor !== false
+
   const parts: string[] = []
-  // 共享基础规则（中文、Windows、开发规范）
   try {
     parts.push(loadTemplate('abf-common.md'))
   } catch {
-    appLog('warn', '[Supervisor] Failed to load abf-common.md for system prompt', 'supervisor-prompt')
+    appLog('warn', '[Supervisor] Failed to load abf-common.md', 'supervisor-prompt')
   }
+
+  if (includeCodexExtras) {
+    try {
+      parts.push(loadTemplate('codex-agents.md'))
+    } catch {
+      appLog('warn', '[Supervisor] Failed to load codex-agents.md', 'supervisor-prompt')
+    }
+  }
+
   if (includeSupervisor) {
     parts.push(buildSupervisorPrompt(availableProviders))
   }
-  parts.push(buildProviderRules())
-  parts.push(buildGitWorkflowRules())
+
+  try {
+    parts.push(buildProviderRules())
+  } catch {
+    appLog('warn', '[Supervisor] Failed to load abf-providers.md', 'supervisor-prompt')
+  }
+
+  try {
+    parts.push(buildGitWorkflowRules())
+  } catch {
+    appLog('warn', '[Supervisor] Failed to load abf-git-workflow.md', 'supervisor-prompt')
+  }
+
   return parts.join('\n\n---\n\n')
 }
 
 /**
- * 构建 Codex 专用规则内容。
- * Codex 通过 AGENTS.md 文件发现机制读取这些规则。
+ * 构建 Codex 专用规则内容（含 codex-agents.md）。
+ * @deprecated 优先使用 buildAgentsMdRulesContent({ includeCodexExtras: true })
  */
 export function buildCodexRulesContent(availableProviders: string[] = []): string {
-  const parts = [
-    loadTemplate('abf-common.md'),
-    loadTemplate('codex-agents.md'),
-    buildSupervisorPrompt(availableProviders),
-    buildProviderRules(),
-    buildGitWorkflowRules(),
-  ]
-  return parts.join('\n\n---\n\n')
+  return buildAgentsMdRulesContent(availableProviders, {
+    includeCodexExtras: true,
+    includeSupervisor: true,
+  })
 }
 
-function stripInjectedCodexRules(content: string): string {
-  if (!content.includes(CODEX_INJECT_START)) return content
+function stripInjectedAgentsRules(content: string): string {
+  if (!content.includes(AGENTS_INJECT_START)) return content
   const pattern = new RegExp(
-    `\\n?${CODEX_INJECT_START}[\\s\\S]*?${CODEX_INJECT_END}\\n?`,
+    `\\n?${AGENTS_INJECT_START}[\\s\\S]*?${AGENTS_INJECT_END}\\n?`,
     'g',
   )
   return content.replace(pattern, '').replace(/\n{3,}/g, '\n\n').trimEnd()
@@ -192,28 +227,50 @@ export function injectSupervisorPrompt(
 }
 
 /**
- * 注入 Codex AGENTS.md 到工作目录。
- * 如果仓库原本就有 AGENTS.md，则保留原内容，只追加/更新 ABF 注入块。
+ * 将 ABF 规则注入到工作目录的 AGENTS.md。
+ * 若仓库已有 AGENTS.md，保留原内容，只追加/更新 ABF 注入块。
+ * 适用于 Codex 以及 Gemini / OpenCode / Grok 等支持文件发现的 Agent。
  */
-export function injectCodexAgentsMd(workDir: string, availableProviders: string[] = []): void {
-  const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
-  const injectedBlock = `${CODEX_INJECT_START}\n${buildCodexRulesContent(availableProviders)}\n${CODEX_INJECT_END}\n`
+export function injectAgentsMd(
+  workDir: string,
+  availableProviders: string[] = [],
+  options: AgentsMdInjectOptions = {},
+): void {
+  const agentsPath = path.join(workDir, AGENTS_MD_FILE)
+  const body = buildAgentsMdRulesContent(availableProviders, options)
+  const injectedBlock = `${AGENTS_INJECT_START}\n${body}\n${AGENTS_INJECT_END}\n`
 
   let existing = ''
   try {
     existing = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf-8') : ''
   } catch {
-    appLog('warn', '[Supervisor] Failed to read existing AGENTS.md for Codex', 'supervisor-prompt')
+    appLog('warn', '[Supervisor] Failed to read existing AGENTS.md', 'supervisor-prompt')
     existing = ''
   }
 
-  const preserved = stripInjectedCodexRules(existing)
+  const preserved = stripInjectedAgentsRules(existing)
   const nextContent = preserved
     ? `${preserved}\n\n${injectedBlock}`
     : injectedBlock
 
   fs.writeFileSync(agentsPath, nextContent, 'utf-8')
-  appLog('info', `[Supervisor] Injected Codex rules into: ${agentsPath}`, 'supervisor-prompt')
+  appLog(
+    'info',
+    `[Supervisor] Injected AGENTS.md rules into: ${agentsPath}`
+      + (options.includeCodexExtras ? ' (with Codex extras)' : ''),
+    'supervisor-prompt',
+  )
+}
+
+/**
+ * @deprecated 使用 injectAgentsMd(..., { includeCodexExtras: true })
+ * 保留别名，兼容旧调用方。
+ */
+export function injectCodexAgentsMd(workDir: string, availableProviders: string[] = []): void {
+  injectAgentsMd(workDir, availableProviders, {
+    includeCodexExtras: true,
+    includeSupervisor: true,
+  })
 }
 
 /**
@@ -236,10 +293,10 @@ export function cleanupSupervisorPrompt(workDir: string): void {
   }
 
   try {
-    const agentsPath = path.join(workDir, CODEX_AGENTS_FILE)
+    const agentsPath = path.join(workDir, AGENTS_MD_FILE)
     if (fs.existsSync(agentsPath)) {
       const existing = fs.readFileSync(agentsPath, 'utf-8')
-      const cleaned = stripInjectedCodexRules(existing)
+      const cleaned = stripInjectedAgentsRules(existing)
       if (cleaned.trim()) {
         fs.writeFileSync(agentsPath, `${cleaned}\n`, 'utf-8')
       } else {
