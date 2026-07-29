@@ -9,7 +9,7 @@
  * - Tray and notifications
  */
 
-import { app, BrowserWindow, ipcMain, dialog, clipboard, shell, protocol, net } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, shell, protocol, net, screen } from 'electron'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -177,11 +177,22 @@ async function loadRenderer(window: BrowserWindow) {
 }
 
 async function createWindow() {
+  // Default windowed size (~72% of work area, capped) — first smaller preset users preferred.
+  // Never auto-maximize / fullscreen.
+  const { width: workW, height: workH } = screen.getPrimaryDisplay().workAreaSize
+  const width = Math.min(1280, Math.max(960, Math.floor(workW * 0.72)))
+  const height = Math.min(800, Math.max(640, Math.floor(workH * 0.72)))
+
   mainWindow = new BrowserWindow({
-    width: 1900,
-    height: 1200,
+    width,
+    height,
     minWidth: 800,
     minHeight: 600,
+    center: true,
+    show: false,
+    fullscreen: false,
+    fullscreenable: true,
+    maximizable: true,
     icon: getIconPath(),
     title: 'AllBeingsFuture',
     frame: false,
@@ -197,6 +208,14 @@ async function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
+  })
+
+  // Show only after ready-to-show, and never auto-maximize.
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false)
+    mainWindow.show()
   })
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
