@@ -155,7 +155,7 @@ export class AgentApi {
   // ─── Endpoint handlers ────────────────────────────────────────
 
   private async handleSpawn(body: AgentApiBody) {
-    const { parentSessionId, name, prompt, providerId } = body
+    const { parentSessionId, name, prompt, providerId, wait, timeout } = body
     if (!parentSessionId) throw new Error('parentSessionId required')
     if (!name) throw new Error('name required')
     if (!prompt) throw new Error('prompt required')
@@ -178,25 +178,47 @@ export class AgentApi {
       }
     }
 
-    const { childSessionId, result } = await this.processService.spawnChildSessionAndWait(
+    const options = { name, prompt, providerId: resolvedProviderId }
+
+    // AO-style default: fire-and-forget so the parent turn can end and go idle.
+    // Opt into wait=true only when the caller explicitly needs the first-turn result.
+    if (wait === true) {
+      const timeoutMs = typeof timeout === 'number' && timeout > 0 ? timeout : 300_000
+      const { childSessionId, result } = await this.processService.spawnChildSessionAndWait(
+        parentSessionId,
+        options,
+        timeoutMs,
+      )
+      return { success: true, childSessionId, result, waited: true }
+    }
+
+    const { childSessionId } = await this.processService.spawnChildSession(
       parentSessionId,
-      { name, prompt, providerId: resolvedProviderId },
+      options,
     )
-    return { success: true, childSessionId, result }
+    return { success: true, childSessionId, waited: false }
   }
 
   private async handleSend(body: AgentApiBody) {
-    const { parentSessionId, childSessionId, message } = body
+    const { parentSessionId, childSessionId, message, wait, timeout } = body
     if (!parentSessionId) throw new Error('parentSessionId required')
     if (!childSessionId) throw new Error('childSessionId required')
     if (!message) throw new Error('message required')
 
-    const result = await this.processService.sendToChildAndWait(
-      parentSessionId,
-      childSessionId,
-      message,
-    )
-    return { success: true, result }
+    // Default: deliver only (parent stays free). wait=true blocks for the turn result.
+    if (wait === true) {
+      const timeoutMs = typeof timeout === 'number' && timeout > 0 ? timeout : 300_000
+      const result = await this.processService.sendToChildAndWait(
+        parentSessionId,
+        childSessionId,
+        message,
+        timeoutMs,
+      )
+      return { success: true, result, waited: true }
+    }
+
+    await this.processService.sendToChild(parentSessionId, childSessionId, message)
+    return { success: true, delivered: true, waited: false }
   }
 
   private async handleList(body: AgentApiBody) {

@@ -108,7 +108,7 @@ test('process.ts injects worker role for child sessions, supervisor+agent-contro
   assert.match(source, /'agent-control'/)
 })
 
-test('closeChildSession removes tracker entry and emits removed for UI', () => {
+test('closeChildSession removes tracker entry, cleans child worktree, emits removed for UI', () => {
   const lifecyclePath = path.join(electronRoot, 'services/agent-lifecycle.ts')
   const trackerPath = path.join(electronRoot, 'services/agent-tracker.ts')
   const lifecycle = readFileSync(lifecyclePath, 'utf8')
@@ -118,6 +118,7 @@ test('closeChildSession removes tracker entry and emits removed for UI', () => {
   assert.match(lifecycle, /updateStatus\(\s*childSessionId\s*,\s*'terminated'\s*\)/)
   assert.match(lifecycle, /emitAgentRemoved|removed:\s*true/)
   assert.match(lifecycle, /Always emit removed even if tracker entry is missing/)
+  assert.match(lifecycle, /cleanupChildWorktree/)
 })
 
 // ---------------------------------------------------------------------------

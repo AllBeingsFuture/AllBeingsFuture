@@ -36,6 +36,7 @@ import type { ChatMessage, ChatState, ChatPatchEvent, SessionState, BridgeEvent,
 import { AgentLifecycleManager } from './agent-lifecycle.js'
 import { SessionSearchService } from './session-search.js'
 import { AgentStreamNormalizer } from './agent-stream-normalizer.js'
+import { GitService } from './git.js'
 import type { AgentPermissionResponse, AgentStreamSource } from './agent-stream-types.js'
 import type { RequestPermissionOutcome } from '@agentclientprotocol/sdk'
 
@@ -92,7 +93,7 @@ export class ProcessService {
     private bridgeManager: BridgeManager,
     private getWindow: () => BrowserWindow | null,
   ) {
-    // Initialize agent lifecycle manager
+    // Initialize agent lifecycle manager (owns child worktree isolation + close cleanup)
     this.agentLifecycle = new AgentLifecycleManager(
       sessionService,
       bridgeManager,
@@ -106,6 +107,8 @@ export class ProcessService {
         sendMessage: (id, msg) => this.sendMessage(id, msg),
       },
       this.sessionStates,
+      new GitService(),
+      settingsService,
     )
 
     // Initialize session search service
@@ -570,8 +573,9 @@ export class ProcessService {
 
     // Inject ABF rules by session role.
     // - Top-level (Supervisor): file discovery (+ agent-control MCP)
-    // - Child (Worker): appendSystemPrompt only — children share the parent workDir,
-    //   so we must NOT rewrite AGENTS.md / .claude/rules (would pollute the parent).
+    // - Child (Worker): appendSystemPrompt only. When autoWorktree is on, children
+    //   get their own worktree (see AgentLifecycleManager); we still must NOT rewrite
+    //   AGENTS.md / .claude/rules on disk for the child (parent/sibling pollution).
     //   Worker rules override Supervisor scheduling text found on disk.
     if (session.parentSessionId) {
       try {

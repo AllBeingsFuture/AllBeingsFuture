@@ -74,7 +74,7 @@ const TOOLS = [
   {
     name: 'spawn_agent',
     description:
-      'Spawn a new persistent child agent and wait for its initial turn to finish before returning. It stays alive and can receive follow-up messages via send_to_agent. Returns the child session ID and the child\'s initial response. Treat this as synchronous by default.',
+      'Spawn a persistent child agent and return immediately after the child session is created and the initial prompt is dispatched (AO-style). Does NOT wait for the child\'s first turn — the parent can go idle and accept user messages. Collect results later via get_agent_status / get_agent_output / wait_agent_idle. Set wait=true only when you must block for the first-turn response.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -91,6 +91,15 @@ const TOOLS = [
           description:
             'Optional provider type for the child agent, e.g. "codex" or "claude". Defaults to the same provider as the parent session.',
         },
+        wait: {
+          type: 'boolean',
+          description:
+            'If true, block until the child finishes its first turn and return its response. Default false (fire-and-forget).',
+        },
+        timeout: {
+          type: 'number',
+          description: 'When wait=true, timeout in milliseconds (default: 300000 = 5 min)',
+        },
       },
       required: ['name', 'prompt'],
     },
@@ -98,7 +107,7 @@ const TOOLS = [
   {
     name: 'send_to_agent',
     description:
-      'Send a follow-up message to an existing persistent child agent and wait for its response.',
+      'Send a follow-up message to an existing persistent child agent. By default delivers the message and returns immediately so the parent stays free. Set wait=true to block until the child finishes that turn.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -109,6 +118,15 @@ const TOOLS = [
         message: {
           type: 'string',
           description: 'The message / instruction to send',
+        },
+        wait: {
+          type: 'boolean',
+          description:
+            'If true, block until the child finishes its turn and return the response. Default false (deliver only).',
+        },
+        timeout: {
+          type: 'number',
+          description: 'When wait=true, timeout in milliseconds (default: 300000 = 5 min)',
         },
       },
       required: ['child_session_id', 'message'],
@@ -141,7 +159,7 @@ const TOOLS = [
   {
     name: 'wait_agent_idle',
     description:
-      'Wait until a persistent child agent finishes its current turn (becomes idle). Returns immediately if the agent already completed its turn. Use this only when you intentionally left the child running while the parent handled strictly non-overlapping work. Do not use it by default after spawn_agent, because spawn_agent already waits for the initial turn.',
+      'Wait until a persistent child agent finishes its current turn (becomes idle). Returns immediately if already idle. Primary way to collect results after async spawn_agent / send_to_agent. Do not call it immediately after every spawn unless you need the result before continuing.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -257,26 +275,44 @@ const TOOLS = [
 async function handleToolCall(name, args) {
   switch (name) {
     case 'spawn_agent': {
+      const wait = args.wait === true;
       const res = await httpRequest('POST', '/spawn', {
         parentSessionId: PARENT_SESSION_ID,
         name: args.name,
         prompt: args.prompt,
         providerId: args.provider || undefined,
+        wait,
+        timeout: typeof args.timeout === 'number' ? args.timeout : undefined,
       });
       if (res.error) {
         return { isError: true, content: [{ type: 'text', text: `Error: ${res.error}` }] };
+      }
+      if (wait) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: [
+                `Agent "${args.name}" spawned successfully.`,
+                `Child Session ID: ${res.childSessionId}`,
+                'Initial turn completed: yes (wait=true).',
+                '',
+                'Agent response:',
+                res.result || '(no output)',
+              ].join('\n'),
+            },
+          ],
+        };
       }
       return {
         content: [
           {
             type: 'text',
             text: [
-              `Agent "${args.name}" spawned successfully.`,
+              `Agent "${args.name}" spawned (async).`,
               `Child Session ID: ${res.childSessionId}`,
-              'Initial turn completed: yes (spawn_agent already waited).',
-              '',
-              `Agent response:`,
-              res.result || '(no output)',
+              'Initial turn completed: no — child is running in the background.',
+              'Parent can go idle. Use get_agent_status / get_agent_output / wait_agent_idle for results.',
             ].join('\n'),
           },
         ],
@@ -284,19 +320,36 @@ async function handleToolCall(name, args) {
     }
 
     case 'send_to_agent': {
+      const wait = args.wait === true;
       const res = await httpRequest('POST', '/send', {
         parentSessionId: PARENT_SESSION_ID,
         childSessionId: args.child_session_id,
         message: args.message,
+        wait,
+        timeout: typeof args.timeout === 'number' ? args.timeout : undefined,
       });
       if (res.error) {
         return { isError: true, content: [{ type: 'text', text: `Error: ${res.error}` }] };
+      }
+      if (wait) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Agent response:\n\n${res.result || '(no output)'}`,
+            },
+          ],
+        };
       }
       return {
         content: [
           {
             type: 'text',
-            text: `Agent response:\n\n${res.result || '(no output)'}`,
+            text: [
+              `Message delivered to agent ${args.child_session_id}.`,
+              'Not waiting for turn completion (wait=false).',
+              'Use get_agent_status / get_agent_output / wait_agent_idle for results.',
+            ].join('\n'),
           },
         ],
       };
@@ -313,10 +366,14 @@ async function handleToolCall(name, args) {
       if (agents.length === 0) {
         return { content: [{ type: 'text', text: 'No child agents found.' }] };
       }
-      const lines = agents.map(
-        (a) =>
-          `- ${a.name} [${a.status}] (ID: ${a.childSessionId})${a.summary ? ` — ${a.summary.slice(0, 120)}` : ''}`,
-      );
+      const lines = agents.map((a) => {
+        const parts = [
+          `- ${a.name} [${a.status}] (ID: ${a.childSessionId})`,
+        ];
+        if (a.workDir) parts.push(`  workDir: ${a.workDir}`);
+        if (a.summary) parts.push(`  ${a.summary.slice(0, 120)}`);
+        return parts.join('\n');
+      });
       return { content: [{ type: 'text', text: `Child agents:\n${lines.join('\n')}` }] };
     }
 
@@ -378,7 +435,12 @@ async function handleToolCall(name, args) {
       return {
         content: [{
           type: 'text',
-          text: `Agent: ${res.name || 'unknown'}\nStatus: ${res.status}\nID: ${res.agentId}`,
+          text: [
+            `Agent: ${res.name || 'unknown'}`,
+            `Status: ${res.status}`,
+            `ID: ${res.agentId}`,
+            res.workDir ? `workDir: ${res.workDir}` : null,
+          ].filter(Boolean).join('\n'),
         }],
       };
     }

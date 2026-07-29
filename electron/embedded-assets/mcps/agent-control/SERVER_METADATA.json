@@ -1,7 +1,7 @@
 {
     "serverIdentifier": "agent-control",
     "serverName": "Agent Control",
-    "serverDescription": "Persistent child agent management — spawn, send, list, close sub-agents that stay alive across turns",
+    "serverDescription": "Persistent child agent management — async spawn/send by default (parent stays free), list/status/wait/close across turns",
     "command": "node",
     "args": ["server.mjs"]
 }

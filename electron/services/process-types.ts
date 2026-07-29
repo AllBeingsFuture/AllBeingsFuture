@@ -38,6 +38,8 @@ export interface AgentApiBody {
   prompt?: string
   providerId?: string
   message?: string
+  /** When true, block until the child turn finishes. Default false (AO-style fire-and-forget). */
+  wait?: boolean
   timeout?: number
   lines?: number
   status?: string
