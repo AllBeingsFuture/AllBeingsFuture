@@ -203,7 +203,7 @@ export default function SessionCreator({ onClose }: Props) {
   const autoWorktree = useSettingsStore(s => s.settings.autoWorktree)
 
   const [workDir, setWorkDir] = useState('')
-  const [providerId, setProviderId] = useState('claude-code')
+  const [providerId, setProviderId] = useState('grok-build')
   const [providers, setProviders] = useState<AIProvider[]>([])
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)

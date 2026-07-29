@@ -49,6 +49,19 @@ export const RETIRED_BUILTIN_ADAPTER_TYPES = [
  */
 export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
   {
+    id: 'grok-build',
+    name: 'Grok Build',
+    command: 'grok',
+    adapterType: 'acp',
+    // Local CLI: `grok agent --help` → stdio; registry: npx @xai-official/grok agent stdio
+    defaultArgs: 'agent stdio',
+    isBuiltin: true,
+    isEnabled: true,
+    sortOrder: 1,
+    acpVerification:
+      'Local `grok agent stdio --help` + official ACP registry grok-build/agent.json (agent stdio)',
+  },
+  {
     id: 'claude-code',
     name: 'Claude Code',
     // Official ACP registry: @agentclientprotocol/claude-agent-acp (no native claude --acp)
@@ -57,7 +70,7 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
     defaultArgs: '',
     isBuiltin: true,
     isEnabled: true,
-    sortOrder: 1,
+    sortOrder: 2,
     acpVerification:
       'Official ACP registry claude-acp/agent.json → npx @agentclientprotocol/claude-agent-acp (bin claude-agent-acp); app dependency for offline-resolvable spawn',
   },
@@ -70,7 +83,7 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
     defaultArgs: '',
     isBuiltin: true,
     isEnabled: true,
-    sortOrder: 2,
+    sortOrder: 3,
     acpVerification:
       'Official ACP registry codex-acp/agent.json → npx @agentclientprotocol/codex-acp (bin codex-acp); app dependency; local codex CLI at ~/.npm-global/bin/codex used via CODEX_PATH when present',
   },
@@ -83,7 +96,7 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
     defaultArgs: '--acp',
     isBuiltin: true,
     isEnabled: true,
-    sortOrder: 3,
+    sortOrder: 4,
     acpVerification:
       'Official ACP registry gemini/agent.json → @google/gemini-cli --acp (native ACP)',
   },
@@ -96,22 +109,9 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
     defaultArgs: 'acp',
     isBuiltin: true,
     isEnabled: true,
-    sortOrder: 4,
-    acpVerification:
-      'Official ACP registry opencode/agent.json → opencode acp (native ACP subcommand)',
-  },
-  {
-    id: 'grok-build',
-    name: 'Grok Build',
-    command: 'grok',
-    adapterType: 'acp',
-    // Local CLI: `grok agent --help` → stdio; registry: npx @xai-official/grok agent stdio
-    defaultArgs: 'agent stdio',
-    isBuiltin: true,
-    isEnabled: true,
     sortOrder: 5,
     acpVerification:
-      'Local `grok agent stdio --help` + official ACP registry grok-build/agent.json (agent stdio)',
+      'Official ACP registry opencode/agent.json → opencode acp (native ACP subcommand)',
   },
   {
     id: 'qwen-code',

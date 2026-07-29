@@ -1,13 +1,15 @@
 /**
  * ABF 规则注入器（极简）
  *
- * 顶层 Supervisor：只注入 abf-supervisor.md
- * 子 Agent Worker：process.ts 经 appendSystemPrompt 注入 abf-worker.md
+ * 顶层 Supervisor：只注入 abf-supervisor.md（文件 + 可选 append）
+ * 直接子 Agent Worker：appendSystemPrompt + 隔离 worktree 上的 worker 文件
+ * 孙 Agent：默认不注入软件提示词文件
  *
  * 不再注入 common / providers / git / codex 手册。
  *
- * - Claude: .claude/rules/abf-supervisor.md
- * - 多数 CLI: AGENTS.md 注入块
+ * - Claude Supervisor: .claude/rules/abf-supervisor.md
+ * - Claude Worker: .claude/rules/abf-worker.md
+ * - 多数 CLI: AGENTS.md 注入块（body 为 supervisor 或 worker 角色）
  * - Gemini/Qwen: 额外 GEMINI.md / QWEN.md
  * - openai-api: appendSystemPrompt
  */
@@ -17,13 +19,17 @@ import * as fs from 'node:fs'
 import { app } from 'electron'
 import { appLog } from './log.js'
 
+/** Supervisor 角色会写入的规则文件 */
+const ABF_SUPERVISOR_RULE = 'abf-supervisor.md' as const
+/** Worker 角色会写入的规则文件 */
+const ABF_WORKER_RULE = 'abf-worker.md' as const
+
 /** 当前会写入的规则文件 */
-const ABF_ACTIVE_RULES = ['abf-supervisor.md'] as const
+const ABF_ACTIVE_RULES = [ABF_SUPERVISOR_RULE, ABF_WORKER_RULE] as const
 
 /** 历史遗留文件：会话清理时一并删除，避免旧手册残留 */
 const ABF_LEGACY_RULES = [
   'abf-common.md',
-  'abf-worker.md',
   'abf-providers.md',
   'abf-git-workflow.md',
 ] as const
@@ -178,7 +184,7 @@ function removeLegacyRuleFiles(rulesDir: string): void {
 }
 
 /**
- * Claude：只写 abf-supervisor.md，并清掉旧手册文件
+ * Claude：只写 abf-supervisor.md，并清掉旧手册文件 / worker 规则（避免角色混淆）
  */
 export function injectSupervisorPrompt(
   workDir: string,
@@ -187,12 +193,76 @@ export function injectSupervisorPrompt(
   ensureRulesDir(workDir)
   const rulesDir = path.join(workDir, '.claude', 'rules')
   removeLegacyRuleFiles(rulesDir)
+  // Supervisor cwd must not keep a worker-only rule file
+  try {
+    const workerPath = path.join(rulesDir, ABF_WORKER_RULE)
+    if (fs.existsSync(workerPath)) fs.unlinkSync(workerPath)
+  } catch {
+    // ignore
+  }
 
-  const filePath = path.join(rulesDir, 'abf-supervisor.md')
+  const filePath = path.join(rulesDir, ABF_SUPERVISOR_RULE)
   fs.writeFileSync(filePath, buildSupervisorPrompt(availableProviders), 'utf-8')
 
   appLog('info', `[Supervisor] Injected abf-supervisor.md to: ${rulesDir}`, 'supervisor-prompt')
   return filePath
+}
+
+/**
+ * Claude Worker：写 abf-worker.md，并清掉会误导的 supervisor 规则 / 旧手册
+ */
+export function injectWorkerPrompt(workDir: string): string {
+  ensureRulesDir(workDir)
+  const rulesDir = path.join(workDir, '.claude', 'rules')
+  removeLegacyRuleFiles(rulesDir)
+  try {
+    const supervisorPath = path.join(rulesDir, ABF_SUPERVISOR_RULE)
+    if (fs.existsSync(supervisorPath)) fs.unlinkSync(supervisorPath)
+  } catch {
+    // ignore
+  }
+
+  const body = buildWorkerPrompt()
+  const filePath = path.join(rulesDir, ABF_WORKER_RULE)
+  fs.writeFileSync(filePath, body, 'utf-8')
+
+  appLog('info', `[Worker] Injected abf-worker.md to: ${rulesDir}`, 'supervisor-prompt')
+  return filePath
+}
+
+/**
+ * CLI Worker：把 abf-worker.md 正文写入 AGENTS.md（及 Gemini/Qwen 额外文件）ABF 块。
+ * body 必须是 worker 角色，禁止 supervisor 调度文案。
+ */
+export function injectWorkerRules(workDir: string, providerId: string = ''): void {
+  const body = buildWorkerRulesContent()
+  if (!body.trim()) {
+    appLog('warn', '[Worker] Empty worker rules; skip AGENTS.md inject', 'supervisor-prompt')
+    return
+  }
+  const files = resolveContextFilesForProvider(providerId)
+  for (const filename of files) {
+    injectRulesIntoFile(path.join(workDir, filename), body)
+  }
+  appLog(
+    'info',
+    `[Worker] Injected worker rules for '${providerId || 'default'}' into: `
+      + files.map(f => path.join(workDir, f)).join(', '),
+    'supervisor-prompt',
+  )
+}
+
+/**
+ * 按 provider 在 workDir 写入 worker 软件提示词文件（Claude rules 和/或 AGENTS 块）。
+ * 用于主 agent 的直接子 agent 隔离 worktree。
+ */
+export function injectWorkerPromptFiles(workDir: string, providerId: string = ''): void {
+  const isClaude = providerId === 'claude-code'
+  if (isClaude) {
+    injectWorkerPrompt(workDir)
+  } else {
+    injectWorkerRules(workDir, providerId)
+  }
 }
 
 export function resolveContextFilesForProvider(providerId: string, extraFiles: string[] = []): string[] {
@@ -233,6 +303,41 @@ export function injectProviderRules(
       + files.map(f => path.join(workDir, f)).join(', '),
     'supervisor-prompt',
   )
+}
+
+/**
+ * Whether supervisor/CLI software-prompt files are present under workDir.
+ * Used to re-ensure AGENTS.md / Claude rules after accidental cleanup while the session lives.
+ */
+export function hasSupervisorPromptFiles(workDir: string, providerId: string = ''): boolean {
+  if (!workDir) return false
+  if (providerId === 'claude-code') {
+    return fs.existsSync(path.join(workDir, '.claude', 'rules', ABF_SUPERVISOR_RULE))
+  }
+  const agentsPath = path.join(workDir, AGENTS_MD_FILE)
+  if (!fs.existsSync(agentsPath)) return false
+  try {
+    return fs.readFileSync(agentsPath, 'utf-8').includes(AGENTS_INJECT_START)
+  } catch {
+    return false
+  }
+}
+
+/** Whether worker software-prompt files are present under an isolated child workDir. */
+export function hasWorkerPromptFiles(workDir: string, providerId: string = ''): boolean {
+  if (!workDir) return false
+  if (providerId === 'claude-code') {
+    return fs.existsSync(path.join(workDir, '.claude', 'rules', ABF_WORKER_RULE))
+  }
+  const agentsPath = path.join(workDir, AGENTS_MD_FILE)
+  if (!fs.existsSync(agentsPath)) return false
+  try {
+    const content = fs.readFileSync(agentsPath, 'utf-8')
+    return content.includes(AGENTS_INJECT_START)
+      && /ABF Worker|implementation Worker/i.test(content)
+  } catch {
+    return false
+  }
 }
 
 /** @deprecated 使用 injectProviderRules */

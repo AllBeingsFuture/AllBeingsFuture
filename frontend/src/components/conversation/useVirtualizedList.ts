@@ -53,6 +53,14 @@ export interface VirtualizedListOptions<T> extends Omit<BuildVirtualLayoutOption
   enabled: boolean
   /** Optional: used to preserve visual position when items above the viewport remeasure. */
   getScrollElement?: () => HTMLElement | null
+  /** Optional: mark scrollTop writes so stick-to-bottom does not treat them as user intent. */
+  markProgrammaticScroll?: () => void
+  /**
+   * Optional: while true, skip positive scrollTop compensation on remeasure.
+   * Wired to "user is reading history" (any scroll speed) so remeasure cannot
+   * fight upward gestures or pin the viewport after a slow nudge.
+   */
+  shouldSuppressPositiveScrollCompensation?: () => boolean
 }
 
 export interface VirtualizedListResult<T> {
@@ -135,6 +143,10 @@ function getItemFingerprint(item: unknown, index: number, estimatedSize: number)
  * Streaming tokens rewrite fingerprints constantly; discarding measurements caused
  * estimate↔measured thrash and visible scroll jumps. ResizeObserver still pushes
  * the true height when the DOM size actually changes.
+ *
+ * Floor each resolved row at max(estimate, measured) so totalHeight cannot sit
+ * below the larger of "content-length estimate" and the last real paint — chronic
+ * under-estimation shrinks maxScrollTop and makes mid-history look near-bottom.
  */
 function resolveMeasuredSize<T>(
   entry: MeasuredSizeCacheValue | undefined,
@@ -143,15 +155,17 @@ function resolveMeasuredSize<T>(
   estimatedSize: number,
 ): { fingerprint: string; size: number } {
   const fingerprint = getItemFingerprint(item, index, estimatedSize)
-  if (typeof entry === 'number') {
-    return { fingerprint, size: entry }
+  const safeEstimate = Math.max(1, estimatedSize)
+
+  if (typeof entry === 'number' && entry > 0) {
+    return { fingerprint, size: Math.max(safeEstimate, entry) }
   }
 
   if (entry && typeof entry.size === 'number' && entry.size > 0) {
-    return { fingerprint, size: entry.size }
+    return { fingerprint, size: Math.max(safeEstimate, entry.size) }
   }
 
-  return { fingerprint, size: estimatedSize }
+  return { fingerprint, size: safeEstimate }
 }
 
 export function buildVirtualLayout<T>({
@@ -226,16 +240,23 @@ export function useVirtualizedList<T>({
   scrollTop,
   viewportHeight,
   getScrollElement,
+  markProgrammaticScroll,
+  shouldSuppressPositiveScrollCompensation,
 }: VirtualizedListOptions<T>): VirtualizedListResult<T> {
   const measuredSizesRef = useRef(new Map<string, MeasuredSizeCacheValue>())
   const observersRef = useRef(new Map<string, ResizeObserver>())
   const measureCallbacksRef = useRef(new Map<string, (node: HTMLElement | null) => void>())
   const itemStartsRef = useRef(new Map<string, number>())
+  const itemSizesRef = useRef(new Map<string, number>())
   const fingerprintsRef = useRef(new Map<string, string>())
   const getScrollElementRef = useRef(getScrollElement)
+  const markProgrammaticScrollRef = useRef(markProgrammaticScroll)
+  const shouldSuppressPositiveScrollCompensationRef = useRef(shouldSuppressPositiveScrollCompensation)
   const [sizeVersion, setSizeVersion] = useState(0)
 
   getScrollElementRef.current = getScrollElement
+  markProgrammaticScrollRef.current = markProgrammaticScroll
+  shouldSuppressPositiveScrollCompensationRef.current = shouldSuppressPositiveScrollCompensation
 
   useEffect(() => {
     return () => {
@@ -272,6 +293,7 @@ export function useVirtualizedList<T>({
         totalHeight: 0,
         fingerprints: new Map<string, string>(),
         starts: new Map<string, number>(),
+        sizes: new Map<string, number>(),
         virtualItems: items.map((item, index) => ({
           index,
           item,
@@ -292,22 +314,27 @@ export function useVirtualizedList<T>({
       viewportHeight,
     })
 
-    // Fallback to full rendering when virtualization would not remove enough work.
-    const shouldVirtualize = nextLayout.items.length < items.length
+    // Full key→size map so first measure can treat the layout estimate as previousSize.
+    const fullSizes = new Map<string, number>()
+    const measured = measuredSizesRef.current
+    items.forEach((item, index) => {
+      const key = getItemKey(item, index)
+      const estimatedSize = estimateSize(item, index)
+      const resolved = resolveMeasuredSize(measured.get(key), item, index, estimatedSize)
+      fullSizes.set(key, resolved.size)
+    })
+
+    // Parent already decided virtualization is worth it. Always keep the spacer
+    // + absolute layout path while enabled — flipping to flow layout when the
+    // overscan window briefly covers every row caused height jumps and made
+    // slow/fast scroll-up feel stuck at the mode boundary.
     return {
-      enabled: shouldVirtualize,
+      enabled: true,
       totalHeight: nextLayout.totalHeight,
       fingerprints: nextLayout.fingerprints,
       starts: nextLayout.starts,
-      virtualItems: shouldVirtualize
-        ? nextLayout.items
-        : items.map((item, index) => ({
-            index,
-            item,
-            key: getItemKey(item, index),
-            size: estimateSize(item, index),
-            start: 0,
-          })),
+      sizes: fullSizes,
+      virtualItems: nextLayout.items,
     }
   }, [enabled, estimateSize, getItemKey, items, overscanPx, scrollTop, sizeVersion, viewportHeight])
 
@@ -315,13 +342,21 @@ export function useVirtualizedList<T>({
   if (layout.starts.size > 0) {
     itemStartsRef.current = layout.starts
   }
+  if (layout.sizes.size > 0) {
+    itemSizesRef.current = layout.sizes
+  }
 
   const commitSize = useCallback((key: string, height: number, fingerprint: string) => {
     const normalized = Math.max(1, Math.round(height))
     const existingEntry = measuredSizesRef.current.get(key)
-    const previousSize = typeof existingEntry === 'number'
+    const cachedSize = typeof existingEntry === 'number'
       ? existingEntry
       : existingEntry?.size
+    // First paint after estimate: treat the layout size as previous so fully-above
+    // rows can anchor; in-viewport / below rows still skip positive compensation.
+    const previousSize = (cachedSize != null && cachedSize > 0)
+      ? cachedSize
+      : itemSizesRef.current.get(key)
 
     if (
       typeof existingEntry !== 'number'
@@ -333,7 +368,7 @@ export function useVirtualizedList<T>({
 
     // Content fingerprint changed but DOM height did not: update cache quietly.
     // Bumping sizeVersion here was a major source of scroll thrash during streaming.
-    if (previousSize === normalized) {
+    if (cachedSize === normalized) {
       measuredSizesRef.current.set(key, {
         fingerprint,
         size: normalized,
@@ -346,25 +381,33 @@ export function useVirtualizedList<T>({
       size: normalized,
     })
 
-    // Preserve visual position only when the item is fully above the viewport.
-    // Using `itemStart < scrollTop` also matched partially-visible rows; when
-    // long-history estimates under-shoot and many rows remeasure taller while
-    // the user is scrolling up, those partial matches fought the gesture and
-    // made the list feel stuck.
+    // Preserve visual position only for rows that do not intersect the viewport.
+    // Growth: require the row to remain fully above AFTER the new height.
+    // Shrink: use the pre-change extent (was fully above).
+    // While the user is reading history (any speed), never apply positive
+    // compensation — stacked +delta from estimate→measure is the main "滑不上去".
     if (previousSize != null && previousSize > 0) {
       const delta = normalized - previousSize
       const itemStart = itemStartsRef.current.get(key)
       const scrollEl = getScrollElementRef.current?.()
-      if (
-        delta !== 0
-        && scrollEl
-        && itemStart !== undefined
-        && itemStart + previousSize <= scrollEl.scrollTop + 0.5
-      ) {
-        scrollEl.scrollTop += delta
+      if (delta !== 0 && scrollEl && itemStart !== undefined) {
+        const readingHistory = Boolean(shouldSuppressPositiveScrollCompensationRef.current?.())
+        const suppressPositive = delta > 0 && readingHistory
+        const fullyAboveAfterGrowth = itemStart + normalized <= scrollEl.scrollTop + 0.5
+        const fullyAboveBeforeShrink = itemStart + previousSize <= scrollEl.scrollTop + 0.5
+        const shouldCompensate = suppressPositive
+          ? false
+          : delta > 0
+            ? fullyAboveAfterGrowth
+            : fullyAboveBeforeShrink
+        if (shouldCompensate) {
+          markProgrammaticScrollRef.current?.()
+          scrollEl.scrollTop += delta
+        }
       }
     }
 
+    itemSizesRef.current.set(key, normalized)
     setSizeVersion((version) => version + 1)
   }, [])
 

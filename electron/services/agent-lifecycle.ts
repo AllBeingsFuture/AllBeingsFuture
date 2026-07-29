@@ -41,7 +41,14 @@ export interface ProcessServiceCallbacks {
   emitChatUpdate(sessionId: string): void
   persistMessages(sessionId: string): void
   initSession(sessionId: string): Promise<void>
-  sendMessage(sessionId: string, message: string): Promise<void>
+  /** @param opts.interrupt parent→child: cancel active turn then send immediately */
+  sendMessage(
+    sessionId: string,
+    message: string,
+    opts?: { interrupt?: boolean },
+  ): Promise<void>
+  /** Cancel active turn without destroying the session (interrupt-then-send). */
+  interruptTurn(sessionId: string): Promise<void>
 }
 
 export class AgentLifecycleManager {
@@ -173,6 +180,9 @@ export class AgentLifecycleManager {
   /**
    * When autoWorktree is enabled and the parent is in a git repo, create an
    * isolated worktree for the child and update session worktree fields.
+   * Applies to every child with a parent (父亲 + 儿子). Prefer basing the new
+   * worktree on the parent's current branch/workDir so nested sons inherit the
+   * father's committed state and merge-back is coherent.
    * Failures fall back to the parent directory (spawn still succeeds).
    */
   private async tryIsolateChildWorktree(
@@ -197,13 +207,27 @@ export class AgentLifecycleManager {
         sourceRepo = await this.gitService.getRepoRoot(parentDir)
       }
 
+      // Prefer parent's live branch so nested children start from father HEAD
+      let startPoint = (parent.worktreeBranch || '').trim()
+      if (!startPoint) {
+        startPoint = await this.gitService.getCurrentBranch(parentDir).catch(() => '')
+      }
+      if (!startPoint || startPoint === 'HEAD') {
+        startPoint = await this.gitService.revParse(parentDir, 'HEAD').catch(() => '')
+      }
+
       const safeLabel = displayName
         .replace(/[^a-zA-Z0-9_-]/g, '-')
         .replace(/-{2,}/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(0, 24) || 'worker'
       const branchName = `child-${safeLabel}-${child.id.slice(0, 8)}`
-      const wt = await this.gitService.createWorktree(sourceRepo, branchName, child.id)
+      const wt = await this.gitService.createWorktree(
+        sourceRepo,
+        branchName,
+        child.id,
+        startPoint || undefined,
+      )
       this.sessionService.setWorktreeInfo(
         child.id,
         wt.worktreePath,
@@ -214,7 +238,7 @@ export class AgentLifecycleManager {
       )
       appLog(
         'info',
-        `Child worktree isolated: ${child.id} → ${wt.worktreePath} (branch ${wt.branch})`,
+        `Child worktree isolated: ${child.id} → ${wt.worktreePath} (branch ${wt.branch}, from ${startPoint || 'HEAD'})`,
         'process',
       )
     } catch (err: unknown) {
@@ -303,6 +327,8 @@ export class AgentLifecycleManager {
 
   /**
    * Send a message to a child session from its parent.
+   * Always interrupt-then-send: if the child is mid-turn, cancel first, then
+   * deliver immediately (no queue_after_turn). Applies to 爷爷→父亲 and 父亲→儿子.
    */
   async sendToChild(
     parentSessionId: string,
@@ -318,11 +344,13 @@ export class AgentLifecycleManager {
     this.agentIdleFlags.delete(childSessionId)
     // Mark agent as 'running' while processing
     this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'running')
-    await this.callbacks.sendMessage(childSessionId, message)
+    // interrupt: true → cancel streaming turn then send (all parent→child levels)
+    await this.callbacks.sendMessage(childSessionId, message, { interrupt: true })
   }
 
   /**
    * Send a message to a child and wait for its response.
+   * Interrupt first (so waiters attach to the new turn, not the cancelled one).
    */
   async sendToChildAndWait(
     parentSessionId: string,
@@ -330,8 +358,18 @@ export class AgentLifecycleManager {
     message: string,
     timeoutMs = 300_000,
   ): Promise<string> {
+    const child = this.sessionService.getById(childSessionId)
+    if (!child) throw new Error(`Child session not found: ${childSessionId}`)
+    if (child.parentSessionId !== parentSessionId) {
+      throw new Error(`Session ${childSessionId} is not a child of ${parentSessionId}`)
+    }
+    // Cancel active turn before registering the new-turn waiter
+    await this.callbacks.interruptTurn(childSessionId)
     const resultPromise = this.createChildTurnWaiter(childSessionId, timeoutMs)
-    await this.sendToChild(parentSessionId, childSessionId, message)
+    this.agentIdleFlags.delete(childSessionId)
+    this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'running')
+    // Already interrupted; send without a second interrupt
+    await this.callbacks.sendMessage(childSessionId, message)
     return resultPromise
   }
 
@@ -408,7 +446,13 @@ export class AgentLifecycleManager {
     if (parentState) {
       parentState.messages.push({
         role: 'system',
-        content: `[子Agent "${child.name}" 已关闭]\n\n最终输出: ${result.slice(0, 2000)}`,
+        content: [
+          `[子Agent "${child.name}" 已关闭]`,
+          '',
+          `最终输出: ${result.slice(0, 2000)}`,
+          '',
+          '注意: close 已删除子 worktree；若关闭前未将变更 merge/cherry-pick 进父 workDir，未合入改动可能已丢失。',
+        ].join('\n'),
         timestamp: new Date().toISOString(),
       })
       this.callbacks.persistMessages(parentSessionId)
@@ -461,9 +505,16 @@ export class AgentLifecycleManager {
     const lastAssistant = [...childState.messages].reverse().find(m => m.role === 'assistant')
     const result = lastAssistant?.content || '(no output)'
 
+    const childWorkDir = child.worktreePath || child.workingDirectory || ''
     parentState.messages.push({
       role: 'system',
-      content: `[子Agent "${child.name}" 完成]\n\n${result.slice(0, 2000)}`,
+      content: [
+        `[子Agent "${child.name}" 完成]`,
+        '',
+        result.slice(0, 2000),
+        '',
+        `提示: 请将子 workDir${childWorkDir ? ` (${childWorkDir})` : ''} 的变更 merge/cherry-pick 到父 workDir 后再 close_agent（close 会删除子 worktree）。`,
+      ].join('\n'),
       timestamp: new Date().toISOString(),
     })
     this.callbacks.persistMessages(parentSessionId)

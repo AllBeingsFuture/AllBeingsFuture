@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
 import { workbenchApi } from '../../app/api/workbench'
-import { useSessionStore, type ChatUpdateEvent, type ChatPatchEvent, type AgentUpdateEvent } from '../../stores/sessionStore'
+import { useSessionStore, type ChatUpdateEvent, type ChatPatchEvent } from '../../stores/sessionStore'
 import { useIpcEvent } from '../../hooks/useIpcEvent'
 import { parseAgentStreamEvent } from '../../hooks/agentStreamIpc'
 import MessageBubble from './MessageBubble'
@@ -63,7 +63,9 @@ interface MessageGroup {
 
 const VIRTUALIZATION_GROUP_THRESHOLD = 30
 const VIRTUALIZATION_HEIGHT_MULTIPLIER = 3
-const VIRTUALIZATION_OVERSCAN_PX = 600
+/** Base overscan; fast fling adds scrollMetrics.overscanBoostPx on top. */
+const VIRTUALIZATION_OVERSCAN_PX = 1800
+const VIRTUALIZATION_OVERSCAN_VIEWPORT_MULT = 2.5
 const DEFAULT_COMPOSER_HEIGHT = 96
 const COMPOSER_BOTTOM_GAP = 12
 const LIVE_RENDER_HOLD_MS = 700
@@ -200,23 +202,22 @@ function estimateMessageGroupHeight(group: MessageGroup): number {
   const totalContentLength = group.messages.reduce((sum, message) => sum + (message.content?.length || 0), 0)
   const newlineCount = group.messages.reduce((sum, message) => sum + ((message.content?.match(/\n/g) || []).length), 0)
 
-  // Prefer slight over-estimates. Under-estimated totalHeight shrinks the
-  // scroll range and, during virtualized remeasure, produces large positive
-  // scrollTop compensations that fight "scroll up to read history".
+  // Prefer over-estimates (especially for unmeasured history the fling jumps into).
+  // Under-estimated totalHeight shrinks maxScrollTop → "假顶部" when scrolling fast.
 
   if (group.type === 'thinking') {
-    return Math.min(960, 80 + Math.ceil(totalContentLength / 6) * 12 + newlineCount * 10)
+    return Math.max(120, Math.min(1400, 112 + Math.ceil(totalContentLength / 5) * 14 + newlineCount * 12))
   }
 
   if (group.type === 'tool_group') {
-    return 56 + group.messages.length * 120
+    return Math.max(160, 88 + group.messages.length * 160)
   }
 
   if (group.type === 'child_agent') {
-    return 120 + Math.min(640, group.messages.length * 48)
+    return Math.max(160, 160 + Math.min(800, group.messages.length * 64))
   }
 
-  return Math.min(3200, 80 + Math.ceil(totalContentLength / 8) * 18 + newlineCount * 12)
+  return Math.max(140, Math.min(4000, 120 + Math.ceil(totalContentLength / 6) * 22 + newlineCount * 16))
 }
 
 /** Detect file-editing tool names (MCP allbeingsfuture tools + native Edit/Write) */
@@ -739,7 +740,6 @@ export default function ConversationView({ session }: Props) {
     pollChat,
     handleChatUpdate,
     handleChatPatch,
-    handleAgentUpdate,
     handleAgentStreamEvent,
     respondToPermission,
     agentStream,
@@ -751,7 +751,6 @@ export default function ConversationView({ session }: Props) {
     pollChat: state.pollChat,
     handleChatUpdate: state.handleChatUpdate,
     handleChatPatch: state.handleChatPatch,
-    handleAgentUpdate: state.handleAgentUpdate,
     handleAgentStreamEvent: state.handleAgentStreamEvent,
     respondToPermission: state.respondToPermission,
     agentStream: state.agentStreams?.[session.id],
@@ -796,6 +795,8 @@ export default function ConversationView({ session }: Props) {
     handleWheel,
     handlePointerDown,
     scrollMetrics,
+    markProgrammaticScroll,
+    shouldSuppressPositiveScrollCompensation,
   } = useConversationScroll({
     sessionId: session.id,
     messagesLength: messages.length,
@@ -826,10 +827,8 @@ export default function ConversationView({ session }: Props) {
     handleChatPatch(event)
   })
 
-  useIpcEvent<AgentUpdateEvent>('agent:update', (event) => {
-    handleAgentUpdate(event)
-  })
-
+  // agent:update is subscribed globally in installWorkbenchRuntime so the
+  // sidebar updates immediately even when ConversationView is not mounted.
   useIpcEvent<unknown>('agent:stream', (payload) => {
     const event = parseAgentStreamEvent(payload)
     if (!event) return
@@ -884,15 +883,22 @@ export default function ConversationView({ session }: Props) {
     messageGroups.length >= VIRTUALIZATION_GROUP_THRESHOLD
     || estimatedConversationHeight >= scrollMetrics.viewportHeight * VIRTUALIZATION_HEIGHT_MULTIPLIER
   )
+  const virtualOverscanPx = Math.max(
+    VIRTUALIZATION_OVERSCAN_PX,
+    Math.round(scrollMetrics.viewportHeight * VIRTUALIZATION_OVERSCAN_VIEWPORT_MULT),
+  ) + scrollMetrics.overscanBoostPx
+
   const virtualization = useVirtualizedList({
     items: messageGroups,
     enabled: shouldVirtualize,
     getItemKey: (group) => getGroupKey(session.id, group),
     estimateSize: estimateMessageGroupHeight,
-    overscanPx: VIRTUALIZATION_OVERSCAN_PX,
+    overscanPx: virtualOverscanPx,
     scrollTop: scrollMetrics.scrollTop,
     viewportHeight: scrollMetrics.viewportHeight,
     getScrollElement,
+    markProgrammaticScroll,
+    shouldSuppressPositiveScrollCompensation,
   })
   const handleSend = useCallback(async (text: string, images?: Array<{data: string; mimeType: string}>) => {
     await workbenchApi.chat.appendMessage(session.id, text, images)

@@ -127,6 +127,11 @@ export class GitService {
     return this.git(['branch', '--show-current'], repoPath).catch(() => 'HEAD')
   }
 
+  /** Resolve a commit-ish (default HEAD) in the given worktree/repo path. */
+  async revParse(repoPath: string, rev = 'HEAD'): Promise<string> {
+    return this.git(['rev-parse', rev], repoPath)
+  }
+
   async getMainBranch(repoPath: string): Promise<string> {
     for (const name of ['main', 'master']) {
       try {
@@ -186,7 +191,17 @@ export class GitService {
     return this.git(['rev-parse', 'HEAD'], repoPath)
   }
 
-  async createWorktree(repoPath: string, branchName: string, taskId?: string): Promise<any> {
+  /**
+   * Create an isolated worktree under .allbeingsfuture-worktrees.
+   * @param startPoint Optional commit-ish (parent branch/HEAD) so nested children
+   *   inherit the direct parent's committed state instead of the main-repo HEAD.
+   */
+  async createWorktree(
+    repoPath: string,
+    branchName: string,
+    taskId?: string,
+    startPoint?: string,
+  ): Promise<any> {
     const baseRepoPath = await this.getPrimaryRepoPath(repoPath)
     const safeName = branchName.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || `session-${Date.now()}`
     const worktreePath = path.join(baseRepoPath, '.allbeingsfuture-worktrees', safeName).replace(/\\/g, '/')
@@ -194,9 +209,14 @@ export class GitService {
 
     await this.git(['worktree', 'prune'], baseRepoPath).catch(() => {})
     await mkdir(path.dirname(worktreePath), { recursive: true })
-    await this.git(['worktree', 'add', worktreePath, '-b', branch], baseRepoPath)
-    const baseCommit = await this.git(['rev-parse', 'HEAD'], baseRepoPath)
-    const baseBranch = await this.getCurrentBranch(baseRepoPath)
+    const start = (startPoint || '').trim()
+    if (start) {
+      await this.git(['worktree', 'add', worktreePath, '-b', branch, start], baseRepoPath)
+    } else {
+      await this.git(['worktree', 'add', worktreePath, '-b', branch], baseRepoPath)
+    }
+    const baseCommit = await this.git(['rev-parse', 'HEAD'], worktreePath)
+    const baseBranch = start || await this.getCurrentBranch(baseRepoPath)
 
     return { worktreePath, branch, baseCommit, baseBranch, taskId: taskId || '' }
   }

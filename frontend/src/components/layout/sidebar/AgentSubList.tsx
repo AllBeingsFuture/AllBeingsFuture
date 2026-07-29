@@ -35,11 +35,15 @@ const statusLabels: Record<string, string> = {
   cancelled: '已取消',
 }
 
+/** Live sub-tasks only. Terminal statuses must never linger in the sidebar. */
 const ACTIVE_STATUSES = new Set(['pending', 'running', 'idle'])
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 
 export default function AgentSubList({ agents, onSelectSession }: Props) {
-  // Only show non-terminal agents; closed/completed/failed should not linger
-  const visibleAgents = agents.filter(a => ACTIVE_STATUSES.has(a.status))
+  // Only show non-terminal agents; closed/completed/failed/cancelled must not linger
+  const visibleAgents = agents.filter(
+    a => ACTIVE_STATUSES.has(a.status) && !TERMINAL_STATUSES.has(a.status),
+  )
   const hasActive = visibleAgents.length > 0
   const [expanded, setExpanded] = useState(hasActive)
 

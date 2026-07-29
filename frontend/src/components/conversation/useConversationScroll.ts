@@ -10,23 +10,32 @@ interface UseConversationScrollOptions {
 interface ScrollMetrics {
   scrollTop: number
   viewportHeight: number
+  /** Extra virtual overscan while user is reading history so the mount window keeps up. */
+  overscanBoostPx: number
 }
 
 const FORCE_SCROLL_WINDOW_MS = 3000
 const NEAR_BOTTOM_THRESHOLD_PX = 150
-const USER_DETACH_THRESHOLD_PX = 32
+/** Re-attach only when this close to the live tail (hysteresis vs detach). */
+const USER_REATTACH_THRESHOLD_PX = 32
 const FOLLOW_UP_SCROLL_FRAMES = 2
 const PROGRAMMATIC_SCROLL_GUARD_MS = 150
+/** Large per-event jump — sync virtual window immediately + extra overscan. */
+const FAST_SCROLL_DELTA_PX = 48
+/** Cap overscan boost so a single huge delta does not mount the entire history. */
+const MAX_OVERSCAN_BOOST_PX = 3200
+/** Baseline overscan boost while reading history (any speed). */
+const HISTORY_OVERSCAN_BOOST_PX = 800
 
 /**
  * 统一管理会话视图的滚动行为。
  *
  * 要点：
  * - 切换会话后短暂强制跟随到底部，确保历史记录落在最新位置
- * - 用户手动滚离底部后停止自动跟随，避免“抢滚动条”
- * - 监听已渲染内容尺寸变化，修复流式更新 / 虚拟列表重测后无法跟上最新内容的问题
- * - 脱离跟随后，内容增高只做视口上方补偿，绝不再强制滚到底部
- * - 滚轮/触控板向上意图在 scroll 事件之前就 detach，避免流式增高立刻把视口拽回底部
+ * - 用户一旦上滑（任意速度：滚轮/触控板/拖条）立即 detach，流式增高绝不能抢视口
+ * - 阅读历史期间禁止虚拟列表「正补偿」scrollTop，避免 remeasure 与上滑对打
+ * - 仅在用户明确向下回到贴底带时 re-attach
+ * - 快速大 delta 额外同步 metrics / 加大 overscan（慢滑同样走 detach + 禁正补偿）
  */
 export function useConversationScroll({
   sessionId,
@@ -34,7 +43,11 @@ export function useConversationScroll({
   streaming,
   bottomOffset,
 }: UseConversationScrollOptions) {
-  const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>({ scrollTop: 0, viewportHeight: 0 })
+  const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>({
+    scrollTop: 0,
+    viewportHeight: 0,
+    overscanBoostPx: 0,
+  })
 
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
@@ -50,21 +63,47 @@ export function useConversationScroll({
   const lastContentHeightRef = useRef(0)
   const lastProgrammaticScrollAtRef = useRef(0)
   const userInputActiveRef = useRef(false)
+  /** Last non-programmatic vertical intent: up = reading history, down = toward live tail. */
+  const lastUserScrollIntentRef = useRef<'up' | 'down' | null>(null)
+  const lastUserScrollDeltaRef = useRef(0)
 
   const markProgrammaticScroll = useCallback(() => {
     lastProgrammaticScrollAtRef.current = Date.now()
   }, [])
 
-  const commitScrollMetrics = useCallback(() => {
+  const historyOverscanBoost = useCallback((magnitudePx = 0) => {
+    const dynamic = Math.min(MAX_OVERSCAN_BOOST_PX, Math.round(Math.abs(magnitudePx) * 4))
+    return Math.min(MAX_OVERSCAN_BOOST_PX, Math.max(HISTORY_OVERSCAN_BOOST_PX, dynamic))
+  }, [])
+
+  /**
+   * While the user is reading history, remeasure must never push scrollTop down
+   * (positive delta). This is the general fix for both slow and fast scroll-up —
+   * not a short fling-only window.
+   */
+  const shouldSuppressPositiveScrollCompensation = useCallback(() => {
+    return userDetachedRef.current || lastUserScrollIntentRef.current === 'up'
+  }, [])
+
+  const commitScrollMetrics = useCallback((overscanBoostPx?: number) => {
     const el = scrollContainerRef.current
     if (!el) return
 
     setScrollMetrics((prev) => {
+      const readingHistory = userDetachedRef.current || lastUserScrollIntentRef.current === 'up'
+      const nextBoost = overscanBoostPx !== undefined
+        ? overscanBoostPx
+        : (readingHistory
+          ? Math.max(prev.overscanBoostPx, HISTORY_OVERSCAN_BOOST_PX)
+          : 0)
       const next = {
         scrollTop: el.scrollTop,
         viewportHeight: el.clientHeight,
+        overscanBoostPx: nextBoost,
       }
-      return prev.scrollTop === next.scrollTop && prev.viewportHeight === next.viewportHeight
+      return prev.scrollTop === next.scrollTop
+        && prev.viewportHeight === next.viewportHeight
+        && prev.overscanBoostPx === next.overscanBoostPx
         ? prev
         : next
     })
@@ -90,24 +129,26 @@ export function useConversationScroll({
     }
   }, [])
 
-  const detachFromBottomNow = useCallback(() => {
+  const detachFromBottomNow = useCallback((overscanMagnitudePx = 0) => {
     userDetachedRef.current = true
+    lastUserScrollIntentRef.current = 'up'
     forceScrollUntilRef.current = 0
     cancelPendingAutoScroll()
-  }, [cancelPendingAutoScroll])
+    lastUserScrollDeltaRef.current = -Math.abs(overscanMagnitudePx || lastUserScrollDeltaRef.current || HISTORY_OVERSCAN_BOOST_PX)
+    commitScrollMetrics(historyOverscanBoost(Math.abs(overscanMagnitudePx) || HISTORY_OVERSCAN_BOOST_PX))
+  }, [cancelPendingAutoScroll, commitScrollMetrics, historyOverscanBoost])
 
   const shouldStickToBottom = useCallback(() => {
-    // Detach always wins — including wheel-up intent that fires before scroll.
-    // Force window only helps initial pin while still attached.
+    // Detach / upward intent always wins — including wheel-up before scroll.
     if (userDetachedRef.current) return false
+    if (lastUserScrollIntentRef.current === 'up') return false
     if (userInputActiveRef.current && !isNearBottomRef.current) return false
     return true
   }, [])
 
   const applyScrollToBottom = useCallback(() => {
-    // Never fight the user: if they already detached (e.g. wheel-up during a
-    // pending follow-up frame), leave the viewport alone and keep detach.
-    if (userDetachedRef.current) return
+    // Never fight the user: any detach or upward intent leaves the viewport alone.
+    if (!shouldStickToBottom()) return
 
     const el = scrollContainerRef.current
     if (!el) return
@@ -120,11 +161,10 @@ export function useConversationScroll({
 
     lastScrollTopRef.current = nextScrollTop
     isNearBottomRef.current = true
-    // Do NOT clear userDetachedRef here. Clearing it raced with wheel-up
-    // detach and yanked readers back to the live tail when history is long.
+    // Do NOT clear userDetachedRef here — that raced with wheel-up detach.
     lastContentHeightRef.current = el.scrollHeight
-    commitScrollMetrics()
-  }, [commitScrollMetrics, markProgrammaticScroll])
+    commitScrollMetrics(0)
+  }, [commitScrollMetrics, markProgrammaticScroll, shouldStickToBottom])
 
   const queueFollowUpAutoScroll = useCallback(() => {
     if (typeof requestAnimationFrame !== 'function') return
@@ -159,7 +199,7 @@ export function useConversationScroll({
    * 内容尺寸变化时的滚动策略：
    * - 贴底跟随：继续 scrollToBottom
    * - 已脱离：绝不自动滚到底；仅在 scrollHeight 变矮导致超出可滚范围时夹紧
-   * - 视口上方条目重测的精确补偿由虚拟列表按 item start 完成（避免把底部流式增高误当成上方增长）
+   * - 视口上方条目重测的精确补偿由虚拟列表负责，且阅读历史时不做正补偿
    */
   const preserveScrollAnchorOnContentResize = useCallback(() => {
     const el = scrollContainerRef.current
@@ -174,6 +214,7 @@ export function useConversationScroll({
       return
     }
 
+    // Detached: never pull toward bottom. Only clamp if we overflow the max range.
     if (previousHeight > 0 && nextHeight < previousHeight) {
       const maxScrollTop = Math.max(nextHeight - el.clientHeight, 0)
       if (el.scrollTop > maxScrollTop) {
@@ -183,8 +224,9 @@ export function useConversationScroll({
       }
     }
 
-    syncScrollMetrics()
-  }, [markProgrammaticScroll, scrollToBottom, shouldStickToBottom, syncScrollMetrics])
+    // Keep virtual window in sync while reading history (any speed).
+    commitScrollMetrics()
+  }, [commitScrollMetrics, markProgrammaticScroll, scrollToBottom, shouldStickToBottom])
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -194,41 +236,69 @@ export function useConversationScroll({
     const nextIsNearBottom = distanceFromBottom < NEAR_BOTTOM_THRESHOLD_PX
     const delta = el.scrollTop - lastScrollTopRef.current
     const scrolledUp = delta < -1
+    const scrolledDown = delta > 1
+    const largeJump = Math.abs(delta) >= FAST_SCROLL_DELTA_PX
     const timeSinceProgrammatic = Date.now() - lastProgrammaticScrollAtRef.current
     const isProgrammatic = timeSinceProgrammatic < PROGRAMMATIC_SCROLL_GUARD_MS
 
-    // Scrolling up past a small threshold always detaches, even during the
-    // programmatic-scroll guard (auto-follow only increases scrollTop) and even
-    // inside the wider "near bottom" follow band.
-    if (scrolledUp && distanceFromBottom > USER_DETACH_THRESHOLD_PX) {
-      detachFromBottomNow()
-    } else if (!isProgrammatic && distanceFromBottom <= USER_DETACH_THRESHOLD_PX) {
-      // Re-attach only when truly back at the bottom (hysteresis vs detach threshold).
+    // Track real user intent only. Programmatic follow / remeasure writes are ignored.
+    if (!isProgrammatic) {
+      if (scrolledUp) {
+        lastUserScrollIntentRef.current = 'up'
+        lastUserScrollDeltaRef.current = delta
+        // Any non-programmatic upward movement detaches — slow scrollbar drag,
+        // gentle trackpad, or fling. The old "must leave 32px band" gate left
+        // slow nudges still stuck, so streaming ResizeObserver yanked them back.
+        detachFromBottomNow(Math.abs(delta))
+      } else if (scrolledDown) {
+        lastUserScrollIntentRef.current = 'down'
+      }
+    }
+
+    // Re-attach only when the user intentionally scrolls back into the live tail.
+    if (
+      !isProgrammatic
+      && scrolledDown
+      && distanceFromBottom <= USER_REATTACH_THRESHOLD_PX
+      && lastUserScrollIntentRef.current === 'down'
+    ) {
       userDetachedRef.current = false
       userInputActiveRef.current = false
+      lastUserScrollIntentRef.current = 'down'
     }
 
     isNearBottomRef.current = nextIsNearBottom
     lastScrollTopRef.current = el.scrollTop
     lastContentHeightRef.current = el.scrollHeight
-    syncScrollMetrics()
-  }, [detachFromBottomNow, syncScrollMetrics])
+
+    // Reading history or large jumps: publish scrollTop immediately so the virtual
+    // window does not lag one rAF behind (blank spacer → feels stuck at any speed).
+    if (userDetachedRef.current || lastUserScrollIntentRef.current === 'up' || largeJump) {
+      commitScrollMetrics(
+        userDetachedRef.current || lastUserScrollIntentRef.current === 'up'
+          ? historyOverscanBoost(Math.abs(delta))
+          : undefined,
+      )
+    } else {
+      syncScrollMetrics()
+    }
+  }, [commitScrollMetrics, detachFromBottomNow, historyOverscanBoost, syncScrollMetrics])
 
   /**
    * Wheel/trackpad intent fires before the corresponding scroll event.
-   * Detach immediately on upward intent so streaming ResizeObserver / message
-   * updates cannot snap the viewport back to the live tail mid-gesture.
+   * Detach immediately on any upward wheel so streaming cannot snap back mid-gesture.
    */
   const handleWheel = useCallback((event?: ReactWheelEvent<HTMLDivElement> | WheelEvent) => {
     userInputActiveRef.current = true
     const deltaY = event?.deltaY ?? 0
     // deltaY < 0 → content moves down / user reads older messages (scroll up)
     if (deltaY < 0) {
-      detachFromBottomNow()
+      detachFromBottomNow(Math.abs(deltaY))
       return
     }
-    // Horizontal / no vertical motion still counts as user control while away
-    // from the tail; stick decision is re-evaluated on the next scroll event.
+    if (deltaY > 0) {
+      lastUserScrollIntentRef.current = 'down'
+    }
   }, [detachFromBottomNow])
 
   const handlePointerDown = useCallback((_event?: ReactPointerEvent<HTMLDivElement> | PointerEvent) => {
@@ -255,6 +325,8 @@ export function useConversationScroll({
     lastContentHeightRef.current = 0
     lastProgrammaticScrollAtRef.current = 0
     userInputActiveRef.current = false
+    lastUserScrollIntentRef.current = null
+    lastUserScrollDeltaRef.current = 0
   }, [sessionId])
 
   useLayoutEffect(() => {
@@ -323,5 +395,12 @@ export function useConversationScroll({
     handlePointerDown,
     scrollMetrics,
     scrollToBottom,
+    /** Mark scrollTop writes from virtual-list remeasure so they do not re-stick. */
+    markProgrammaticScroll,
+    /**
+     * True for the whole "reading history" period (any scroll speed).
+     * Virtual list must not apply positive scrollTop compensation while this is true.
+     */
+    shouldSuppressPositiveScrollCompensation,
   }
 }

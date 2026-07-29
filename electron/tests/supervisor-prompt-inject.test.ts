@@ -97,15 +97,85 @@ test('process.ts cleanup tracks the same directory that was injected', () => {
   assert.match(source, /supervisorPromptSessions\.values\(\)/)
 })
 
-test('process.ts injects worker role for child sessions, supervisor+agent-control for parent only', () => {
+test('Bug C: stopProcess must NOT cleanup software prompts; disposeSession does', () => {
   const source = readFileSync(processSourcePath, 'utf8')
-  // Child: worker role via appendSystemPrompt only (no nested agent-control / shared rule rewrite)
-  assert.match(source, /session\.parentSessionId/)
+  // stopProcess body must not call cleanup
+  const stopMatch = source.match(
+    /async stopProcess\(sessionId: string\): Promise<void> \{[\s\S]*?\n  \}/,
+  )
+  assert.ok(stopMatch, 'expected stopProcess method')
+  assert.equal(
+    /cleanupSupervisorPromptForSession\s*\(/.test(stopMatch[0]),
+    false,
+    'stopProcess must not delete AGENTS.md / rules while session may continue',
+  )
+  assert.match(stopMatch[0], /Do not remove software-prompt files/)
+
+  // disposeSession is the true teardown path
+  assert.match(source, /async disposeSession\(sessionId: string\)/)
+  const disposeMatch = source.match(
+    /async disposeSession\(sessionId: string\): Promise<void> \{[\s\S]*?\n  \}/,
+  )
+  assert.ok(disposeMatch, 'expected disposeSession method')
+  assert.match(disposeMatch[0], /cleanupSupervisorPromptForSession/)
+  assert.match(disposeMatch[0], /destroySession/)
+
+  // error path must not wipe prompts either
+  assert.match(source, /Keep software-prompt files on error/)
+  // active skip must ensure prompts
+  assert.match(source, /ensureSoftwarePromptFiles/)
+  assert.match(source, /already active, prompts ensured/)
+})
+
+test('Bug C: sendMessage ensures prompts when adapter already active', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  assert.match(source, /ensureSoftwarePromptFiles\(sessionId\)/)
+  // both send paths re-ensure when active
+  const sendBlocks = [...source.matchAll(
+    /if \(!isActive\) \{[\s\S]*?\} else \{[\s\S]*?ensureSoftwarePromptFiles\(sessionId\)[\s\S]*?\}/g,
+  )]
+  assert.ok(sendBlocks.length >= 1, 'sendMessage should ensure prompts when active')
+})
+
+test('process.ts injects worker role for direct children only; supervisor+agent-control for parent and father', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  assert.match(source, /isDirectChild/)
   assert.match(source, /buildWorkerRulesContent\s*\(/)
-  assert.match(source, /Injected worker role prompt for child session/)
-  // Parent keeps agent-control
+  assert.match(source, /Injected worker role prompt for direct child session/)
+  assert.match(source, /injectWorkerPromptFiles\s*\(/)
+  assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
+  // 爷爷 + 父亲 get agent-control via injectAgentControlMcp
   assert.match(source, /ABF_PARENT_SESSION_ID:\s*sessionId/)
+  assert.match(source, /injectAgentControlMcp/)
   assert.match(source, /'agent-control'/)
+})
+
+test('process.ts persistent child done injects result to parent (not only non-persistent)', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  const doneChildBlock = source.match(
+    /If this is a child session, inject result back to parent[\s\S]*?finalizeChildAgents/,
+  )
+  assert.ok(doneChildBlock, 'expected child done inject block')
+  const block = doneChildBlock[0]
+  assert.match(block, /isPersistentChild/)
+  assert.match(block, /injectChildResult\s*\(/)
+  // persistent path must call inject before/around idle status, not skip it
+  const persistentArm = block.match(
+    /if \(this\.agentLifecycle\.isPersistentChild[\s\S]*?\} else \{/,
+  )
+  assert.ok(persistentArm, 'expected persistent vs non-persistent arms')
+  assert.match(persistentArm[0], /injectChildResult/)
+  assert.match(persistentArm[0], /updatePersistentAgentStatus/)
+})
+
+test('injectChildResult includes name and workDir merge hint; close cleans worktree', () => {
+  const lifecyclePath = path.join(electronRoot, 'services/agent-lifecycle.ts')
+  const lifecycle = readFileSync(lifecyclePath, 'utf8')
+  assert.match(lifecycle, /子Agent/)
+  assert.match(lifecycle, /workDir/)
+  assert.match(lifecycle, /merge\/cherry-pick|close_agent/)
+  assert.match(lifecycle, /cleanupChildWorktree/)
+  assert.match(lifecycle, /已关闭/)
 })
 
 test('closeChildSession removes tracker entry, cleans child worktree, emits removed for UI', () => {
@@ -247,4 +317,124 @@ test('resolveContextFilesForProvider covers AGENTS.md plus Gemini/Qwen extras', 
   assert.deepEqual(resolveContextFilesForProvider('qwen-code'), ['AGENTS.md', 'QWEN.md'])
   assert.deepEqual(resolveContextFilesForProvider('opencode'), ['AGENTS.md'])
   assert.deepEqual(resolveContextFilesForProvider('grok'), ['AGENTS.md'])
+})
+
+test('injectWorkerRules writes worker body into AGENTS.md (not supervisor scheduling text)', async () => {
+  const tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'abf-worker-rules-'))
+  const worktree = path.join(tmpRoot, '.allbeingsfuture-worktrees', 'child-1')
+  mkdirSync(worktree, { recursive: true })
+
+  try {
+    const {
+      injectWorkerRules,
+      injectWorkerPrompt,
+      injectWorkerPromptFiles,
+      cleanupSupervisorPrompt,
+      buildWorkerPrompt,
+    } = await loadSupervisorPrompt()
+
+    const workerBody = buildWorkerPrompt()
+    assert.match(workerBody, /ABF Worker|implementation Worker/i)
+    // Worker (父亲) may document agent-control for spawning sons; must not be full Supervisor.
+    assert.doesNotMatch(workerBody, /# ABF Supervisor/)
+
+    injectWorkerRules(worktree, 'grok')
+    const agentsPath = path.join(worktree, 'AGENTS.md')
+    assert.equal(existsSync(agentsPath), true)
+    const agentsContent = readFileSync(agentsPath, 'utf8')
+    assert.match(agentsContent, new RegExp(AGENTS_INJECT_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.match(agentsContent, /ABF Worker|implementation Worker/i)
+    assert.doesNotMatch(agentsContent, /# ABF Supervisor/)
+
+    // Claude path: abf-worker.md, remove abf-supervisor if present
+    mkdirSync(path.join(worktree, '.claude', 'rules'), { recursive: true })
+    writeFileSync(path.join(worktree, '.claude', 'rules', 'abf-supervisor.md'), '# fake supervisor\n', 'utf8')
+    injectWorkerPrompt(worktree)
+    assert.equal(existsSync(path.join(worktree, '.claude', 'rules', 'abf-worker.md')), true)
+    assert.equal(existsSync(path.join(worktree, '.claude', 'rules', 'abf-supervisor.md')), false)
+    const claudeWorker = readFileSync(path.join(worktree, '.claude', 'rules', 'abf-worker.md'), 'utf8')
+    assert.match(claudeWorker, /ABF Worker|implementation Worker/i)
+
+    // injectWorkerPromptFiles dispatches by provider
+    const worktree2 = path.join(tmpRoot, '.allbeingsfuture-worktrees', 'child-2')
+    mkdirSync(worktree2, { recursive: true })
+    injectWorkerPromptFiles(worktree2, 'claude-code')
+    assert.equal(existsSync(path.join(worktree2, '.claude', 'rules', 'abf-worker.md')), true)
+    assert.equal(existsSync(path.join(worktree2, 'AGENTS.md')), false)
+
+    const worktree3 = path.join(tmpRoot, '.allbeingsfuture-worktrees', 'child-3')
+    mkdirSync(worktree3, { recursive: true })
+    injectWorkerPromptFiles(worktree3, 'codex')
+    assert.equal(existsSync(path.join(worktree3, 'AGENTS.md')), true)
+    assert.equal(existsSync(path.join(worktree3, '.claude', 'rules', 'abf-worker.md')), false)
+
+    cleanupSupervisorPrompt(worktree)
+    assert.equal(existsSync(path.join(worktree, '.claude', 'rules', 'abf-worker.md')), false)
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true })
+  }
+})
+
+test('process.ts only injects worker files for direct child isolated worktree (not grandchild)', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  // Direct child gate (optional chaining ok)
+  assert.match(source, /isDirectChild/)
+  assert.match(source, /!parentSession\?\.parentSessionId|!parentSession\.parentSessionId/)
+  // Shared cwd with parent must skip file inject
+  assert.match(source, /sameCwd/)
+  assert.match(source, /path\.resolve\(workDir\) === path\.resolve\(parentWorkDir\)/)
+  // Grandchild / nested son skip
+  assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
+  // Worker file inject for direct child
+  assert.match(source, /injectWorkerPromptFiles/)
+})
+
+test('hasSupervisorPromptFiles detects missing AGENTS block and re-inject restores it', async () => {
+  const tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'abf-ensure-prompt-'))
+  const worktree = path.join(tmpRoot, '.allbeingsfuture-worktrees', 'main-session')
+  mkdirSync(worktree, { recursive: true })
+
+  try {
+    const {
+      injectProviderRules,
+      cleanupSupervisorPrompt,
+      hasSupervisorPromptFiles,
+      hasWorkerPromptFiles,
+      injectWorkerRules,
+    } = await loadSupervisorPrompt()
+
+    assert.equal(hasSupervisorPromptFiles(worktree, 'grok'), false)
+    injectProviderRules(worktree, 'grok', ['Grok'])
+    assert.equal(hasSupervisorPromptFiles(worktree, 'grok'), true)
+
+    // Simulate the Bug C failure: cleanup wiped AGENTS while session still "alive"
+    cleanupSupervisorPrompt(worktree)
+    assert.equal(hasSupervisorPromptFiles(worktree, 'grok'), false)
+    assert.equal(existsSync(path.join(worktree, 'AGENTS.md')), false)
+
+    // ensure path: re-inject restores discovery files
+    injectProviderRules(worktree, 'grok', ['Grok'])
+    assert.equal(hasSupervisorPromptFiles(worktree, 'grok'), true)
+    const restored = readFileSync(path.join(worktree, 'AGENTS.md'), 'utf8')
+    assert.match(restored, /# ABF Supervisor|Supervisor/i)
+    assert.match(restored, new RegExp(AGENTS_INJECT_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+
+    // Worker detect
+    const childWt = path.join(tmpRoot, '.allbeingsfuture-worktrees', 'child-w')
+    mkdirSync(childWt, { recursive: true })
+    assert.equal(hasWorkerPromptFiles(childWt, 'grok'), false)
+    injectWorkerRules(childWt, 'grok')
+    assert.equal(hasWorkerPromptFiles(childWt, 'grok'), true)
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true })
+  }
+})
+
+test('handlers dispose software prompts on Session Delete/End (not Stop alone)', () => {
+  const handlersPath = path.join(electronRoot, 'ipc/handlers.ts')
+  const source = readFileSync(handlersPath, 'utf8')
+  assert.match(source, /SessionService\.Delete[\s\S]*disposeSession/)
+  assert.match(source, /SessionService\.End[\s\S]*disposeSession/)
+  // StopProcess channel still exists but dispose is separate
+  assert.match(source, /ProcessService\.StopProcess/)
 })

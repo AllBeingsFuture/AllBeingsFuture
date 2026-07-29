@@ -515,25 +515,43 @@ export const chatCore = {
     const { parentSessionId, agent, removed } = data
     if (!parentSessionId || !agent) return null
     const prevList = snapshot.agents[parentSessionId] || []
+    const matchesAgent = (item: AgentInfo) =>
+      item.agentId === agent.agentId
+      || (!!agent.childSessionId && item.childSessionId === agent.childSessionId)
 
-    // Explicit close: drop agent from sidebar and reverse map
+    // Explicit close: drop agent from sidebar and reverse map immediately
     if (removed === true) {
-      const nextList = prevList.filter(
-        item => item.agentId !== agent.agentId && item.childSessionId !== agent.childSessionId,
-      )
+      const nextList = prevList.filter(item => !matchesAgent(item))
       const nextChildToParent = { ...snapshot.childToParent }
-      if (agent.childSessionId && nextChildToParent[agent.childSessionId]) {
+      if (agent.childSessionId) {
         delete nextChildToParent[agent.childSessionId]
       }
+      // Also drop reverse bindings keyed by the same agentId (stale session-* ids)
+      for (const [childId, binding] of Object.entries(nextChildToParent)) {
+        if (binding.agentId === agent.agentId || binding.agentId === `session-${agent.childSessionId}`) {
+          delete nextChildToParent[childId]
+        }
+      }
+      // Optimistically mark child terminated so fetchAllAgents cannot rehydrate it as idle
+      const sessions = agent.childSessionId
+        ? snapshot.sessions.map(session =>
+          session.id === agent.childSessionId && session.status !== 'terminated'
+            ? { ...session, status: 'terminated' }
+            : session,
+        )
+        : snapshot.sessions
       return {
         agents: { ...snapshot.agents, [parentSessionId]: nextList },
         childToParent: nextChildToParent,
-        sessions: snapshot.sessions,
+        sessions,
       }
     }
 
-    const existingIndex = prevList.findIndex(item => item.agentId === agent.agentId)
-    const nextList = existingIndex >= 0 ? prevList.map((item, index) => index === existingIndex ? agent : item) : [...prevList, agent]
+    // Upsert by agentId or childSessionId so session-* / persistent-* do not duplicate
+    const existingIndex = prevList.findIndex(matchesAgent)
+    const nextList = existingIndex >= 0
+      ? prevList.map((item, index) => (index === existingIndex ? agent : item))
+      : [...prevList, agent]
     return {
       agents: { ...snapshot.agents, [parentSessionId]: nextList },
       childToParent: agent.childSessionId ? {
@@ -554,9 +572,20 @@ export const chatCore = {
     const reverseMap: Record<string, ParentBinding> = {}
     const result = await ListAllAgentsAPI() as AgentInfo[] | undefined
     const seenChildIds = new Set<string>()
+    // Terminal / closed children must never reappear as idle in the sidebar
+    const terminalSessionStatuses = new Set([
+      'terminated',
+      'cancelled',
+      'completed',
+      'error',
+      'failed',
+      'ended',
+    ])
     if (result && Array.isArray(result)) {
       for (const agent of result) {
         if (!agent.parentSessionId) continue
+        // Backend list should already exclude closed agents; belt-and-suspenders
+        if (agent.status === 'cancelled' || agent.status === 'completed' || agent.status === 'failed') continue
         if (!grouped[agent.parentSessionId]) grouped[agent.parentSessionId] = []
         grouped[agent.parentSessionId].push(agent)
         seenChildIds.add(agent.childSessionId)
@@ -567,10 +596,7 @@ export const chatCore = {
     for (const session of snapshot.sessions) {
       const parentSessionId = (session as SessionWithParent).parentSessionId
       if (!parentSessionId || seenChildIds.has(session.id)) continue
-      // Closed / terminated children must not reappear in the sidebar
-      if (session.status === 'terminated') continue
-      // Skip terminal statuses rehydrated from DB (prefer live tracker only)
-      if (session.status === 'completed' || session.status === 'error') continue
+      if (terminalSessionStatuses.has(session.status)) continue
       const agent: AgentInfo = {
         agentId: `session-${session.id}`,
         name: session.name,
@@ -581,6 +607,8 @@ export const chatCore = {
         createdAt: session.startedAt ? String(session.startedAt) : '',
         providerId: session.providerId,
       }
+      // Do not surface synthetic terminal-mapped entries
+      if (agent.status === 'completed' || agent.status === 'cancelled' || agent.status === 'failed') continue
       if (!grouped[parentSessionId]) grouped[parentSessionId] = []
       grouped[parentSessionId].push(agent)
       reverseMap[session.id] = { parentSessionId, agentId: agent.agentId, agentName: session.name }

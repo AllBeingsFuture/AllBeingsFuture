@@ -25,9 +25,12 @@ import { appLog } from './log.js'
 import {
   injectSupervisorPrompt,
   injectProviderRules,
+  injectWorkerPromptFiles,
   cleanupSupervisorPrompt,
   buildAllRulesContent,
   buildWorkerRulesContent,
+  hasSupervisorPromptFiles,
+  hasWorkerPromptFiles,
 } from './supervisor-prompt.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
@@ -104,7 +107,8 @@ export class ProcessService {
         emitChatUpdate: (id) => this.emitChatUpdate(id),
         persistMessages: (id) => this.persistMessages(id),
         initSession: (id) => this.initSession(id),
-        sendMessage: (id, msg) => this.sendMessage(id, msg),
+        sendMessage: (id, msg, opts) => this.sendMessage(id, msg, opts),
+        interruptTurn: (id) => this.interruptCurrentTurn(id),
       },
       this.sessionStates,
       new GitService(),
@@ -191,6 +195,74 @@ export class ProcessService {
       }
     } catch {}
     return path.join(app.getAppPath(), 'electron', 'embedded-assets', 'mcps', 'agent-control', 'server.mjs')
+  }
+
+  /**
+   * Inject built-in agent-control MCP for a session that may spawn children.
+   * ABF_PARENT_SESSION_ID is this session's id (spawned agents become its children).
+   * Three-gen: top-level (爷爷) + direct child (父亲) only — not nested sons.
+   */
+  private async injectAgentControlMcp(
+    config: Record<string, unknown>,
+    sessionId: string,
+    provider: { id: string; adapterType: string },
+    isAcp: boolean,
+  ): Promise<void> {
+    const isClaudeProvider = provider.id === 'claude-code'
+    if (!isAcp && !isClaudeProvider) return
+    try {
+      const apiPort = await this.ensureAgentApi()
+      config.mcpServers = {
+        ...((config.mcpServers as Record<string, unknown>) || {}),
+        'agent-control': {
+          command: 'node',
+          args: [this.getAgentControlMcpPath()],
+          env: {
+            ABF_AGENT_API_PORT: String(apiPort),
+            ABF_PARENT_SESSION_ID: sessionId,
+          },
+        },
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
+    }
+  }
+
+  /**
+   * Cancel the active turn without destroying the session adapter.
+   * Used by parent→child send_to_agent (interrupt-then-send).
+   * Does NOT unregister concurrency, destroy adapter, or clean supervisor prompts.
+   */
+  async interruptCurrentTurn(sessionId: string): Promise<void> {
+    const state = this.sessionStates.get(sessionId)
+    if (!state?.streaming && !this.bridgeManager.isSessionActive(sessionId)) {
+      // Nothing to cancel; still clear any queued post-turn messages.
+      const idleScheduler = this.schedulers.get(sessionId)
+      if (idleScheduler) idleScheduler.clear()
+      return
+    }
+    if (!state?.streaming) {
+      // Adapter may be active but not streaming — clear queue only.
+      const idleScheduler = this.schedulers.get(sessionId)
+      if (idleScheduler) idleScheduler.clear()
+      return
+    }
+
+    appLog('info', `Interrupting current turn for session ${sessionId}`, 'process')
+    state.streaming = false
+    const scheduler = this.schedulers.get(sessionId)
+    if (scheduler) scheduler.clear()
+    this.cancelPendingPermissions(sessionId)
+    // Cancel active turn only — keep adapter + concurrency slot alive
+    await this.bridgeManager.stopSession(sessionId).catch((err: unknown) => {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      appLog('warn', `interruptCurrentTurn stopSession failed for ${sessionId}: ${errMsg}`, 'process')
+    })
+    // Force idle so the next sendMessage does not queue_after_turn
+    state.streaming = false
+    this.sessionService.updateStatus(sessionId, 'idle')
+    this.emitChatUpdate(sessionId)
   }
 
   private getOrCreateState(sessionId: string): SessionState {
@@ -452,7 +524,9 @@ export class ProcessService {
     if (isActive) {
       const currentWorkDir = this.normalizeWorkDir(this.initializedSessionWorkDirs.get(sessionId) || '')
       if (currentWorkDir === desiredWorkDir) {
-        appLog('debug', `initSession skipped (already active): ${sessionId}`, 'process')
+        // Adapter still live — still re-ensure AGENTS.md / worker files if missing.
+        this.ensureSoftwarePromptFiles(sessionId)
+        appLog('debug', `initSession skipped (already active, prompts ensured): ${sessionId}`, 'process')
         return
       }
 
@@ -571,24 +645,68 @@ export class ProcessService {
       }
     }
 
-    // Inject ABF rules by session role.
-    // - Top-level (Supervisor): file discovery (+ agent-control MCP)
-    // - Child (Worker): appendSystemPrompt only. When autoWorktree is on, children
-    //   get their own worktree (see AgentLifecycleManager); we still must NOT rewrite
-    //   AGENTS.md / .claude/rules on disk for the child (parent/sibling pollution).
-    //   Worker rules override Supervisor scheduling text found on disk.
-    if (session.parentSessionId) {
+    // Inject ABF rules by three-generation session role:
+    // - Top-level (Supervisor / 爷爷): file discovery + agent-control MCP
+    // - Direct child (Worker / 父亲, parent has no parent): worker appendSystemPrompt
+    //   + worker files on isolated worktree + agent-control (so father can spawn sons).
+    // - Nested child (儿子, parent is itself a child): no software worker prompt,
+    //   no agent-control. Worktree isolation still applies (AgentLifecycleManager).
+    // isDirectChild = parent exists and parent has no parentSessionId.
+    const parentId = (session.parentSessionId || '').trim()
+    const isChild = Boolean(parentId)
+    let isDirectChild = false
+    let parentSession: ReturnType<SessionService['getById']> | undefined
+    if (isChild) {
+      parentSession = this.sessionService.getById(parentId)
+      isDirectChild = !parentSession?.parentSessionId
+    }
+
+    if (isDirectChild) {
+      // Father: worker software prompt + agent-control for spawning sons
       try {
         const workerRules = buildWorkerRulesContent()
         const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
         config.appendSystemPrompt = existingPrompt
           ? `${workerRules}\n\n${existingPrompt}`
           : workerRules
-        appLog('info', `Injected worker role prompt for child session ${sessionId}`, 'process')
+        appLog('info', `Injected worker role prompt for direct child session ${sessionId}`, 'process')
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err)
         appLog('warn', `Failed to inject worker rules for child session: ${errMsg}`, 'process')
       }
+
+      // Isolated worktree: write worker software-prompt files for CLI/Claude discovery.
+      // Shared cwd with parent: only appendSystemPrompt (do not clobber supervisor files).
+      try {
+        const workDir = String(config.workDir || '')
+        const parentWorkDir = parentSession
+          ? (parentSession.worktreePath || parentSession.workingDirectory || '')
+          : ''
+        const sameCwd = workDir
+          && parentWorkDir
+          && path.resolve(workDir) === path.resolve(parentWorkDir)
+        if (workDir && !sameCwd) {
+          injectWorkerPromptFiles(workDir, provider.id)
+          this.supervisorPromptSessions.set(sessionId, workDir)
+          appLog(
+            'info',
+            `Injected worker prompt files for direct child ${sessionId} in ${workDir}`,
+            'process',
+          )
+        }
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to inject worker prompt files for child: ${errMsg}`, 'process')
+      }
+
+      await this.injectAgentControlMcp(config, sessionId, provider, isAcp)
+    } else if (isChild) {
+      // Son: skip worker software prompt and agent-control
+      appLog(
+        'info',
+        `Skipped worker prompt + agent-control for nested child session ${sessionId}`,
+        'process',
+      )
     } else {
       try {
         const providerNames = this.providerService.getRunnable().map(p => p.name)
@@ -596,25 +714,8 @@ export class ProcessService {
         const isClaudeProvider = provider.id === 'claude-code'
         const isHttpApiProvider = provider.adapterType === 'openai-api' || !isAcp
 
-        if (isAcp || isClaudeProvider) {
-          try {
-            const apiPort = await this.ensureAgentApi()
-            config.mcpServers = {
-              ...((config.mcpServers as Record<string, unknown>) || {}),
-              'agent-control': {
-                command: 'node',
-                args: [this.getAgentControlMcpPath()],
-                env: {
-                  ABF_AGENT_API_PORT: String(apiPort),
-                  ABF_PARENT_SESSION_ID: sessionId,
-                },
-              },
-            }
-          } catch (err: unknown) {
-            const errMsg = err instanceof Error ? err.message : String(err)
-            appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
-          }
-        }
+        // 爷爷: agent-control so he can spawn fathers
+        await this.injectAgentControlMcp(config, sessionId, provider, isAcp)
 
         if (isClaudeProvider) {
           try {
@@ -917,10 +1018,11 @@ export class ProcessService {
         const doneSessionForChild = this.sessionService.getById(sessionId)
         if (doneSessionForChild?.parentSessionId) {
           if (this.agentLifecycle.isPersistentChild(doneSessionForChild.parentSessionId, sessionId)) {
-            // Persistent child: resolve waiter, set status to 'idle', keep alive
+            // Persistent child: resolve waiter, inject turn result, set idle, keep alive
             const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant')
             const resultText = lastAssistant?.content || '(no output)'
             this.agentLifecycle.resolveChildTurnWaiter(sessionId, resultText)
+            this.agentLifecycle.injectChildResult(doneSessionForChild.parentSessionId, sessionId)
             this.agentLifecycle.updatePersistentAgentStatus(doneSessionForChild.parentSessionId, sessionId, 'idle')
             // Set idle flag (for waitAgentIdle race condition handling)
             this.agentLifecycle.setAgentIdleFlag(sessionId, true)
@@ -962,8 +1064,8 @@ export class ProcessService {
         }
         // Mark sub-agents as failed when parent errors (including persistent)
         this.agentLifecycle.finalizeChildAgents(sessionId, 'failed', false)
-        // Clean up supervisor prompt on terminal error
-        this.cleanupSupervisorPromptForSession(sessionId)
+        // Keep software-prompt files on error — session may be re-initialized.
+        // Files are cleaned only on disposeSession (delete/end) or workDir reinit.
 
         // Send error notification for top-level sessions
         try {
@@ -1125,11 +1227,25 @@ export class ProcessService {
     this.emitAgentStream(sessionId, event)
   }
 
-  async sendMessage(sessionId: string, message: string): Promise<void> {
+  /**
+   * @param opts.interrupt When true (parent→child send_to_agent path): if the
+   *   session is streaming, cancel the current turn first, then send immediately.
+   *   Does not use queue_after_turn. UI self-messages leave this false (default).
+   */
+  async sendMessage(
+    sessionId: string,
+    message: string,
+    opts?: { interrupt?: boolean },
+  ): Promise<void> {
     const state = this.getOrCreateState(sessionId)
     const scheduler = this.getOrCreateScheduler(sessionId)
 
-    // Use scheduler to decide dispatch strategy
+    // Parent→child: interrupt-then-send (never queue behind an active turn)
+    if (opts?.interrupt) {
+      await this.interruptCurrentTurn(sessionId)
+    }
+
+    // Use scheduler to decide dispatch strategy (idle after interrupt → immediate)
     const dispatch = scheduler.enqueue(message, state.streaming)
     if (!dispatch.dispatched) {
       // Message was queued — notify frontend
@@ -1171,6 +1287,8 @@ export class ProcessService {
       if (!isActive) {
         appLog('info', `Auto-initializing session ${sessionId}`, 'process')
         await this.initSession(sessionId)
+      } else {
+        this.ensureSoftwarePromptFiles(sessionId)
       }
       const outboundMessage = this.expandSkillCommand(message)
       appLog('info', `Sending message to AI (${message.length} chars)`, 'process')
@@ -1227,6 +1345,8 @@ export class ProcessService {
     try {
       if (!this.bridgeManager.isSessionActive(sessionId)) {
         await this.initSession(sessionId)
+      } else {
+        this.ensureSoftwarePromptFiles(sessionId)
       }
       const outboundMessage = this.expandSkillCommand(message)
       await this.bridgeManager.sendMessage(sessionId, outboundMessage, images)
@@ -1281,6 +1401,11 @@ export class ProcessService {
     return this.stateInference
   }
 
+  /**
+   * Cancel the current turn / stop streaming. Does NOT remove software-prompt
+   * files (AGENTS.md / .claude/rules) — those must remain while the session
+   * may continue. Use disposeSession for true teardown.
+   */
   async stopProcess(sessionId: string): Promise<void> {
     const state = this.sessionStates.get(sessionId)
     if (state) {
@@ -1303,8 +1428,31 @@ export class ProcessService {
     // continues to accept later turns (sequences must stay strictly increasing).
     // Cancel all sub-agents when parent is stopped (including persistent)
     this.agentLifecycle.finalizeChildAgents(sessionId, 'cancelled', false)
-    // Clean up supervisor prompt rules file
+    // Do not remove software-prompt files here — stop only cancels the turn;
+    // adapter/session may be reused and CLI agents re-read AGENTS.md from disk.
+  }
+
+  /**
+   * True session teardown: destroy adapter and remove software-prompt files
+   * when no other session still tracks the same workDir. Call on session
+   * delete / end (not on ordinary stop / turn complete).
+   */
+  async disposeSession(sessionId: string): Promise<void> {
+    const state = this.sessionStates.get(sessionId)
+    if (state) {
+      state.streaming = false
+    }
+    this.initializedSessionWorkDirs.delete(sessionId)
+    const scheduler = this.schedulers.get(sessionId)
+    if (scheduler) scheduler.clear()
+    this.cancelPendingPermissions(sessionId)
+    await this.bridgeManager.destroySession(sessionId).catch(() => {})
+    this.concurrencyGuard.unregisterSession(sessionId)
+    this.outputParser.clearSession(sessionId)
+    this.stateInference.removeSession(sessionId)
+    this.agentLifecycle.finalizeChildAgents(sessionId, 'cancelled', false)
     this.cleanupSupervisorPromptForSession(sessionId)
+    appLog('info', `Disposed session resources (prompts cleaned): ${sessionId}`, 'process')
   }
 
   async resumeSession(oldSessionId: string): Promise<{success: boolean; sessionId?: string; error?: string}> {
@@ -1435,9 +1583,68 @@ export class ProcessService {
 
   // ─── Supervisor prompt cleanup ─────────────────────────────────
 
+  // ─── Software prompt ensure / cleanup ──────────────────────────
+
   /**
-   * Clean up the supervisor prompt rules file for a session.
-   * Called when a session is stopped or encounters a terminal error.
+   * Idempotent: if software-prompt files for this session role are missing
+   * under the effective workDir, re-inject them. Safe to call on every send
+   * / active initSession skip so CLI agents always see AGENTS.md.
+   */
+  private ensureSoftwarePromptFiles(sessionId: string): void {
+    const session = this.sessionService.getById(sessionId)
+    if (!session) return
+    const provider = this.providerService.getById(session.providerId)
+    if (!provider) return
+    const workDir = this.resolveEffectiveWorkDir(session)
+    if (!workDir) return
+
+    try {
+      if (session.parentSessionId) {
+        const parentSession = this.sessionService.getById(session.parentSessionId)
+        const isDirectChild = !!parentSession && !parentSession.parentSessionId
+        if (!isDirectChild || !parentSession) return
+        const parentWorkDir = parentSession.worktreePath || parentSession.workingDirectory || ''
+        const sameCwd = !!parentWorkDir
+          && path.resolve(workDir) === path.resolve(parentWorkDir)
+        if (sameCwd) return
+        if (!hasWorkerPromptFiles(workDir, provider.id)) {
+          injectWorkerPromptFiles(workDir, provider.id)
+          this.supervisorPromptSessions.set(sessionId, workDir)
+          appLog('info', `Re-ensured worker prompt files for child ${sessionId} in ${workDir}`, 'process')
+        }
+        return
+      }
+
+      const isClaudeProvider = provider.id === 'claude-code'
+      const isAcp = this.isAcpAdapter(provider.adapterType)
+      const isHttpApiProvider = provider.adapterType === 'openai-api' || !isAcp
+      // HTTP chat APIs use appendSystemPrompt only — nothing on disk to ensure.
+      if (isHttpApiProvider && !isClaudeProvider) return
+
+      if (hasSupervisorPromptFiles(workDir, provider.id)) {
+        if (!this.supervisorPromptSessions.has(sessionId)) {
+          this.supervisorPromptSessions.set(sessionId, workDir)
+        }
+        return
+      }
+
+      const providerNames = this.providerService.getRunnable().map(p => p.name)
+      if (isClaudeProvider) {
+        injectSupervisorPrompt(workDir, providerNames)
+      } else {
+        injectProviderRules(workDir, provider.id, providerNames)
+      }
+      this.supervisorPromptSessions.set(sessionId, workDir)
+      appLog('info', `Re-ensured supervisor prompt files for ${sessionId} in ${workDir}`, 'process')
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      appLog('warn', `Failed to ensure software prompt files for ${sessionId}: ${errMsg}`, 'process')
+    }
+  }
+
+  /**
+   * Clean up software-prompt rule files for a session.
+   * Only for true teardown (disposeSession / workDir change), never ordinary stop.
    * Parent and child may share the same workDir — only remove files when no
    * other live session still tracks that directory (ref-count by workDir).
    */

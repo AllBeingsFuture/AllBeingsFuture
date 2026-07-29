@@ -370,6 +370,7 @@ export class Database {
 
     this.seedBuiltinProviders()
     this.upgradeBuiltinProvidersToAcp()
+    this.syncBuiltinProviderSortOrders()
   }
 
   /** Insert built-in provider presets when missing (including new ACP agents). */
@@ -481,6 +482,26 @@ export class Database {
         canonical.command,
         canonical.defaultArgs,
       )
+    }
+  }
+
+  /**
+   * Keep built-in provider list order in sync with BUILTIN_PROVIDER_DEFAULTS.
+   * INSERT OR IGNORE only seeds missing rows, so existing installs need an
+   * idempotent sort_order rewrite for product default order changes
+   * (e.g. Grok first in new-session provider picker).
+   */
+  private syncBuiltinProviderSortOrders(): void {
+    const update = this.compat.prepare(`
+      UPDATE providers
+      SET sort_order = ?
+      WHERE id = ?
+        AND is_builtin = 1
+        AND sort_order != ?
+    `)
+
+    for (const row of builtinProviderSeedRows()) {
+      update.run(row.sortOrder, row.id, row.sortOrder)
     }
   }
 }

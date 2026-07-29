@@ -107,7 +107,7 @@ const TOOLS = [
   {
     name: 'send_to_agent',
     description:
-      'Send a follow-up message to an existing persistent child agent. By default delivers the message and returns immediately so the parent stays free. Set wait=true to block until the child finishes that turn.',
+      'Send a follow-up message to an existing persistent child agent. Interrupt-then-send: if the child is mid-turn/streaming, the host cancels that turn first, then injects this message immediately (does not queue behind the current turn). By default delivers and returns immediately so the parent stays free. Set wait=true to block until the child finishes the new turn.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -144,7 +144,7 @@ const TOOLS = [
   {
     name: 'close_agent',
     description:
-      'Close (terminate) a persistent child agent. Its bridge adapter is destroyed and final result injected into the parent context.',
+      'Close (terminate) a persistent child agent. Removes only that child worktree (if isolated). Merge/cherry-pick child workDir changes into the parent workDir BEFORE calling this, or unmerged work is lost. Adapter is destroyed and a final note is injected into the parent context.',
     inputSchema: {
       type: 'object',
       properties: {

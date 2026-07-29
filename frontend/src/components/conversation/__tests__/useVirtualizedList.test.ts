@@ -1,5 +1,5 @@
 import { act, renderHook } from '../../../test/render'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildVirtualLayout, useVirtualizedList } from '../useVirtualizedList'
 
 const originalResizeObserver = globalThis.ResizeObserver
@@ -151,6 +151,23 @@ describe('buildVirtualLayout', () => {
       'item-3:380',
     ])
   })
+
+  it('floors resolved size at max(estimate, measured) so totalHeight is not chronically low', () => {
+    const measured = new Map<string, number>([['item-0', 40]])
+    const layout = buildVirtualLayout({
+      items,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size, // 100 > measured 40
+      measuredSizes: measured,
+      overscanPx: 0,
+      scrollTop: 0,
+      viewportHeight: 200,
+    })
+
+    // 100 + 9*100 = 1000 — measured must not shrink the spacer below the estimate floor.
+    expect(layout.totalHeight).toBe(1000)
+    expect(layout.items[0]?.size).toBe(100)
+  })
 })
 
 describe('useVirtualizedList', () => {
@@ -263,6 +280,136 @@ describe('useVirtualizedList', () => {
 
     expect(scrollElement.scrollTop).toBe(40)
     expect(result.current.totalHeight).toBe(320)
+  })
+
+  it('does not apply positive compensation when growth would enter the viewport', () => {
+    // Under-estimated previous height ends at 50 (<= scrollTop 80) so the old
+    // "fully above" check would wrongly bump scrollTop while the user scrolls up.
+    const scrollElement = {
+      scrollTop: 80,
+    }
+    const markProgrammaticScroll = vi.fn()
+
+    const { result } = renderHook(() => useVirtualizedList({
+      items: makeItems('stream'),
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 80,
+      viewportHeight: 60,
+      getScrollElement: () => scrollElement as HTMLElement,
+      markProgrammaticScroll,
+    }))
+
+    const firstNode = createFakeNode(50)
+
+    act(() => {
+      result.current.measureElement('item-0')(firstNode)
+    })
+
+    act(() => {
+      // Grows from [0,50] into [0,150], intersecting viewport at scrollTop 80.
+      firstNode.__height = 150
+      resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
+    })
+
+    expect(scrollElement.scrollTop).toBe(80)
+    expect(markProgrammaticScroll).not.toHaveBeenCalled()
+    expect(result.current.totalHeight).toBe(350)
+  })
+
+  it('compensates first measure above the viewport and marks it programmatic', () => {
+    const scrollElement = {
+      scrollTop: 200,
+    }
+    const markProgrammaticScroll = vi.fn()
+
+    const { result } = renderHook(() => useVirtualizedList({
+      items: makeItems('stream'),
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 200,
+      viewportHeight: 60,
+      getScrollElement: () => scrollElement as HTMLElement,
+      markProgrammaticScroll,
+    }))
+
+    // First paint: layout used estimate 50; real height 90 stays fully above 200.
+    const firstNode = createFakeNode(90)
+
+    act(() => {
+      result.current.measureElement('item-0')(firstNode)
+    })
+
+    expect(scrollElement.scrollTop).toBe(240)
+    expect(markProgrammaticScroll).toHaveBeenCalled()
+    expect(result.current.totalHeight).toBe(290)
+  })
+
+  it('skips positive scrollTop compensation during fast upward fling suppress window', () => {
+    const scrollElement = {
+      scrollTop: 200,
+    }
+
+    const { result } = renderHook(() => useVirtualizedList({
+      items: makeItems('stream'),
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 200,
+      viewportHeight: 60,
+      getScrollElement: () => scrollElement as HTMLElement,
+      shouldSuppressPositiveScrollCompensation: () => true,
+    }))
+
+    const firstNode = createFakeNode(50)
+
+    act(() => {
+      result.current.measureElement('item-0')(firstNode)
+    })
+
+    // Fully above and growing — would normally +70 scrollTop; fling suppress blocks it.
+    act(() => {
+      firstNode.__height = 120
+      resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
+    })
+
+    expect(scrollElement.scrollTop).toBe(200)
+    expect(result.current.totalHeight).toBe(320)
+  })
+
+  it('includes farther items when overscan is large (fast-scroll window)', () => {
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      id: `item-${index}`,
+      size: 100,
+    }))
+
+    const tight = buildVirtualLayout({
+      items,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 2000,
+      viewportHeight: 200,
+    })
+
+    const wide = buildVirtualLayout({
+      items,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 1800,
+      scrollTop: 2000,
+      viewportHeight: 200,
+    })
+
+    expect(tight.items[0]?.index).toBeGreaterThan(wide.items[0]?.index ?? 0)
+    expect(wide.items.length).toBeGreaterThan(tight.items.length)
+    // Wide overscan still covers the viewport center around scrollTop 2000.
+    expect(wide.items.some((item) => item.start <= 2000 && item.start + item.size >= 2000)).toBe(true)
   })
 
   it('does not bump layout when only the content fingerprint changes at the same height', () => {

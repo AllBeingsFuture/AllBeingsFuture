@@ -19,11 +19,11 @@ import { normalizeAdapterType } from '../bridge/bridge.js'
 import { extractExecutableTarget, resolveExecutable } from '../services/provider.js'
 
 const REQUIRED_ACP_IDS = [
+  'grok-build',
   'claude-code',
   'codex',
   'gemini-cli',
   'opencode',
-  'grok-build',
   'qwen-code',
   'kimi-cli',
   'github-copilot',
@@ -101,6 +101,24 @@ test('seed rows cover every builtin default including default_args', () => {
 
   const grok = rows.find((row) => row.id === 'grok-build')
   assert.equal(grok?.defaultArgs, 'agent stdio')
+})
+
+test('Grok Build is first in built-in provider sort order', () => {
+  const defaults = getBuiltinProviderDefaults()
+  assert.equal(defaults[0]?.id, 'grok-build')
+  assert.equal(defaults[0]?.sortOrder, 1)
+
+  const rows = builtinProviderSeedRows()
+  const ordered = [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+  assert.equal(ordered[0]?.id, 'grok-build')
+  assert.equal(ordered[0]?.sortOrder, 1)
+
+  for (let i = 1; i < ordered.length; i++) {
+    assert.ok(
+      ordered[i]!.sortOrder > ordered[i - 1]!.sortOrder,
+      `sortOrder must be strictly increasing at index ${i}`,
+    )
+  }
 })
 
 test('capability registry registers all ACP builtins with native MCP negotiation', () => {

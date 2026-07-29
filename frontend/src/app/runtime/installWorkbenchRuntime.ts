@@ -1,8 +1,9 @@
+import { onIpc } from '../../../bindings/electron-api'
 import { useFileTabStore } from '../../stores/fileTabStore'
 import { useFileManagerStore } from '../../stores/fileManagerStore'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { usePanelStore } from '../../stores/panelStore'
-import { useSessionStore } from '../../stores/sessionStore'
+import { useSessionStore, type AgentUpdateEvent } from '../../stores/sessionStore'
 import { useTaskStore } from '../../stores/taskStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -14,6 +15,8 @@ type QuickOpenBridge = {
 }
 
 let runtimeInstalled = false
+let commandBusUnsub: (() => void) | null = null
+let agentUpdateUnsub: (() => void) | null = null
 
 function ensureFilesPaneVisible() {
   const { layoutMode, primaryPane, setPaneContent } = useLayoutStore.getState()
@@ -310,5 +313,33 @@ export function installWorkbenchRuntime() {
   if (runtimeInstalled) return
   runtimeInstalled = true
 
-  workbenchCommandBus.subscribe(handleCommand)
+  commandBusUnsub = workbenchCommandBus.subscribe(handleCommand)
+
+  // Global agent lifecycle: sidebar must drop closed children immediately,
+  // even when ConversationView is not mounted (sessions list / other panes).
+  try {
+    agentUpdateUnsub = onIpc('agent:update', (data: AgentUpdateEvent) => {
+      useSessionStore.getState().handleAgentUpdate(data)
+    })
+  } catch {
+    // Non-electron / partial test harnesses may not expose electronAPI.on
+    agentUpdateUnsub = null
+  }
+}
+
+/** @internal test-only — reset once-guard so install can re-bind IPC listeners */
+export function __resetWorkbenchRuntimeForTests() {
+  runtimeInstalled = false
+  try {
+    commandBusUnsub?.()
+  } catch {
+    // ignore
+  }
+  commandBusUnsub = null
+  try {
+    agentUpdateUnsub?.()
+  } catch {
+    // ignore
+  }
+  agentUpdateUnsub = null
 }

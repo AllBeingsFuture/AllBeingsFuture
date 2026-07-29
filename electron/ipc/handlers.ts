@@ -303,8 +303,19 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SessionService.GetAll', () => sessionService.getAll())
   ipcMain.handle('SessionService.GetByID', (_e, id: string) => sessionService.getById(id))
   ipcMain.handle('SessionService.Create', (_e, config: any) => sessionService.create(config))
-  ipcMain.handle('SessionService.Delete', (_e, id: string) => sessionService.delete(id))
-  ipcMain.handle('SessionService.End', (_e, id: string) => sessionService.end(id))
+  ipcMain.handle('SessionService.Delete', async (_e, id: string) => {
+    // True teardown: destroy adapter + remove software-prompt files (not stop-only)
+    await processService.disposeSession(id).catch(() => {})
+    // Also dispose any child sessions still tracked (DB cascade deletes rows next)
+    for (const child of processService.getChildSessions(id)) {
+      await processService.disposeSession(child.id).catch(() => {})
+    }
+    sessionService.delete(id)
+  })
+  ipcMain.handle('SessionService.End', async (_e, id: string) => {
+    await processService.disposeSession(id).catch(() => {})
+    sessionService.end(id)
+  })
   ipcMain.handle('SessionService.UpdateName', (_e, id: string, name: string) => sessionService.updateName(id, name))
   ipcMain.handle('SessionService.UpdateStatus', (_e, id: string, status: string) => sessionService.updateStatus(id, status))
   ipcMain.handle('SessionService.SetWorktreeInfo', (_e, id: string, p: string, branch: string, baseCommit: string, baseBranch: string, sourceRepo: string) =>

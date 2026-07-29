@@ -285,8 +285,9 @@ describe('useConversationScroll', () => {
       result.current.handleScroll()
     })
 
-    // Near-bottom: distance = 1000 - 860 - 280 = -140 → clamped conceptually as near.
+    // User wheels down then lands near bottom — downward intent re-attaches.
     act(() => {
+      result.current.handleWheel({ deltaY: 40 } as WheelEvent)
       el.scrollTop = 860
       result.current.handleScroll()
     })
@@ -298,6 +299,100 @@ describe('useConversationScroll', () => {
     flushAnimationFrames()
 
     expect(el.scrollTop).toBe(1020)
+  })
+
+  it('stays detached after wheel-up even when streaming growth keeps distanceFromBottom small', () => {
+    // Under-estimated virtual totalHeight can make mid-history look near-bottom.
+    // Wheel-up must stay detached so ResizeObserver / streaming cannot re-stick.
+    const { el, metrics } = createScrollContainer({
+      scrollHeight: 500,
+      clientHeight: 400,
+      scrollTop: 80,
+    })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 6, streaming: true },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 6, streaming: true })
+    flushAnimationFrames()
+
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      result.current.handleWheel({ deltaY: -80 } as WheelEvent)
+      // Still "near bottom" after a small upward nudge (false bottom from short spacer).
+      el.scrollTop = 60
+      result.current.handleScroll()
+    })
+
+    const pinnedTop = el.scrollTop
+    metrics.scrollHeight = 520
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+
+    act(() => {
+      rerender({ sessionId: 's1', length: 6, streaming: true })
+    })
+    flushAnimationFrames()
+
+    expect(el.scrollTop).toBe(pinnedTop)
+  })
+
+  it('on large upward delta: detaches, boosts overscan, syncs metrics, suppresses remeasure compensation', () => {
+    // Fast fling path: scrollTop jumps by hundreds of px in one event.
+    const { el, metrics } = createScrollContainer({
+      scrollHeight: 8000,
+      clientHeight: 400,
+      scrollTop: 7600,
+    })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 40, streaming: true },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 40, streaming: true })
+    flushAnimationFrames()
+
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      // Trackpad fling: large negative wheel before scroll settles.
+      result.current.handleWheel({ deltaY: -320 } as WheelEvent)
+    })
+
+    expect(result.current.shouldSuppressPositiveScrollCompensation()).toBe(true)
+    expect(result.current.scrollMetrics.overscanBoostPx).toBeGreaterThan(0)
+
+    act(() => {
+      // One scroll event with a large upward jump (simulates fling sample).
+      el.scrollTop = 6200
+      result.current.handleScroll()
+    })
+
+    // Metrics must update synchronously (not wait for rAF) so virtual window keeps up.
+    expect(result.current.scrollMetrics.scrollTop).toBe(6200)
+    expect(result.current.scrollMetrics.overscanBoostPx).toBeGreaterThan(0)
+    expect(result.current.shouldSuppressPositiveScrollCompensation()).toBe(true)
+
+    const pinned = el.scrollTop
+    metrics.scrollHeight = 9000
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    // No rAF stick-to-bottom while flinging up.
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(pinned)
   })
 
   it('resets stick-to-bottom when the session changes', () => {

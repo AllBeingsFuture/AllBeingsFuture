@@ -456,6 +456,43 @@ describe('sessionStore runtime status sync', () => {
     expect(state.sessions.find((session) => session.id === 'session-2')?.status).toBe('idle')
   })
 
+  it('handleAgentUpdate removed drops agent immediately and marks child terminated', () => {
+    const parentId = 'parent-1'
+    const childId = 'child-1'
+    const agentId = `persistent-${childId}`
+    const agent = {
+      agentId,
+      name: '子任务',
+      parentSessionId: parentId,
+      childSessionId: childId,
+      status: 'idle' as const,
+      workDir: '/tmp',
+      createdAt: '2026-07-29T00:00:00.000Z',
+    }
+
+    useSessionStore.setState({
+      sessions: [
+        makeSession({ id: parentId, name: 'Parent', status: 'running' }),
+        { ...makeSession({ id: childId, name: '子任务', status: 'idle' }), parentSessionId: parentId } as any,
+      ],
+      agents: { [parentId]: [agent] },
+      childToParent: {
+        [childId]: { parentSessionId: parentId, agentId, agentName: '子任务' },
+      },
+    })
+
+    useSessionStore.getState().handleAgentUpdate({
+      parentSessionId: parentId,
+      agent: { ...agent, status: 'cancelled' },
+      removed: true,
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.agents[parentId]).toEqual([])
+    expect(state.childToParent[childId]).toBeUndefined()
+    expect(state.sessions.find((s) => s.id === childId)?.status).toBe('terminated')
+  })
+
   it('ignores full chat updates that do not change the selected conversation payload', () => {
     const timestamp = new Date().toISOString()
     const existingMessages = [

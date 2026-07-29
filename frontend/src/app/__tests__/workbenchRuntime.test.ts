@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { workbenchApi } from '../api/workbench'
-import { installWorkbenchRuntime } from '../runtime/installWorkbenchRuntime'
+import { __resetWorkbenchRuntimeForTests, installWorkbenchRuntime } from '../runtime/installWorkbenchRuntime'
 
 const runtimeMocks = vi.hoisted(() => {
   const panelState = {
@@ -106,6 +106,7 @@ const runtimeMocks = vi.hoisted(() => {
     remove: vi.fn().mockResolvedValue(undefined),
     rename: vi.fn().mockResolvedValue(undefined),
     smartRename: vi.fn().mockResolvedValue('next-name'),
+    handleAgentUpdate: vi.fn(),
   }
 
   const uiState = {
@@ -186,6 +187,7 @@ vi.mock('../../stores/uiStore', () => ({
 describe('workbench runtime', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    __resetWorkbenchRuntimeForTests()
     panelState.sidebarCollapsed = false
     panelState.detailPanelCollapsed = false
     runtimeMocks.layoutState.layoutMode = 'single'
@@ -214,7 +216,7 @@ describe('workbench runtime', () => {
             return Promise.resolve(undefined)
         }
       }),
-      on: vi.fn(),
+      on: vi.fn(() => () => {}),
       once: vi.fn(),
       send: vi.fn(),
       quickOpen: {
@@ -223,6 +225,30 @@ describe('workbench runtime', () => {
       },
     } as any
     installWorkbenchRuntime()
+  })
+
+  it('subscribes agent:update globally and forwards to session store', () => {
+    expect(window.electronAPI.on).toHaveBeenCalledWith('agent:update', expect.any(Function))
+    const handler = vi.mocked(window.electronAPI.on).mock.calls.find(
+      (call) => call[0] === 'agent:update',
+    )?.[1]
+    expect(handler).toBeTypeOf('function')
+
+    const payload = {
+      parentSessionId: 'parent-1',
+      agent: {
+        agentId: 'persistent-child-1',
+        name: 'child',
+        parentSessionId: 'parent-1',
+        childSessionId: 'child-1',
+        status: 'cancelled',
+        workDir: '/tmp',
+        createdAt: '2026-07-29T00:00:00.000Z',
+      },
+      removed: true,
+    }
+    handler?.(payload)
+    expect(sessionState.handleAgentUpdate).toHaveBeenCalledWith(payload)
   })
 
   it('dispatches chat commands through the runtime', async () => {

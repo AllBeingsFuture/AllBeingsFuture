@@ -24,7 +24,7 @@ const DEFAULT_CONFIG: SystemConfig = {
   telemetry: { enabled: false },
   workflow: { maxConcurrent: 5, defaultTimeout: 3600 },
   storage: { dbPath: '', maxSizeMB: 500 },
-  provider: { defaultId: 'claude-code', timeout: 300 },
+  provider: { defaultId: 'grok-build', timeout: 300 },
   mcp: { enabled: true, maxServers: 20 },
   skill: { enabled: true, autoSync: true },
   notification: { enabled: true, sound: true },
