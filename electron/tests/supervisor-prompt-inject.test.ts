@@ -97,16 +97,15 @@ test('process.ts cleanup tracks the same directory that was injected', () => {
   assert.match(source, /supervisorPromptSessions\.values\(\)/)
 })
 
-test('process.ts injects agent-control and ABF rules for child sessions too', () => {
+test('process.ts injects worker role for child sessions, supervisor+agent-control for parent only', () => {
   const source = readFileSync(processSourcePath, 'utf8')
-  // Must not gate the whole inject block on parent-only sessions
-  assert.equal(
-    /if\s*\(\s*!session\.parentSessionId\s*\)\s*\{\s*try\s*\{[\s\S]*?agent-control/.test(source),
-    false,
-    'agent-control must not be wrapped in if (!session.parentSessionId)',
-  )
-  assert.match(source, /Inject agent-control \+ ABF rules for ALL sessions/)
+  // Child: worker role via appendSystemPrompt only (no nested agent-control / shared rule rewrite)
+  assert.match(source, /session\.parentSessionId/)
+  assert.match(source, /buildWorkerRulesContent\s*\(/)
+  assert.match(source, /Injected worker role prompt for child session/)
+  // Parent keeps agent-control
   assert.match(source, /ABF_PARENT_SESSION_ID:\s*sessionId/)
+  assert.match(source, /'agent-control'/)
 })
 
 test('closeChildSession removes tracker entry and emits removed for UI', () => {
@@ -168,7 +167,8 @@ test('injectProviderRules writes AGENTS.md under worktree, not source repo', asy
   writeFileSync(path.join(worktree, 'AGENTS.md'), '# User agents\n\nKeep me.\n', 'utf8')
 
   try {
-    assert.ok(existsSync(path.join(promptsDir, 'abf-common.md')), 'prompt templates must exist')
+    assert.ok(existsSync(path.join(promptsDir, 'abf-supervisor.md')), 'prompt templates must exist')
+    assert.ok(existsSync(path.join(promptsDir, 'abf-worker.md')), 'worker prompt template must exist')
 
     const {
       injectProviderRules,
@@ -223,10 +223,14 @@ test('injectSupervisorPrompt writes Claude rules under worktree cwd', async () =
     const { injectSupervisorPrompt, cleanupSupervisorPrompt } = await loadSupervisorPrompt()
     injectSupervisorPrompt(worktree, ['Claude Code'])
 
-    const rulesInWorktree = path.join(worktree, '.claude', 'rules', 'abf-common.md')
-    const rulesInSource = path.join(sourceRepo, '.claude', 'rules', 'abf-common.md')
+    const rulesInWorktree = path.join(worktree, '.claude', 'rules', 'abf-supervisor.md')
+    const rulesInSource = path.join(sourceRepo, '.claude', 'rules', 'abf-supervisor.md')
     assert.equal(existsSync(rulesInWorktree), true)
     assert.equal(existsSync(rulesInSource), false)
+    // 手册类文件不应再注入
+    assert.equal(existsSync(path.join(worktree, '.claude', 'rules', 'abf-common.md')), false)
+    assert.equal(existsSync(path.join(worktree, '.claude', 'rules', 'abf-providers.md')), false)
+    assert.equal(existsSync(path.join(worktree, '.claude', 'rules', 'abf-git-workflow.md')), false)
 
     cleanupSupervisorPrompt(worktree)
     assert.equal(existsSync(rulesInWorktree), false)
