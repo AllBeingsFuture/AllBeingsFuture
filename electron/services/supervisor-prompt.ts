@@ -1,15 +1,14 @@
 /**
  * ABF 规则注入器
  *
- * 按 Provider 差异化注入规则：
- * - Claude:  写 .claude/rules/abf-*.md（自动发现，不用 appendSystemPrompt）
- * - 其他 CLI/Agent（含 Codex、Gemini、OpenCode、Grok 等）:
- *     1) 将 ABF 规则注入/合并到 AGENTS.md（文件发现链路）
- *     2) 同时通过 appendSystemPrompt 双通道注入（兼容不读 AGENTS.md 的 Agent）
- * - Codex 额外：AGENTS.md 内附带 codex-agents.md 专有配置
+ * 按 Provider 差异化注入规则（仅文件发现，不做 appendSystemPrompt 双通道）：
+ * - Claude:     写 .claude/rules/abf-*.md
+ * - Codex 等多数 CLI: 写 AGENTS.md（行业通用，OpenCode / Grok / Kimi / Copilot 等默认读取）
+ * - Gemini:     额外写 GEMINI.md（默认上下文文件是 GEMINI.md，不是 AGENTS.md）
+ * - Qwen:       额外写 QWEN.md（默认上下文文件是 QWEN.md）
+ * - openai-api: 无文件发现，由 process.ts 走 appendSystemPrompt
  *
- * 共享规则（abf-common.md）：中文要求、Windows 环境、开发规范
- * 所有 Provider 共享：providers 适配 + git-workflow + supervisor 调度指引
+ * Codex 额外：AGENTS.md 内附带 codex-agents.md 专有配置
  *
  * 模板文件位于 resources/prompts/ 目录下，打包后通过 extraResources 分发。
  */
@@ -27,8 +26,24 @@ const ABF_RULES_FILES = [
   'abf-git-workflow.md',
 ] as const
 
-/** 通用：AGENTS.md（Codex / 多数 coding agent 的文件发现入口） */
+/** 通用：AGENTS.md（Codex / OpenCode / Grok / Kimi / Copilot 等） */
 const AGENTS_MD_FILE = 'AGENTS.md'
+
+/**
+ * 部分 Provider 默认不读 AGENTS.md，需写入其原生上下文文件。
+ * key = provider.id，value = 除 AGENTS.md 外额外注入的文件名。
+ */
+const PROVIDER_EXTRA_CONTEXT_FILES: Readonly<Record<string, readonly string[]>> = {
+  'gemini-cli': ['GEMINI.md'],
+  'qwen-code': ['QWEN.md'],
+}
+
+/** 会话清理时需要检查的全部可注入 markdown 文件 */
+const ALL_INJECTABLE_CONTEXT_FILES = Array.from(new Set([
+  AGENTS_MD_FILE,
+  ...Object.values(PROVIDER_EXTRA_CONTEXT_FILES).flat(),
+]))
+
 /** 保持历史标记名，避免已有仓库内残留块无法被清理/更新 */
 const AGENTS_INJECT_START = '<!-- ABF:CODEX-RULES:START -->'
 const AGENTS_INJECT_END = '<!-- ABF:CODEX-RULES:END -->'
@@ -38,6 +53,11 @@ export interface AgentsMdInjectOptions {
   includeCodexExtras?: boolean
   /** 是否包含 Supervisor 调度指引（默认 true） */
   includeSupervisor?: boolean
+  /**
+   * 额外要写入的上下文文件名（相对 workDir）。
+   * 默认仅 AGENTS.md；Gemini/Qwen 等通过 injectProviderRules 自动附加。
+   */
+  extraFiles?: string[]
 }
 
 // ==================== 模板加载 ====================
@@ -102,7 +122,7 @@ function buildGitWorkflowRules(): string {
 
 /**
  * 构建全套 ABF 规则内容（字符串拼接）
- * 用于 appendSystemPrompt，以及非 Codex 的 AGENTS.md 注入块。
+ * 用于 HTTP API 的 appendSystemPrompt，以及 markdown 文件注入块。
  *
  * @param availableProviders - 可用的 AI Provider 名称列表
  * @param includeSupervisor - 是否包含 Supervisor 调度指引（默认 true）
@@ -118,7 +138,7 @@ export function buildAllRulesContent(
 }
 
 /**
- * 构建写入 AGENTS.md / 双通道注入用的规则正文。
+ * 构建写入上下文 markdown 的规则正文。
  */
 export function buildAgentsMdRulesContent(
   availableProviders: string[] = [],
@@ -163,7 +183,6 @@ export function buildAgentsMdRulesContent(
 
 /**
  * 构建 Codex 专用规则内容（含 codex-agents.md）。
- * @deprecated 优先使用 buildAgentsMdRulesContent({ includeCodexExtras: true })
  */
 export function buildCodexRulesContent(availableProviders: string[] = []): string {
   return buildAgentsMdRulesContent(availableProviders, {
@@ -179,6 +198,39 @@ function stripInjectedAgentsRules(content: string): string {
     'g',
   )
   return content.replace(pattern, '').replace(/\n{3,}/g, '\n\n').trimEnd()
+}
+
+/**
+ * 将 ABF 注入块写入单个 markdown 上下文文件（保留原有内容）。
+ */
+function injectRulesIntoFile(filePath: string, body: string): void {
+  const injectedBlock = `${AGENTS_INJECT_START}\n${body}\n${AGENTS_INJECT_END}\n`
+
+  let existing = ''
+  try {
+    existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : ''
+  } catch {
+    appLog('warn', `[Supervisor] Failed to read existing context file: ${filePath}`, 'supervisor-prompt')
+    existing = ''
+  }
+
+  const preserved = stripInjectedAgentsRules(existing)
+  const nextContent = preserved
+    ? `${preserved}\n\n${injectedBlock}`
+    : injectedBlock
+
+  fs.writeFileSync(filePath, nextContent, 'utf-8')
+}
+
+function cleanupInjectedFile(filePath: string): void {
+  if (!fs.existsSync(filePath)) return
+  const existing = fs.readFileSync(filePath, 'utf-8')
+  const cleaned = stripInjectedAgentsRules(existing)
+  if (cleaned.trim()) {
+    fs.writeFileSync(filePath, `${cleaned}\n`, 'utf-8')
+  } else {
+    fs.unlinkSync(filePath)
+  }
 }
 
 // ==================== 文件操作 ====================
@@ -227,50 +279,69 @@ export function injectSupervisorPrompt(
 }
 
 /**
- * 将 ABF 规则注入到工作目录的 AGENTS.md。
- * 若仓库已有 AGENTS.md，保留原内容，只追加/更新 ABF 注入块。
- * 适用于 Codex 以及 Gemini / OpenCode / Grok 等支持文件发现的 Agent。
+ * 解析某 Provider 应注入的上下文文件列表。
+ * 始终包含 AGENTS.md；Gemini/Qwen 等附加原生文件。
+ */
+export function resolveContextFilesForProvider(providerId: string, extraFiles: string[] = []): string[] {
+  const extras = PROVIDER_EXTRA_CONTEXT_FILES[providerId] || []
+  return Array.from(new Set([AGENTS_MD_FILE, ...extras, ...extraFiles]))
+}
+
+/**
+ * 将 ABF 规则注入到工作目录的上下文 markdown 文件。
+ * 默认 AGENTS.md；可通过 options.extraFiles 或 injectProviderRules 附加原生文件。
  */
 export function injectAgentsMd(
   workDir: string,
   availableProviders: string[] = [],
   options: AgentsMdInjectOptions = {},
 ): void {
-  const agentsPath = path.join(workDir, AGENTS_MD_FILE)
   const body = buildAgentsMdRulesContent(availableProviders, options)
-  const injectedBlock = `${AGENTS_INJECT_START}\n${body}\n${AGENTS_INJECT_END}\n`
-
-  let existing = ''
-  try {
-    existing = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf-8') : ''
-  } catch {
-    appLog('warn', '[Supervisor] Failed to read existing AGENTS.md', 'supervisor-prompt')
-    existing = ''
+  const files = resolveContextFilesForProvider('', options.extraFiles || [])
+  // resolve with empty providerId only yields AGENTS.md + explicit extras
+  for (const filename of files) {
+    const filePath = path.join(workDir, filename)
+    injectRulesIntoFile(filePath, body)
   }
-
-  const preserved = stripInjectedAgentsRules(existing)
-  const nextContent = preserved
-    ? `${preserved}\n\n${injectedBlock}`
-    : injectedBlock
-
-  fs.writeFileSync(agentsPath, nextContent, 'utf-8')
   appLog(
     'info',
-    `[Supervisor] Injected AGENTS.md rules into: ${agentsPath}`
+    `[Supervisor] Injected rules into: ${files.map(f => path.join(workDir, f)).join(', ')}`
       + (options.includeCodexExtras ? ' (with Codex extras)' : ''),
     'supervisor-prompt',
   )
 }
 
 /**
- * @deprecated 使用 injectAgentsMd(..., { includeCodexExtras: true })
- * 保留别名，兼容旧调用方。
+ * 按 Provider 写入其原生会自动加载的规则文件（无 system prompt 双通道）。
  */
-export function injectCodexAgentsMd(workDir: string, availableProviders: string[] = []): void {
-  injectAgentsMd(workDir, availableProviders, {
-    includeCodexExtras: true,
+export function injectProviderRules(
+  workDir: string,
+  providerId: string,
+  availableProviders: string[] = [],
+): void {
+  const includeCodexExtras = providerId === 'codex'
+  const body = buildAgentsMdRulesContent(availableProviders, {
+    includeCodexExtras,
     includeSupervisor: true,
   })
+  const files = resolveContextFilesForProvider(providerId)
+  for (const filename of files) {
+    injectRulesIntoFile(path.join(workDir, filename), body)
+  }
+  appLog(
+    'info',
+    `[Supervisor] Injected provider rules for '${providerId}' into: `
+      + files.map(f => path.join(workDir, f)).join(', ')
+      + (includeCodexExtras ? ' (with Codex extras)' : ''),
+    'supervisor-prompt',
+  )
+}
+
+/**
+ * @deprecated 使用 injectProviderRules(workDir, 'codex', ...) 或 injectAgentsMd(..., { includeCodexExtras: true })
+ */
+export function injectCodexAgentsMd(workDir: string, availableProviders: string[] = []): void {
+  injectProviderRules(workDir, 'codex', availableProviders)
 }
 
 /**
@@ -292,19 +363,12 @@ export function cleanupSupervisorPrompt(workDir: string): void {
     }
   }
 
-  try {
-    const agentsPath = path.join(workDir, AGENTS_MD_FILE)
-    if (fs.existsSync(agentsPath)) {
-      const existing = fs.readFileSync(agentsPath, 'utf-8')
-      const cleaned = stripInjectedAgentsRules(existing)
-      if (cleaned.trim()) {
-        fs.writeFileSync(agentsPath, `${cleaned}\n`, 'utf-8')
-      } else {
-        fs.unlinkSync(agentsPath)
-      }
+  for (const filename of ALL_INJECTABLE_CONTEXT_FILES) {
+    try {
+      cleanupInjectedFile(path.join(workDir, filename))
+    } catch {
+      // Ignore cleanup errors
     }
-  } catch {
-    // Ignore cleanup errors
   }
 
   appLog('info', `[Supervisor] Cleaned up rule files from: ${workDir}`, 'supervisor-prompt')
