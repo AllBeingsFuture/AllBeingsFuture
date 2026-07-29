@@ -163,20 +163,6 @@ describe('Session workspace', () => {
     const workDirInput = screen.getByPlaceholderText('选择工作区，或输入/浏览目录')
     fireEvent.change(workDirInput, { target: { value: 'C:/repo/project' } })
 
-    // 名称 / 初始指令 / worktree 说明收在高级选项中
-    fireEvent.click(screen.getByRole('button', { name: /高级选项/ }))
-
-    const nameInput = screen.getAllByRole('textbox').find(
-      (el) => el.getAttribute('placeholder') !== '选择工作区，或输入/浏览目录'
-        && el.tagName.toLowerCase() === 'input',
-    ) || screen.getAllByRole('textbox')[1]
-    fireEvent.change(nameInput, { target: { value: 'Worktree Rule Session' } })
-
-    const promptInput = screen.getByPlaceholderText('创建后自动发送的指令...')
-    fireEvent.change(promptInput, { target: { value: '检查仓库并按规则执行' } })
-
-    await screen.findByText(/将创建独立 worktree/)
-
     const createButton = screen.getByRole('button', { name: '创建' })
     fireEvent.click(createButton)
 
@@ -186,9 +172,13 @@ describe('Session workspace', () => {
         worktreeEnabled: true,
         gitRepoPath: 'C:/repo/project',
         gitBranch: '',
-        name: 'Worktree Rule Session',
-        initialPrompt: '检查仓库并按规则执行',
+        mode: 'supervisor',
+        initialPrompt: '',
       }))
     })
+    // Auto-generated display name is still sent; user no longer fills it
+    const createArg = createSessionMock.mock.calls[0][0] as { name?: string }
+    expect(createArg.name).toMatch(/^会话\s/)
+    expect(appendMessageMock).not.toHaveBeenCalled()
   })
 })

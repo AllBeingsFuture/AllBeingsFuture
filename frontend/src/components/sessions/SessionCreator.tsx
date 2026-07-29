@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderOpen, MessageSquarePlus, Zap, Shield, Cpu, Star, X, ChevronDown, ChevronUp, GitBranch, Layers } from 'lucide-react'
+import { FolderOpen, MessageSquarePlus, Star, X, ChevronDown, ChevronUp, Layers } from 'lucide-react'
 import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
 import { ipc } from '../../../bindings/electron-api'
 import { workbenchApi } from '../../app/api/workbench'
@@ -193,34 +193,24 @@ function resolveProviderMeta(provider: Pick<AIProvider, 'adapterType' | 'id'>): 
   return providerMetaByAdapter[provider.adapterType || ''] || { icon: '🤖', desc: '自定义 Provider' }
 }
 
-const modes: { id: string; label: string; desc: string; icon: typeof Zap }[] = [
-  { id: 'normal', label: '普通会话', desc: '标准 AI 编码助手', icon: Zap },
-  { id: 'supervisor', label: 'Supervisor', desc: '可创建子 Agent 协作', icon: Shield },
-  { id: 'mission', label: '自主任务', desc: '自动创建团队完成目标', icon: Cpu },
-]
+/** Fixed create defaults — not exposed in the dialog UI. */
+const DEFAULT_SESSION_MODE = 'supervisor' as const
+const DEFAULT_AUTO_ACCEPT = true
 
 // ─── Component ───
 
 export default function SessionCreator({ onClose }: Props) {
   const autoWorktree = useSettingsStore(s => s.settings.autoWorktree)
 
-  const [name, setName] = useState(() => `会话 ${new Date().toLocaleTimeString('zh-CN')}`)
   const [workDir, setWorkDir] = useState('')
   const [providerId, setProviderId] = useState('claude-code')
   const [providers, setProviders] = useState<AIProvider[]>([])
-  const [mode, setMode] = useState<string>('normal')
-  const [prompt, setPrompt] = useState('')
-  const autoAccept = true
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
-  const [worktreeState, setWorktreeState] = useState<'idle' | 'git' | 'plain'>('idle')
-  /** 创建时立即进入 worktree；默认 true（内置默认隔离） */
-  const [isolateOnCreate, setIsolateOnCreate] = useState(true)
 
   // 常用目录 / 工作区
   const [recentDirs, setRecentDirs] = useState<RecentDir[]>([])
   const [showAllDirs, setShowAllDirs] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [defaultsReady, setDefaultsReady] = useState(false)
@@ -291,38 +281,33 @@ export default function SessionCreator({ onClose }: Props) {
     return () => { cancelled = true }
   }, [])
 
+  // Prefetch git root for selected workdir so create is snappy when isolation applies.
   useEffect(() => {
     let cancelled = false
     const targetDir = workDir.trim()
 
     if (!targetDir || !autoWorktree) {
-      setWorktreeState('idle')
       return () => {
         cancelled = true
       }
     }
 
     if (repoRootCache.has(targetDir)) {
-      setWorktreeState((repoRootCache.get(targetDir) || '') ? 'git' : 'plain')
       return () => {
         cancelled = true
       }
     }
 
-    setWorktreeState('idle')
     const timer = window.setTimeout(() => {
       void GitService.GetRepoRoot(targetDir)
         .then((repoPath) => {
-          const resolvedRepoPath = repoPath || ''
-          repoRootCache.set(targetDir, resolvedRepoPath)
           if (!cancelled) {
-            setWorktreeState(resolvedRepoPath ? 'git' : 'plain')
+            repoRootCache.set(targetDir, repoPath || '')
           }
         })
         .catch(() => {
-          repoRootCache.set(targetDir, '')
           if (!cancelled) {
-            setWorktreeState('plain')
+            repoRootCache.set(targetDir, '')
           }
         })
     }, WORKDIR_CHECK_DEBOUNCE_MS)
@@ -423,16 +408,16 @@ export default function SessionCreator({ onClose }: Props) {
       ) || ''
       repoRootCache.set(trimmedWorkDir, gitRepoPath)
 
-      // 默认隔离：即使目录尚非 Git 仓库，创建时也会自动 init 再进入 worktree
-      const shouldIsolate = Boolean(autoWorktree && isolateOnCreate)
+      // Always isolate on create when auto-worktree is enabled (non-git dirs: EnsureRepo + worktree).
+      const shouldIsolate = Boolean(autoWorktree)
 
       const config = {
-        name,
+        name: `会话 ${new Date().toLocaleTimeString('zh-CN')}`,
         workingDirectory: trimmedWorkDir,
         providerId,
-        mode: mode as any,
-        initialPrompt: prompt,
-        autoAccept,
+        mode: DEFAULT_SESSION_MODE as any,
+        initialPrompt: '',
+        autoAccept: DEFAULT_AUTO_ACCEPT,
         worktreeEnabled: shouldIsolate,
         // 非 Git 目录时为空；chatCore 会 EnsureRepo 后写入 worktreeSourceRepo
         gitRepoPath: gitRepoPath || trimmedWorkDir,
@@ -447,9 +432,6 @@ export default function SessionCreator({ onClose }: Props) {
         // ConversationView can retry on mount. sendMessage also auto-inits.
         try { await workbenchApi.session.init(session.id) } catch {}
         await workbenchApi.navigation.openSession(session.id)
-        if (prompt.trim()) {
-          await workbenchApi.chat.appendMessage(session.id, prompt.trim())
-        }
       }
       onClose()
     } catch (err: any) {
@@ -460,13 +442,6 @@ export default function SessionCreator({ onClose }: Props) {
   }
 
   const hasQuickPaths = workspaces.length > 0 || recentDirs.length > 0
-  // 默认名形如「会话 17:19:26」，用户改过名称才在折叠摘要中提示
-  const hasCustomName = Boolean(name.trim()) && !/^会话\s/.test(name.trim())
-  const advancedSummary = [
-    hasCustomName ? '已命名' : '',
-    prompt.trim() ? '含初始指令' : '',
-    isolateOnCreate ? '立即隔离' : '',
-  ].filter(Boolean).join(' · ')
 
   return (
     <DraggableDialog
@@ -477,7 +452,7 @@ export default function SessionCreator({ onClose }: Props) {
       onClose={onClose}
       testId="session-creator"
     >
-      {/* Body：默认只展示创建必需项，其余收入高级选项 */}
+      {/* Body：工作目录 + AI 提供者 */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5">
         {/* ── 1. 工作目录 ── */}
         <div>
@@ -622,126 +597,6 @@ export default function SessionCreator({ onClose }: Props) {
           ) : (
             <div className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-gray-500">
               没有可用 Provider，请先到设置里启用或创建 Provider。
-            </div>
-          )}
-        </div>
-
-        {/* ── 3. 会话模式（紧凑，去掉副标题） ── */}
-        <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1.5">会话模式</label>
-          <div className="flex gap-1.5">
-            {modes.map(m => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setMode(m.id)}
-                title={m.desc}
-                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 transition-colors ${
-                  mode === m.id
-                    ? 'border-blue-400/40 bg-blue-500/10'
-                    : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                }`}
-              >
-                <m.icon size={13} className="shrink-0 text-slate-300" />
-                <span className="text-[11px] font-medium text-white">{m.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── 4. 高级选项（默认折叠） ── */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.02]">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(v => !v)}
-            className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
-            aria-expanded={showAdvanced}
-          >
-            <span className="flex items-center gap-1.5 text-xs font-medium text-gray-300">
-              {showAdvanced ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              高级选项
-            </span>
-            {!showAdvanced && advancedSummary && (
-              <span className="max-w-[220px] truncate text-[10px] text-gray-600">{advancedSummary}</span>
-            )}
-          </button>
-
-          {showAdvanced && (
-            <div className="space-y-3.5 border-t border-white/10 px-3 py-3">
-              {/* 会话名称 */}
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">会话名称</label>
-                <input
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60"
-                />
-              </div>
-
-              {/* Worktree 隔离策略：Git 与非 Git 均可（非 Git 会自动 init） */}
-              {autoWorktree && (worktreeState === 'git' || worktreeState === 'plain') && (
-                <div>
-                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-gray-400">
-                    <GitBranch size={12} className="text-emerald-400" />
-                    Git Worktree 隔离
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsolateOnCreate(false)}
-                      className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                        !isolateOnCreate
-                          ? 'border-emerald-400/40 bg-emerald-500/10'
-                          : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                      }`}
-                    >
-                      <div className="text-[11px] font-medium text-white">改代码时再隔离</div>
-                      <div className="mt-0.5 text-[10px] text-gray-500">先在主目录启动，会话内可一键进入</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsolateOnCreate(true)}
-                      className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                        isolateOnCreate
-                          ? 'border-emerald-400/40 bg-emerald-500/10'
-                          : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                      }`}
-                    >
-                      <div className="text-[11px] font-medium text-white">创建时立即隔离</div>
-                      <div className="mt-0.5 text-[10px] text-gray-500">
-                        {worktreeState === 'plain' ? '先自动 git init，再进入 worktree' : '直接在独立 worktree 中启动'}
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* 初始指令 */}
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">初始指令（可选）</label>
-                <textarea
-                  value={prompt}
-                  onChange={e => setPrompt(e.target.value)}
-                  rows={2}
-                  placeholder="创建后自动发送的指令..."
-                  className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60 resize-none"
-                />
-                <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
-                  {autoWorktree
-                    ? (
-                        worktreeState === 'git'
-                          ? (isolateOnCreate
-                              ? '将创建独立 worktree（.allbeingsfuture-worktrees/）并在其中启动会话；完成后可在工具栏合并回主分支。'
-                              : '当前目录属于 Git 仓库。会话会先在主目录启动；需要改代码时，可在会话工具栏一键进入 Worktree，或由 Agent 按规则进入。')
-                          : worktreeState === 'plain'
-                            ? (isolateOnCreate
-                                ? '当前目录不是 Git 仓库。创建时将自动 git init（并生成首个提交），再在 .allbeingsfuture-worktrees/ 下启动隔离会话。'
-                                : '当前目录不是 Git 仓库。会话将直接在该目录启动；需要改代码时一键隔离会自动 git init 后再进入 worktree。')
-                            : '已开启 Git worktree 规则。选择目录后可立即隔离；非 Git 目录会自动初始化仓库。'
-                      )
-                    : '已关闭 Git worktree 规则。新会话会直接使用当前目录；如果你要做代码修改，建议在设置中重新开启。'}
-                </p>
-              </div>
             </div>
           )}
         </div>
