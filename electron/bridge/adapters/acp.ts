@@ -403,10 +403,9 @@ export class AcpAdapter implements ProviderAdapter {
     message: string,
     images?: Array<{ data: string; mimeType: string }>,
   ): ContentBlock[] {
-    if (images?.length && !this.initializeResponse?.agentCapabilities?.promptCapabilities?.image) {
-      throw new Error('The configured ACP agent did not negotiate image prompt support')
-    }
-
+    // Many real agents accept multimodal prompts even when ACP handshake omits
+    // promptCapabilities.image. Always forward image blocks; let the agent reject
+    // unsupported content rather than blocking client-side.
     const instructions = this.initialInstructionsSent
       ? ''
       : [this.config.customInstructions, this.config.appendSystemPrompt]

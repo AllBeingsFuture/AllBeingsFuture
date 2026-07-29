@@ -48,7 +48,8 @@ async function run(): Promise<void> {
         agentInfo: { name: 'Fake ACP Agent', version: '1.0.0' },
         agentCapabilities: {
           loadSession: true,
-          promptCapabilities: { image: true },
+          // Real agents often omit image capability even when they accept multimodal prompts.
+          promptCapabilities: behavior === 'no_image_capability' ? {} : { image: true },
           mcpCapabilities: { http: true, sse: true },
           sessionCapabilities: { close: {} },
         },
@@ -65,6 +66,7 @@ async function run(): Promise<void> {
       turns.set(params.sessionId, turn)
       signal.addEventListener('abort', () => turn.abort(), { once: true })
       const text = params.prompt.find((content) => content.type === 'text')?.text || ''
+      const imageCount = params.prompt.filter((content) => content.type === 'image').length
 
       if (text === 'cancel') {
         await new Promise<void>((resolve) => turn.signal.addEventListener('abort', () => resolve(), { once: true }))
@@ -83,7 +85,10 @@ async function run(): Promise<void> {
       })
       await sendUpdate(client, {
         sessionUpdate: 'agent_message_chunk',
-        content: { type: 'text', text: `echo:${text}` },
+        content: {
+          type: 'text',
+          text: imageCount > 0 ? `echo:${text} images:${imageCount}` : `echo:${text}`,
+        },
         messageId: 'message-1',
       })
       await sendUpdate(client, {
