@@ -105,6 +105,19 @@ export class ProcessService {
     // Initialize session search service
     this.sessionSearch = new SessionSearchService(sessionService, this.sessionStates)
 
+    // Cold start: sessions left as running/starting/waiting_input in SQLite have
+    // no live agent process. Mark them interrupted without launching anything so
+    // restore is history-only (no auto re-prompt of prior turns).
+    try {
+      const rewritten = this.sessionService.reconcileOrphanedLiveSessions('interrupted')
+      if (rewritten > 0) {
+        appLog('info', `Reconciled ${rewritten} orphaned live session(s) to interrupted after restart`, 'process')
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      appLog('warn', `Failed to reconcile orphaned live sessions: ${errMsg}`, 'process')
+    }
+
     // Start the state inference polling timer
     this.stateInference.start()
 

@@ -15,6 +15,7 @@
     "services/mcp.ts",
     "services/provider-defaults.ts",
     "services/provider.ts",
+    "services/session.ts",
     "services/skill-engine.ts",
     "services/skill.ts",
     "services/supervisor-prompt.ts",

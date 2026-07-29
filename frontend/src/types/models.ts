@@ -38,7 +38,7 @@ export interface AIProvider {
 
 export type SessionStatus =
   | 'starting' | 'running' | 'idle'
-  | 'waiting_input' | 'completed' | 'error' | 'terminated'
+  | 'waiting_input' | 'completed' | 'error' | 'terminated' | 'interrupted'
 
 export type SessionMode = 'normal' | 'supervisor' | 'mission'
 
