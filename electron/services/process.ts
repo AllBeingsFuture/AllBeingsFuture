@@ -22,7 +22,13 @@ import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
 import { MessageScheduler } from './message-scheduler.js'
 import { appLog } from './log.js'
-import { injectSupervisorPrompt, injectProviderRules, cleanupSupervisorPrompt, buildAllRulesContent } from './supervisor-prompt.js'
+import {
+  injectSupervisorPrompt,
+  injectProviderRules,
+  cleanupSupervisorPrompt,
+  buildAllRulesContent,
+  buildWorkerRulesContent,
+} from './supervisor-prompt.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
@@ -562,75 +568,87 @@ export class ProcessService {
       }
     }
 
-    // Inject agent-control + ABF rules for ALL sessions (parent and child).
-    // Child agents must be able to spawn further agents and inherit Supervisor rules,
-    // same as the parent session. ABF_PARENT_SESSION_ID is always the current session
-    // so nested spawn_agent tracks grandchildren under this session.
-    // - Claude: .claude/rules/abf-*.md
-    // - ACP CLI agents: AGENTS.md (+ GEMINI.md / QWEN.md when that is their native file)
-    // - HTTP openai-api: no project file discovery → appendSystemPrompt only
-    try {
-      const providerNames = this.providerService.getRunnable().map(p => p.name)
-      const workDir = config.workDir as string
-      const isClaudeProvider = provider.id === 'claude-code'
-      const isHttpApiProvider = provider.adapterType === 'openai-api' || !isAcp
+    // Inject ABF rules by session role.
+    // - Top-level (Supervisor): file discovery (+ agent-control MCP)
+    // - Child (Worker): appendSystemPrompt only — children share the parent workDir,
+    //   so we must NOT rewrite AGENTS.md / .claude/rules (would pollute the parent).
+    //   Worker rules override Supervisor scheduling text found on disk.
+    if (session.parentSessionId) {
+      try {
+        const workerRules = buildWorkerRulesContent()
+        const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
+        config.appendSystemPrompt = existingPrompt
+          ? `${workerRules}\n\n${existingPrompt}`
+          : workerRules
+        appLog('info', `Injected worker role prompt for child session ${sessionId}`, 'process')
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to inject worker rules for child session: ${errMsg}`, 'process')
+      }
+    } else {
+      try {
+        const providerNames = this.providerService.getRunnable().map(p => p.name)
+        const workDir = config.workDir as string
+        const isClaudeProvider = provider.id === 'claude-code'
+        const isHttpApiProvider = provider.adapterType === 'openai-api' || !isAcp
 
-      if (isAcp || isClaudeProvider) {
-        try {
-          const apiPort = await this.ensureAgentApi()
-          config.mcpServers = {
-            ...((config.mcpServers as Record<string, unknown>) || {}),
-            'agent-control': {
-              command: 'node',
-              args: [this.getAgentControlMcpPath()],
-              env: {
-                ABF_AGENT_API_PORT: String(apiPort),
-                ABF_PARENT_SESSION_ID: sessionId,
+        if (isAcp || isClaudeProvider) {
+          try {
+            const apiPort = await this.ensureAgentApi()
+            config.mcpServers = {
+              ...((config.mcpServers as Record<string, unknown>) || {}),
+              'agent-control': {
+                command: 'node',
+                args: [this.getAgentControlMcpPath()],
+                env: {
+                  ABF_AGENT_API_PORT: String(apiPort),
+                  ABF_PARENT_SESSION_ID: sessionId,
+                },
               },
-            },
+            }
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
           }
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
         }
-      }
 
-      if (isClaudeProvider) {
-        try {
-          injectSupervisorPrompt(workDir, providerNames)
-          this.supervisorPromptSessions.set(sessionId, workDir)
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          appLog('warn', `Failed to inject Claude rules files: ${errMsg}`, 'process')
+        if (isClaudeProvider) {
+          try {
+            injectSupervisorPrompt(workDir, providerNames)
+            this.supervisorPromptSessions.set(sessionId, workDir)
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to inject Claude rules files: ${errMsg}`, 'process')
+          }
+        } else if (isHttpApiProvider) {
+          // Pure HTTP chat APIs do not auto-load AGENTS.md / GEMINI.md.
+          try {
+            const rulesContent = buildAllRulesContent(providerNames, true)
+            const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
+            config.appendSystemPrompt = existingPrompt
+              ? `${existingPrompt}\n\n${rulesContent}`
+              : rulesContent
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to append ABF rules to system prompt: ${errMsg}`, 'process')
+          }
+        } else {
+          // File-only path for CLI agents (Codex / Gemini / OpenCode / Grok / …).
+          // Always inject into the agent runtime cwd (config.workDir / session worktree).
+          // Do NOT prefer worktreeSourceRepo — isolated sessions run in the worktree, so
+          // rules must live there or the agent never discovers them.
+          try {
+            injectProviderRules(workDir, provider.id, providerNames)
+            this.supervisorPromptSessions.set(sessionId, workDir)
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            appLog('warn', `Failed to inject provider rule files: ${errMsg}`, 'process')
+          }
         }
-      } else if (isHttpApiProvider) {
-        // Pure HTTP chat APIs do not auto-load AGENTS.md / GEMINI.md.
-        try {
-          const rulesContent = buildAllRulesContent(providerNames, true)
-          const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
-          config.appendSystemPrompt = existingPrompt
-            ? `${existingPrompt}\n\n${rulesContent}`
-            : rulesContent
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          appLog('warn', `Failed to append ABF rules to system prompt: ${errMsg}`, 'process')
-        }
-      } else {
-        // File-only path for CLI agents (Codex / Gemini / OpenCode / Grok / …).
-        // Always inject into the agent runtime cwd (config.workDir / session worktree).
-        // Do NOT prefer worktreeSourceRepo — isolated sessions run in the worktree, so
-        // rules must live there or the agent never discovers them.
-        try {
-          injectProviderRules(workDir, provider.id, providerNames)
-          this.supervisorPromptSessions.set(sessionId, workDir)
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          appLog('warn', `Failed to inject provider rule files: ${errMsg}`, 'process')
-        }
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to inject ABF rules: ${errMsg}`, 'process')
       }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      appLog('warn', `Failed to inject ABF rules: ${errMsg}`, 'process')
     }
 
     // Register session with parser and state inference engines

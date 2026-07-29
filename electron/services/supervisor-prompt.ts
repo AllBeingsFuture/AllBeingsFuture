@@ -1,12 +1,14 @@
 /**
  * ABF 规则注入器
  *
- * 按 Provider 差异化注入规则（仅文件发现，不做 appendSystemPrompt 双通道）：
- * - Claude:     写 .claude/rules/abf-*.md
+ * 按 Provider 差异化注入规则：
+ * - Claude:     写 .claude/rules/abf-*.md（顶层 Supervisor 会话）
  * - Codex 等多数 CLI: 写 AGENTS.md（行业通用，OpenCode / Grok / Kimi / Copilot 等默认读取）
  * - Gemini:     额外写 GEMINI.md（默认上下文文件是 GEMINI.md，不是 AGENTS.md）
  * - Qwen:       额外写 QWEN.md（默认上下文文件是 QWEN.md）
  * - openai-api: 无文件发现，由 process.ts 走 appendSystemPrompt
+ * - 子 Agent（Worker）：不写共享 workDir 规则文件（避免污染父会话），
+ *   由 process.ts 通过 appendSystemPrompt 注入 abf-worker.md
  *
  * Codex 额外：AGENTS.md 内附带 codex-agents.md 专有配置
  *
@@ -22,6 +24,7 @@ import { appLog } from './log.js'
 const ABF_RULES_FILES = [
   'abf-common.md',
   'abf-supervisor.md',
+  'abf-worker.md',
   'abf-providers.md',
   'abf-git-workflow.md',
 ] as const
@@ -106,6 +109,33 @@ export function buildSupervisorPrompt(availableProviders: string[]): string {
 
   const template = loadTemplate('abf-supervisor.md')
   return template.replace('{{PROVIDER_LIST}}', providerList)
+}
+
+/**
+ * 构建子 Agent（Worker）角色 Prompt。
+ * 用于 child session 的 appendSystemPrompt；只注入这一小段，不塞 common/providers/git。
+ */
+export function buildWorkerPrompt(): string {
+  return loadTemplate('abf-worker.md')
+}
+
+/**
+ * 子 Agent 规则：仅 Worker 角色（刻意极简，避免上下文膨胀）。
+ */
+export function buildWorkerRulesContent(): string {
+  try {
+    return buildWorkerPrompt()
+  } catch {
+    appLog('warn', '[Supervisor] Failed to load abf-worker.md', 'supervisor-prompt')
+    return ''
+  }
+}
+
+/**
+ * 派给 Worker 的任务文本：只做 trim，不再二次包装（角色约束已在 worker prompt 里）。
+ */
+export function wrapWorkerTaskPrompt(taskPrompt: string): string {
+  return (taskPrompt || '').trim()
 }
 
 // ==================== 静态规则内容 ====================

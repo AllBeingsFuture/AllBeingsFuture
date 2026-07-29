@@ -8,6 +8,7 @@ import type { BridgeManager } from '../bridge/bridge.js'
 import type { ConcurrencyGuard } from './concurrency-guard.js'
 import { AgentTracker, type TrackedAgent } from './agent-tracker.js'
 import { appLog } from './log.js'
+import { wrapWorkerTaskPrompt } from './supervisor-prompt.js'
 import type { ChatMessage, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
 import type { BrowserWindow } from 'electron'
 
@@ -74,9 +75,11 @@ export class AgentLifecycleManager {
     const parent = this.sessionService.getById(parentSessionId)
     if (!parent) throw new Error(`Parent session not found: ${parentSessionId}`)
     const parentWorkDir = parent.worktreePath || parent.workingDirectory
+    const workerPrompt = wrapWorkerTaskPrompt(options.prompt)
+    const displayName = this.normalizeWorkerName(options.name)
 
     const child = this.sessionService.create({
-      name: options.name,
+      name: displayName,
       providerId: options.providerId || parent.providerId,
       workingDirectory: parentWorkDir,
       parentSessionId,
@@ -88,13 +91,13 @@ export class AgentLifecycleManager {
     const agent = tracker.registerPersistentChild(
       parentSessionId,
       child.id,
-      options.name,
-      options.prompt,
+      displayName,
+      workerPrompt,
     )
     this.emitAgentUpdate(parentSessionId, agent)
 
     await this.callbacks.initSession(child.id)
-    await this.callbacks.sendMessage(child.id, options.prompt)
+    await this.callbacks.sendMessage(child.id, workerPrompt)
 
     appLog('info', `Persistent child spawned: ${child.id} for parent ${parentSessionId}`, 'process')
     return { childSessionId: child.id }
@@ -111,9 +114,11 @@ export class AgentLifecycleManager {
     const parent = this.sessionService.getById(parentSessionId)
     if (!parent) throw new Error(`Parent session not found: ${parentSessionId}`)
     const parentWorkDir = parent.worktreePath || parent.workingDirectory
+    const workerPrompt = wrapWorkerTaskPrompt(options.prompt)
+    const displayName = this.normalizeWorkerName(options.name)
 
     const child = this.sessionService.create({
-      name: options.name,
+      name: displayName,
       providerId: options.providerId || parent.providerId,
       workingDirectory: parentWorkDir,
       parentSessionId,
@@ -125,8 +130,8 @@ export class AgentLifecycleManager {
     const agent = tracker.registerPersistentChild(
       parentSessionId,
       child.id,
-      options.name,
-      options.prompt,
+      displayName,
+      workerPrompt,
     )
     this.emitAgentUpdate(parentSessionId, agent)
 
@@ -134,11 +139,18 @@ export class AgentLifecycleManager {
     const resultPromise = this.createChildTurnWaiter(child.id, timeoutMs)
 
     await this.callbacks.initSession(child.id)
-    await this.callbacks.sendMessage(child.id, options.prompt)
+    await this.callbacks.sendMessage(child.id, workerPrompt)
 
     appLog('info', `Persistent child spawned (with wait): ${child.id}`, 'process')
     const result = await resultPromise
     return { childSessionId: child.id, result }
+  }
+
+  /** Sidebar-friendly short label (aligned with AO's ≤20 char guidance). */
+  private normalizeWorkerName(name: string): string {
+    const trimmed = (name || '').trim() || 'Worker'
+    // Count UTF-16 code units is fine for UI labels; cap at 20 visible-ish chars
+    return trimmed.length > 20 ? trimmed.slice(0, 20) : trimmed
   }
 
   /**
