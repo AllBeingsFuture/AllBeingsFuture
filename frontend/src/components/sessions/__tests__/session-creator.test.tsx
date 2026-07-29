@@ -141,7 +141,7 @@ describe('SessionCreator', () => {
     })
   })
 
-  it('falls back to a plain session when the directory is not a git repository', async () => {
+  it('still enables isolation for non-git directories so backend can auto-init', async () => {
     getRepoRootMock.mockResolvedValue('')
 
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
@@ -151,15 +151,15 @@ describe('SessionCreator', () => {
     })
 
     await expandAdvanced()
-    await screen.findByText(/当前目录不是 Git 仓库/)
+    await screen.findByText(/将自动 git init/)
 
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
     await waitFor(() => {
       expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
         workingDirectory: 'C:/plain-dir',
-        worktreeEnabled: false,
-        gitRepoPath: '',
+        worktreeEnabled: true,
+        gitRepoPath: 'C:/plain-dir',
       }))
     })
   })

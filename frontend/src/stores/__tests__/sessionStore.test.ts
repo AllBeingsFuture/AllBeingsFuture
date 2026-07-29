@@ -14,6 +14,7 @@ const serviceMocks = vi.hoisted(() => ({
   },
   gitService: {
     GetRepoRoot: vi.fn(),
+    EnsureRepo: vi.fn(),
     CreateWorktree: vi.fn(),
     RemoveWorktree: vi.fn(),
     MergeWorktree: vi.fn(),
@@ -147,6 +148,7 @@ describe('sessionStore runtime status sync', () => {
     } as any)
 
     expect(serviceMocks.gitService.GetRepoRoot).toHaveBeenCalledWith('C:/repo')
+    expect(serviceMocks.gitService.EnsureRepo).not.toHaveBeenCalled()
     expect(serviceMocks.gitService.CreateWorktree).toHaveBeenCalledWith(
       'C:/repo',
       'fix-isolation-20260328135511',
@@ -166,6 +168,65 @@ describe('sessionStore runtime status sync', () => {
     expect(serviceMocks.sessionService.GetByID).toHaveBeenCalledWith('session-worktree')
     expect(session).toEqual(hydratedSession)
     expect(useSessionStore.getState().sessions[0]).toEqual(hydratedSession)
+  })
+
+  it('auto-inits git then creates worktree when directory is not a repository', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-28T13:55:11'))
+
+    const plainDir = 'C:/plain-project'
+    const worktreePath = 'C:/plain-project/.allbeingsfuture-worktrees/plain-session-20260328135511'
+    const createdSession = makeSession({
+      id: 'session-plain-init',
+      workingDirectory: worktreePath,
+    })
+    const hydratedSession = makeSession({
+      id: 'session-plain-init',
+      workingDirectory: worktreePath,
+      worktreePath,
+      worktreeBranch: 'worktree-plain-session-20260328135511',
+      worktreeBaseCommit: 'init001',
+      worktreeBaseBranch: 'main',
+      worktreeSourceRepo: plainDir,
+    })
+
+    serviceMocks.gitService.GetRepoRoot.mockRejectedValue(new Error('not a git repository'))
+    serviceMocks.gitService.EnsureRepo.mockResolvedValue(plainDir)
+    serviceMocks.gitService.CreateWorktree.mockResolvedValue({
+      worktreePath,
+      branch: 'worktree-plain-session-20260328135511',
+      baseCommit: 'init001',
+      baseBranch: 'main',
+    })
+    serviceMocks.sessionService.Create.mockResolvedValue(createdSession)
+    serviceMocks.sessionService.SetWorktreeInfo.mockResolvedValue(undefined)
+    serviceMocks.sessionService.GetByID.mockResolvedValue(hydratedSession)
+
+    const session = await useSessionStore.getState().create({
+      name: 'Plain Session',
+      workingDirectory: plainDir,
+      providerId: 'codex',
+      worktreeEnabled: true,
+      gitRepoPath: plainDir,
+      gitBranch: '',
+    } as any)
+
+    expect(serviceMocks.gitService.GetRepoRoot).toHaveBeenCalledWith(plainDir)
+    expect(serviceMocks.gitService.EnsureRepo).toHaveBeenCalledWith(plainDir)
+    expect(serviceMocks.gitService.CreateWorktree).toHaveBeenCalledWith(
+      plainDir,
+      'plain-session-20260328135511',
+      'plain-session-20260328135511',
+    )
+    expect(serviceMocks.sessionService.SetWorktreeInfo).toHaveBeenCalledWith(
+      'session-plain-init',
+      worktreePath,
+      'worktree-plain-session-20260328135511',
+      'init001',
+      'main',
+      plainDir,
+    )
+    expect(session).toEqual(hydratedSession)
   })
 
   it('accepts legacy worktree responses that only expose path', async () => {

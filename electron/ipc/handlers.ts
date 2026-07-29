@@ -369,6 +369,7 @@ export function registerAllIpcHandlers(
   // ==============================================================
   ipcMain.handle('GitService.IsGitRepo', (_e, p: string) => gitService.isGitRepo(p))
   ipcMain.handle('GitService.GetRepoRoot', (_e, p: string) => gitService.getRepoRoot(p))
+  ipcMain.handle('GitService.EnsureRepo', (_e, p: string) => gitService.ensureRepo(p))
   ipcMain.handle('GitService.GetCurrentBranch', (_e, repoPath: string) => gitService.getCurrentBranch(repoPath))
   ipcMain.handle('GitService.GetMainBranch', (_e, repoPath: string) => gitService.getMainBranch(repoPath))
   ipcMain.handle('GitService.GetStatus', (_e, repoPath: string) => gitService.getStatus(repoPath))
