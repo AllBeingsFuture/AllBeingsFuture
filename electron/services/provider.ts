@@ -5,6 +5,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { v4 as uuidv4 } from 'uuid'
 import type { Database } from './database.js'
 
@@ -129,7 +130,15 @@ export function resolveExecutable(target: string): boolean {
     .map(entry => entry.trim())
     .filter(Boolean)
 
-  for (const entry of pathEntries) {
+  // Also search app-local node_modules/.bin for bundled ACP wrappers
+  // (claude-agent-acp / codex-acp) without requiring global install.
+  const localBins = [
+    path.join(process.cwd(), 'node_modules', '.bin'),
+    path.join(path.dirname(process.execPath), 'node_modules', '.bin'),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../node_modules/.bin'),
+  ]
+
+  for (const entry of [...localBins, ...pathEntries]) {
     if (tryCandidate(path.join(entry, executable))) {
       return true
     }

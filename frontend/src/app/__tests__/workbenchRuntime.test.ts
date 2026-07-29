@@ -284,7 +284,7 @@ describe('workbench runtime', () => {
 
   it('dispatches provider, app and log commands through the runtime', async () => {
     const providers = await workbenchApi.provider.list()
-    const created = await workbenchApi.provider.create('Custom', 'codex', 'codex-appserver' as any)
+    const created = await workbenchApi.provider.create('Custom', 'codex-acp', 'acp' as any)
     await workbenchApi.provider.update('provider-1', { isEnabled: true })
     await workbenchApi.provider.remove('provider-1')
     const isAvailable = await workbenchApi.provider.testExecutable('provider-1', 'C:/tools/codex.exe')
@@ -293,12 +293,12 @@ describe('workbench runtime', () => {
     await workbenchApi.log.openFile()
 
     expect(providers).toEqual([{ id: 'provider-1', name: 'Codex' }])
-    expect(created).toEqual({ id: 'provider-2', name: 'Custom', command: 'codex', adapterType: 'codex-appserver' })
+    expect(created).toEqual({ id: 'provider-2', name: 'Custom', command: 'codex-acp', adapterType: 'acp' })
     expect(isAvailable).toBe(true)
     expect(directory).toBe('C:/repo')
     expect(files).toEqual(['C:/tools/codex.exe'])
     expect(window.electronAPI.invoke).toHaveBeenCalledWith('ProviderService.GetAll')
-    expect(window.electronAPI.invoke).toHaveBeenCalledWith('ProviderService.Create', 'Custom', 'codex', 'codex-appserver')
+    expect(window.electronAPI.invoke).toHaveBeenCalledWith('ProviderService.Create', 'Custom', 'codex-acp', 'acp')
     expect(window.electronAPI.invoke).toHaveBeenCalledWith('ProviderService.Update', 'provider-1', { isEnabled: true })
     expect(window.electronAPI.invoke).toHaveBeenCalledWith('ProviderService.Delete', 'provider-1')
     expect(window.electronAPI.invoke).toHaveBeenCalledWith(

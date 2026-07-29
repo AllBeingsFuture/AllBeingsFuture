@@ -6,6 +6,8 @@
  * directly uses the BridgeManager which integrates adapters in-process.
  */
 
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { app, type BrowserWindow } from 'electron'
 import type { Database } from './database.js'
@@ -515,26 +517,49 @@ export class ProcessService {
         : runtimeCapabilitiesPrompt
     }
 
+    // Resume only when the provider speaks ACP and the stored conversation id
+    // was produced by an ACP session. Migration clears legacy ids; refuse
+    // re-attaching opaque non-ACP ids that would fail session/load silently.
     if (session.conversationId) {
-      config.resumeSessionId = session.conversationId
+      if (isAcp) {
+        config.resumeSessionId = session.conversationId
+      } else {
+        appLog(
+          'warn',
+          `Skipping conversation resume for ${sessionId}: provider adapter '${provider.adapterType}' is not ACP`,
+          'process',
+        )
+      }
     }
     if (provider.resumeFlag) {
       config.resumeFlag = provider.resumeFlag
     }
 
+    // Wire local Codex binary into the official codex-acp wrapper when present.
+    if (provider.id === 'codex' && isAcp) {
+      const envOverrides = {
+        ...((config.envOverrides as Record<string, string> | undefined) || {}),
+      }
+      if (!envOverrides.CODEX_PATH) {
+        const codexPath = this.resolveLocalCodexPath(provider)
+        if (codexPath) envOverrides.CODEX_PATH = codexPath
+      }
+      if (Object.keys(envOverrides).length > 0) {
+        config.envOverrides = envOverrides
+      }
+    }
+
     // Inject ABF rules for non-child sessions.
-    // Strategy: use file-based discovery per provider to avoid double injection.
-    //   - Claude:  .claude/rules/abf-*.md (auto-discovered, NO appendSystemPrompt)
-    //   - Codex:   AGENTS.md in repo root / workDir (auto-discovered, NO appendSystemPrompt)
-    //   - Others:  appendSystemPrompt only (no file discovery mechanism)
+    // Built-in CLI agents all run via ACP; optional file-based rules still use
+    // provider id (Claude rules dir / Codex AGENTS.md) when helpful.
     if (!session.parentSessionId) {
       try {
-        const isClaudeBased = this.isClaudeAdapter(provider.adapterType)
-        const isCodex = this.isCodexAdapter(provider.adapterType)
         const providerNames = this.providerService.getRunnable().map(p => p.name)
         const workDir = config.workDir as string
+        const isClaudeProvider = provider.id === 'claude-code'
+        const isCodexProvider = provider.id === 'codex'
 
-        if (isClaudeBased || isCodex || isAcp) {
+        if (isAcp || isClaudeProvider || isCodexProvider) {
           try {
             const apiPort = await this.ensureAgentApi()
             config.mcpServers = {
@@ -554,9 +579,7 @@ export class ProcessService {
           }
         }
 
-        if (isClaudeBased) {
-          // Claude: write .claude/rules/ files only (Claude auto-discovers them)
-          // Do NOT inject via appendSystemPrompt to avoid reading rules twice
+        if (isClaudeProvider) {
           try {
             injectSupervisorPrompt(workDir, providerNames)
             this.supervisorPromptSessions.set(sessionId, workDir)
@@ -564,9 +587,7 @@ export class ProcessService {
             const errMsg = err instanceof Error ? err.message : String(err)
             appLog('warn', `Failed to inject Claude rules files: ${errMsg}`, 'process')
           }
-        } else if (isCodex) {
-          // Codex: inject ABF rules into AGENTS.md so Codex's file discovery
-          // sees them. Prefer repo root when we already know it.
+        } else if (isCodexProvider) {
           try {
             const promptWorkDir = session.worktreeSourceRepo || workDir
             injectCodexAgentsMd(promptWorkDir, providerNames)
@@ -576,8 +597,6 @@ export class ProcessService {
             appLog('warn', `Failed to inject Codex AGENTS.md: ${errMsg}`, 'process')
           }
         } else {
-          // Other providers (Gemini, OpenCode, etc.): use appendSystemPrompt
-          // These don't have file-based rule discovery
           const rulesContent = buildAllRulesContent(providerNames, false)
           const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
           config.appendSystemPrompt = existingPrompt
@@ -1391,21 +1410,34 @@ export class ProcessService {
     })
   }
 
-  /** Check if a provider adapter type is Claude-based */
-  private isClaudeAdapter(adapterType: string): boolean {
-    const t = (adapterType || '').toLowerCase()
-    return t.includes('claude') || t === '' // default to Claude
-  }
-
-  /** Check if a provider adapter type is Codex-based */
-  private isCodexAdapter(adapterType: string): boolean {
-    const t = (adapterType || '').toLowerCase()
-    return t.includes('codex')
-  }
-
   private isAcpAdapter(adapterType: string): boolean {
     const t = (adapterType || '').toLowerCase()
     return t === 'acp' || t === 'acp-stdio'
+  }
+
+  /** Prefer user executablePath, then CODEX_PATH, then common local install locations. */
+  private resolveLocalCodexPath(provider: { executablePath?: string; command?: string }): string | undefined {
+    const candidates = [
+      provider.executablePath?.trim(),
+      process.env.CODEX_PATH?.trim(),
+      path.join(os.homedir(), '.npm-global', 'bin', 'codex'),
+      path.join(os.homedir(), '.local', 'bin', 'codex'),
+      '/usr/local/bin/codex',
+      '/opt/homebrew/bin/codex',
+    ].filter(Boolean) as string[]
+
+    for (const candidate of candidates) {
+      try {
+        if (candidate && fs.existsSync(candidate) && path.basename(candidate).startsWith('codex') && !candidate.includes('codex-acp')) {
+          return candidate
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Do not use command='codex-acp' as CODEX_PATH — that is the ACP wrapper.
+    return undefined
   }
 
   /**

@@ -128,8 +128,8 @@ describe('Session workspace', () => {
     appendMessageMock.mockResolvedValue(undefined)
     initializeTerminalMock.mockResolvedValue(() => {})
     getProvidersMock.mockResolvedValue([
-      { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'codex-appserver' },
-      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
+      { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'acp' },
+      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'acp' },
     ])
     testExecutableMock.mockResolvedValue(true)
   })

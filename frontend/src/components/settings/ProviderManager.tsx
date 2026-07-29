@@ -10,32 +10,29 @@ import type { AdapterType } from '../../types/models'
 // ─── Constants ───
 
 const ADAPTER_OPTIONS: { key: AdapterType; label: string }[] = [
-  { key: 'claude-sdk', label: 'Claude Code SDK' },
-  { key: 'codex-appserver', label: 'Codex App Server' },
-  { key: 'gemini-headless', label: 'Gemini Headless' },
-  { key: 'opencode-sdk', label: 'OpenCode SDK' },
+  { key: 'acp', label: 'ACP v1 / stdio' },
   { key: 'openai-api', label: 'OpenAI 兼容 API' },
-  { key: 'acp', label: 'ACP (stdio)' },
 ]
 
 const ADAPTER_ICONS: Record<string, { icon: string; color: string }> = {
-  'claude-sdk':      { icon: '>', color: '#58A6FF' },
-  'codex-appserver': { icon: '</>', color: '#F97316' },
-  'gemini-headless': { icon: '✦', color: '#34D399' },
-  'opencode-sdk':    { icon: '⚡', color: '#FB923C' },
   'openai-api':      { icon: '◉', color: '#10B981' },
   acp:               { icon: '⬡', color: '#A78BFA' },
   'acp-stdio':       { icon: '⬡', color: '#A78BFA' },
+  // Legacy retired types still render if an old row appears before migration
+  'claude-sdk':      { icon: '⬡', color: '#A78BFA' },
+  'codex-appserver': { icon: '⬡', color: '#A78BFA' },
+  'gemini-headless': { icon: '⬡', color: '#A78BFA' },
+  'opencode-sdk':    { icon: '⬡', color: '#A78BFA' },
 }
 
 const ADAPTER_CAPABILITIES: Record<string, string[]> = {
-  'claude-sdk':      ['可恢复', '可自动接受', '会话追踪', '确认检测'],
-  'codex-appserver': ['可恢复', '可自动接受', '确认检测'],
-  'gemini-headless': ['可自动接受', '确认检测'],
-  'opencode-sdk':    ['可自动接受'],
-  'openai-api':      ['API 兼容'],
+  'openai-api':      ['API 兼容', '非 Agent'],
   acp:               ['ACP v1', 'stdio', '可自动接受', '权限协商'],
   'acp-stdio':       ['ACP v1', 'stdio', '可自动接受', '权限协商'],
+  'claude-sdk':      ['已退役 → ACP v1'],
+  'codex-appserver': ['已退役 → ACP v1'],
+  'gemini-headless': ['已退役 → ACP v1'],
+  'opencode-sdk':    ['已退役 → ACP v1'],
 }
 
 const inputCls = 'w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-sm text-white placeholder-gray-500 outline-none focus:border-dark-accent/60 transition-colors'
@@ -415,14 +412,14 @@ function EditPanel({
                 Executable Path
               </span>
               <span className="text-[10px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded">
-                {form.adapterType === 'claude-sdk' ? 'claude-sdk' : 'command'}
+                {form.adapterType === 'openai-api' ? 'openai-api' : 'command'}
               </span>
             </div>
             <div className="flex gap-2">
               <input
                 value={form.executablePath || ''}
                 onChange={e => set('executablePath', e.target.value)}
-                placeholder={form.adapterType === 'claude-sdk' ? 'Auto-detect if empty' : form.command || 'command'}
+                placeholder={form.command || 'command / path'}
                 className={`flex-1 ${inputCls}`}
               />
               <button
@@ -596,7 +593,7 @@ function EditPanel({
 function AddProviderForm({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) {
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
-  const [adapterType, setAdapterType] = useState<AdapterType>('claude-sdk')
+  const [adapterType, setAdapterType] = useState<AdapterType>('acp')
   const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1')
   const [apiKey, setApiKey] = useState('')
   const [defaultModel, setDefaultModel] = useState('')

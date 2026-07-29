@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export interface ParsedCommand {
   command: string
@@ -262,10 +263,28 @@ function findCommandInPath(command: string): string[] {
 function getCommandSearchPathEntries(): string[] {
   const entries = splitPathEntries(process.env.PATH)
 
+  // Prefer project / app local node_modules/.bin so bundled ACP wrappers resolve offline.
+  for (const binDir of collectLocalNodeModuleBinDirs()) {
+    prependPathEntry(entries, binDir)
+  }
+
   const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
   const npmGlobalBin = path.join(appData, 'npm')
   if (existsSync(npmGlobalBin)) {
     prependPathEntry(entries, npmGlobalBin)
+  }
+
+  // Common user-level global bin locations (macOS/Linux)
+  for (const candidate of [
+    path.join(os.homedir(), '.npm-global', 'bin'),
+    path.join(os.homedir(), '.grok', 'bin'),
+    path.join(os.homedir(), '.local', 'bin'),
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+  ]) {
+    if (existsSync(candidate)) {
+      prependPathEntry(entries, candidate)
+    }
   }
 
   for (const candidate of [
@@ -278,6 +297,28 @@ function getCommandSearchPathEntries(): string[] {
   }
 
   return entries
+}
+
+/** node_modules/.bin directories that may contain installed ACP agent wrappers. */
+function collectLocalNodeModuleBinDirs(): string[] {
+  const dirs: string[] = []
+  const seen = new Set<string>()
+  const roots = [
+    process.cwd(),
+    path.resolve(process.cwd(), '..'),
+    path.dirname(fileURLToPath(import.meta.url)),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..'),
+  ]
+
+  for (const root of roots) {
+    const bin = path.join(root, 'node_modules', '.bin')
+    if (!existsSync(bin) || seen.has(bin)) continue
+    seen.add(bin)
+    dirs.push(bin)
+  }
+  return dirs
 }
 
 function buildSearchNames(command: string): string[] {

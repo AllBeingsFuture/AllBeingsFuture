@@ -1,29 +1,31 @@
 /**
- * Provider 能力注册表
- * 声明每个 AI Provider 对 MCP 和 Skill 的支持能力
+ * Provider capability registry.
+ * Declares MCP / Skill support for each built-in AI provider.
+ *
+ * All built-in CLI agents negotiate MCP over the shared AcpAdapter session.
  */
 
 // ---- Types ----
 
 export interface ProviderMcpCapability {
-  /** 是否原生支持 MCP */
+  /** Whether the provider natively supports MCP */
   native: boolean
-  /** MCP 配置参数名（如 '--mcp-config'） */
+  /** MCP config flag (legacy; unused for ACP negotiation) */
   configFlag?: string
-  /** MCP 配置环境变量（如 'OPENCODE_CONFIG'） */
+  /** MCP config environment variable */
   configEnvVar?: string
-  /** MCP 配置文件格式 */
+  /** MCP config file format */
   configFormat?: 'json' | 'json-opencode'
-  /** 不支持原生 MCP 时的降级策略 */
+  /** Fallback when native MCP is unavailable */
   fallback: 'prompt-injection' | 'none'
 }
 
 export interface ProviderSkillCapability {
-  /** 是否原生支持 /slash 命令 */
+  /** Whether /slash commands are natively supported */
   slashCommands: boolean
-  /** 是否支持 System Prompt 注入 */
+  /** Whether system prompt injection is supported */
   systemPrompt: boolean
-  /** 原生技能目录路径 */
+  /** Native skill directory path */
   nativeSkillDir?: string
 }
 
@@ -33,16 +35,30 @@ export interface ProviderCapability {
   skillSupport: ProviderSkillCapability
 }
 
+function acpNativeCapability(providerId: string, skillExtras?: Partial<ProviderSkillCapability>): ProviderCapability {
+  return {
+    providerId,
+    mcpSupport: {
+      native: true,
+      fallback: 'none',
+    },
+    skillSupport: {
+      slashCommands: false,
+      systemPrompt: true,
+      ...skillExtras,
+    },
+  }
+}
+
 // ---- Registry ----
 
 export class ProviderCapabilityRegistry {
   private static readonly capabilities: ReadonlyMap<string, ProviderCapability> = new Map([
+    // Built-in CLI agents: MCP negotiated over shared AcpAdapter
     ['claude-code', {
       providerId: 'claude-code',
       mcpSupport: {
         native: true,
-        configFlag: '--mcp-config',
-        configFormat: 'json',
         fallback: 'none',
       },
       skillSupport: {
@@ -51,55 +67,14 @@ export class ProviderCapabilityRegistry {
         nativeSkillDir: '.claude/commands',
       },
     }],
-    ['codex', {
-      providerId: 'codex',
-      mcpSupport: {
-        native: true,
-        configFlag: '--config',
-        fallback: 'none',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-      },
-    }],
-    ['gemini-cli', {
-      providerId: 'gemini-cli',
-      mcpSupport: {
-        native: false,
-        fallback: 'prompt-injection',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-      },
-    }],
-    ['iflow', {
-      providerId: 'iflow',
-      mcpSupport: {
-        native: true,
-        configFlag: '--mcp-config',
-        configFormat: 'json',
-        fallback: 'none',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-      },
-    }],
-    ['opencode', {
-      providerId: 'opencode',
-      mcpSupport: {
-        native: true,
-        configEnvVar: 'OPENCODE_CONFIG',
-        configFormat: 'json-opencode',
-        fallback: 'none',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-      },
-    }],
+    ['codex', acpNativeCapability('codex')],
+    ['gemini-cli', acpNativeCapability('gemini-cli')],
+    ['opencode', acpNativeCapability('opencode')],
+    ['grok-build', acpNativeCapability('grok-build')],
+    ['qwen-code', acpNativeCapability('qwen-code')],
+    ['kimi-cli', acpNativeCapability('kimi-cli')],
+    ['github-copilot', acpNativeCapability('github-copilot')],
+    // Non-agent HTTP API
     ['openai-api', {
       providerId: 'openai-api',
       mcpSupport: {
@@ -111,43 +86,9 @@ export class ProviderCapabilityRegistry {
         systemPrompt: true,
       },
     }],
-    // Native ACP agents: MCP is negotiated over the shared AcpAdapter session.
-    ['grok-build', {
-      providerId: 'grok-build',
-      mcpSupport: {
-        native: true,
-        fallback: 'none',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-      },
-    }],
-    ['qwen-code', {
-      providerId: 'qwen-code',
-      mcpSupport: {
-        native: true,
-        fallback: 'none',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-        nativeSkillDir: undefined,
-      },
-    }],
-    ['kimi-cli', {
-      providerId: 'kimi-cli',
-      mcpSupport: {
-        native: true,
-        fallback: 'none',
-      },
-      skillSupport: {
-        slashCommands: false,
-        systemPrompt: true,
-      },
-    }],
-    ['github-copilot', {
-      providerId: 'github-copilot',
+    // Optional legacy id still referenced in older DBs
+    ['iflow', {
+      providerId: 'iflow',
       mcpSupport: {
         native: true,
         fallback: 'none',
@@ -159,17 +100,17 @@ export class ProviderCapabilityRegistry {
     }],
   ])
 
-  /** 获取指定 Provider 的完整能力描述 */
+  /** Get full capability description for a provider */
   static get(providerId: string): ProviderCapability | undefined {
     return this.capabilities.get(providerId)
   }
 
-  /** 获取所有 Provider 的能力列表 */
+  /** Get all registered provider capabilities */
   static getAll(): ProviderCapability[] {
     return Array.from(this.capabilities.values())
   }
 
-  /** 获取指定 Provider 的 MCP 能力（未注册时返回保守默认值） */
+  /** MCP capability (conservative default when unregistered) */
   static getMcpCapability(providerId: string): ProviderMcpCapability {
     return this.capabilities.get(providerId)?.mcpSupport ?? {
       native: false,
@@ -177,7 +118,7 @@ export class ProviderCapabilityRegistry {
     }
   }
 
-  /** 获取指定 Provider 的 Skill 能力 */
+  /** Skill capability */
   static getSkillCapability(providerId: string): ProviderSkillCapability {
     return this.capabilities.get(providerId)?.skillSupport ?? {
       slashCommands: false,
@@ -185,12 +126,12 @@ export class ProviderCapabilityRegistry {
     }
   }
 
-  /** 是否原生支持 MCP */
+  /** Whether the provider natively supports MCP */
   static supportsNativeMcp(providerId: string): boolean {
     return this.capabilities.get(providerId)?.mcpSupport.native ?? false
   }
 
-  /** 是否支持 MCP Prompt Injection 降级 */
+  /** Whether MCP prompt-injection fallback is enabled */
   static supportsMcpFallback(providerId: string): boolean {
     return this.capabilities.get(providerId)?.mcpSupport.fallback === 'prompt-injection'
   }

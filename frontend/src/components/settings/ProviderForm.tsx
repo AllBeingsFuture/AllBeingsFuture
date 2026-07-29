@@ -10,12 +10,8 @@ import type { AdapterType } from '../../types/models'
 // ─── Constants (shared with ProviderManager) ───
 
 export const ADAPTER_OPTIONS: { key: AdapterType; label: string }[] = [
-  { key: 'claude-sdk', label: 'Claude Code SDK' },
-  { key: 'codex-appserver', label: 'Codex App Server' },
-  { key: 'gemini-headless', label: 'Gemini Headless' },
-  { key: 'opencode-sdk', label: 'OpenCode SDK' },
+  { key: 'acp', label: 'ACP v1 / stdio' },
   { key: 'openai-api', label: 'OpenAI \u517C\u5BB9 API' },
-  { key: 'acp', label: 'ACP (stdio)' },
 ]
 
 const inputCls = 'w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-sm text-white placeholder-gray-500 outline-none focus:border-dark-accent/60 transition-colors'
@@ -173,14 +169,14 @@ export function EditPanel({
               Executable Path
             </span>
             <span className="text-[10px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded">
-              {form.adapterType === 'claude-sdk' ? 'claude-sdk' : 'command'}
+              {form.adapterType === 'openai-api' ? 'openai-api' : 'command'}
             </span>
           </div>
           <div className="flex gap-2">
             <input
               value={form.executablePath || ''}
               onChange={e => set('executablePath', e.target.value)}
-              placeholder={form.adapterType === 'claude-sdk' ? 'Auto-detect if empty' : form.command || 'command'}
+              placeholder={form.command || 'command / path'}
               className={`flex-1 ${inputCls}`}
             />
             <button
@@ -348,7 +344,7 @@ export function EditPanel({
 export function AddProviderForm({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) {
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
-  const [adapterType, setAdapterType] = useState<AdapterType>('claude-sdk')
+  const [adapterType, setAdapterType] = useState<AdapterType>('acp')
 
   const handleSave = async () => {
     if (!name || !command) return

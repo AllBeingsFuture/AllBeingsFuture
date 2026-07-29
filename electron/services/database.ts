@@ -10,7 +10,12 @@ import type { SQLInputValue } from 'node:sqlite'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
-import { builtinProviderSeedRows } from './provider-defaults.js'
+import {
+  builtinProviderSeedRows,
+  getBuiltinProviderDefaultById,
+  isRetiredBuiltinAdapterType,
+  LEGACY_BUILTIN_ACP_UPGRADE_IDS,
+} from './provider-defaults.js'
 
 const DB_DIR = path.join(os.homedir(), '.allbeingsfuture')
 const DB_PATH = path.join(DB_DIR, 'allbeingsfuture.db')
@@ -364,6 +369,7 @@ export class Database {
     `)
 
     this.seedBuiltinProviders()
+    this.upgradeBuiltinProvidersToAcp()
   }
 
   /** Insert built-in provider presets when missing (including new ACP agents). */
@@ -383,6 +389,97 @@ export class Database {
         row.defaultArgs,
         row.isEnabled,
         row.sortOrder,
+      )
+    }
+  }
+
+  /**
+   * Idempotent upgrade: existing built-in rows for Claude/Codex/Gemini/OpenCode
+   * that still use retired adapter types (or non-canonical command/args) are
+   * rewritten to canonical ACP command/args/adapter_type.
+   *
+   * Preserves is_enabled, sort_order, executable_path, env_overrides, models,
+   * and other user-tuned columns. Clears conversation_id for affected sessions
+   * so legacy protocol ids are never silently loaded over ACP.
+   */
+  private upgradeBuiltinProvidersToAcp(): void {
+    const select = this.compat.prepare(
+      'SELECT id, command, adapter_type, default_args, is_builtin FROM providers WHERE id = ?',
+    )
+    const update = this.compat.prepare(`
+      UPDATE providers
+      SET command = ?, adapter_type = ?, default_args = ?, updated_at = datetime('now')
+      WHERE id = ?
+        AND is_builtin = 1
+        AND (
+          adapter_type != ?
+          OR command != ?
+          OR IFNULL(default_args, '') != ?
+        )
+    `)
+    const clearLegacyConversation = this.compat.prepare(`
+      UPDATE sessions
+      SET conversation_id = ''
+      WHERE provider_id = ?
+        AND IFNULL(conversation_id, '') != ''
+    `)
+
+    for (const id of LEGACY_BUILTIN_ACP_UPGRADE_IDS) {
+      const row = select.get(id) as
+        | { id: string; command: string; adapter_type: string; default_args: string; is_builtin: number }
+        | undefined
+      if (!row || !row.is_builtin) continue
+
+      const canonical = getBuiltinProviderDefaultById(id)
+      if (!canonical || canonical.adapterType !== 'acp') continue
+
+      const needsUpgrade =
+        isRetiredBuiltinAdapterType(row.adapter_type)
+        || (row.adapter_type || '').toLowerCase() !== 'acp'
+        || (row.command || '') !== canonical.command
+        || (row.default_args || '') !== canonical.defaultArgs
+
+      if (!needsUpgrade) continue
+
+      // Drop legacy conversation ids before flipping the adapter protocol.
+      if (isRetiredBuiltinAdapterType(row.adapter_type) || (row.adapter_type || '').toLowerCase() !== 'acp') {
+        clearLegacyConversation.run(id)
+      }
+
+      update.run(
+        canonical.command,
+        canonical.adapterType,
+        canonical.defaultArgs,
+        id,
+        canonical.adapterType,
+        canonical.command,
+        canonical.defaultArgs,
+      )
+    }
+
+    // Also ensure the four newer ACP builtins keep canonical args if seeded empty.
+    for (const id of ['grok-build', 'qwen-code', 'kimi-cli', 'github-copilot'] as const) {
+      const row = select.get(id) as
+        | { id: string; command: string; adapter_type: string; default_args: string; is_builtin: number }
+        | undefined
+      if (!row || !row.is_builtin) continue
+      const canonical = getBuiltinProviderDefaultById(id)
+      if (!canonical) continue
+      if (
+        (row.adapter_type || '').toLowerCase() === 'acp'
+        && row.command === canonical.command
+        && (row.default_args || '') === canonical.defaultArgs
+      ) {
+        continue
+      }
+      update.run(
+        canonical.command,
+        canonical.adapterType,
+        canonical.defaultArgs,
+        id,
+        canonical.adapterType,
+        canonical.command,
+        canonical.defaultArgs,
       )
     }
   }

@@ -214,10 +214,6 @@ export const AdapterType = {
      */
     $zero: "",
 
-    AdapterClaudeSDK: "claude-sdk",
-    AdapterCodex: "codex-appserver",
-    AdapterGemini: "gemini-headless",
-    AdapterOpenCode: "opencode-sdk",
     AdapterOpenAIAPI: "openai-api",
     AdapterAcp: "acp",
     AdapterAcpStdio: "acp-stdio",

@@ -68,7 +68,7 @@ describe('SessionCreator', () => {
 
     settingsState = { autoWorktree: true }
     getProvidersMock.mockResolvedValue([
-      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
+      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'acp' },
       { id: 'qwen', name: 'qwen', isEnabled: true, adapterType: 'openai-api' },
     ])
     testExecutableMock.mockResolvedValue(true)
@@ -124,8 +124,8 @@ describe('SessionCreator', () => {
 
   it('does not re-run executable detection when only switching the selected provider', async () => {
     getProvidersMock.mockResolvedValue([
-      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'claude-sdk' },
-      { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'codex-appserver' },
+      { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'acp' },
+      { id: 'codex', name: 'Codex CLI', isEnabled: true, adapterType: 'acp' },
       { id: 'qwen', name: 'Qwen', isEnabled: true, adapterType: 'openai-api' },
     ])
 

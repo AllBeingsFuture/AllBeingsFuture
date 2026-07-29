@@ -1,10 +1,7 @@
 // ===================== AI Provider =====================
 
+/** Selectable runtime adapter types. Built-in CLI agents all use ACP. */
 export type AdapterType =
-  | 'claude-sdk'
-  | 'codex-appserver'
-  | 'gemini-headless'
-  | 'opencode-sdk'
   | 'openai-api'
   | 'acp'
   | 'acp-stdio'

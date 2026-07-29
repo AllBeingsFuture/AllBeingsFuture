@@ -103,17 +103,27 @@ async function isProviderRunnable(provider: AIProvider): Promise<boolean> {
 // ─── Providers ───
 
 const providerMetaByAdapter: Record<string, { icon: string; desc: string }> = {
-  'claude-sdk': { icon: '🟣', desc: '综合推理能力最强' },
-  'codex-appserver': { icon: '🟢', desc: '代码生成专长' },
-  'gemini-headless': { icon: '🔵', desc: '大上下文窗口' },
-  'opencode-sdk': { icon: '🟠', desc: '多模型切换' },
-  'openai-api': { icon: '🟩', desc: 'OpenAI 兼容中转与多模型接入' },
-  iflow: { icon: '🟡', desc: 'ACP 协议适配' },
-  acp: { icon: '⬡', desc: 'ACP stdio 原生协议' },
-  'acp-stdio': { icon: '⬡', desc: 'ACP stdio 原生协议' },
+  'openai-api': { icon: '🟩', desc: 'OpenAI 兼容中转与多模型接入（非 Agent）' },
+  iflow: { icon: '🟡', desc: 'ACP v1 / stdio' },
+  acp: { icon: '⬡', desc: 'ACP v1 / stdio' },
+  'acp-stdio': { icon: '⬡', desc: 'ACP v1 / stdio' },
 }
 
-function resolveProviderMeta(provider: Pick<AIProvider, 'adapterType'>): { icon: string; desc: string } {
+const providerMetaById: Record<string, { icon: string; desc: string }> = {
+  'claude-code': { icon: '🟣', desc: 'Claude Code · ACP v1' },
+  codex: { icon: '🟢', desc: 'Codex CLI · ACP v1' },
+  'gemini-cli': { icon: '🔵', desc: 'Gemini CLI · ACP v1' },
+  opencode: { icon: '🟠', desc: 'OpenCode · ACP v1' },
+  'grok-build': { icon: '🟡', desc: 'Grok Build · ACP v1' },
+  'qwen-code': { icon: '🔷', desc: 'Qwen Code · ACP v1' },
+  'kimi-cli': { icon: '💠', desc: 'Kimi CLI · ACP v1' },
+  'github-copilot': { icon: '🟩', desc: 'GitHub Copilot · ACP v1' },
+}
+
+function resolveProviderMeta(provider: Pick<AIProvider, 'adapterType' | 'id'>): { icon: string; desc: string } {
+  if (provider.id && providerMetaById[provider.id]) {
+    return providerMetaById[provider.id]
+  }
   return providerMetaByAdapter[provider.adapterType || ''] || { icon: '🤖', desc: '自定义 Provider' }
 }
 

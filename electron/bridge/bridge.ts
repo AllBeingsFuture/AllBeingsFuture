@@ -1,41 +1,46 @@
 /**
- * BridgeManager - Manages AI provider sessions in-process
+ * BridgeManager - Manages AI provider sessions in-process.
  *
- * This replaces the old subprocess-based bridge (bridge.js + NDJSON protocol).
- * Adapters (Claude SDK, Codex, Gemini, OpenCode) run directly in the
- * Electron main process, eliminating IPC overhead.
+ * Built-in CLI agents all speak ACP v1 over stdio via the shared AcpAdapter.
+ * Custom OpenAI-compatible HTTP APIs use OpenAIAdapter (non-agent).
+ * Legacy SDK/headless adapters are retired and rejected if still requested.
  */
 
-import { ClaudeAdapter } from './adapters/claude.js'
-import { CodexAdapter } from './adapters/codex.js'
-import { GeminiAdapter } from './adapters/gemini.js'
-import { OpenCodeAdapter } from './adapters/opencode.js'
 import { OpenAIAdapter } from './adapters/openai.js'
 import { AcpAdapter } from './adapters/acp.js'
 import type { BridgeEventCallback, ProviderAdapter } from './types.js'
+import { isAcpAdapterType, isRetiredBuiltinAdapterType } from '../services/provider-defaults.js'
 
 interface AdapterInstance {
   adapter: ProviderAdapter
   eventCallback: BridgeEventCallback
 }
 
+/**
+ * Normalize provider adapter types / short names to the runtime adapter key.
+ * All built-in CLI agent ids map to the shared `acp` adapter.
+ */
 const ADAPTER_ALIASES = new Map<string, string>([
-  ['claude', 'claude-sdk'],
-  ['claude-code', 'claude-sdk'],
-  ['claude_cli', 'claude-sdk'],
-  ['claude_sdk', 'claude-sdk'],
-  ['codex', 'codex-appserver'],
-  ['codex-cli', 'codex-appserver'],
-  ['codex-appserver', 'codex-appserver'],
-  ['gemini', 'gemini-headless'],
-  ['gemini-cli', 'gemini-headless'],
-  ['opencode', 'opencode-sdk'],
-  ['opencode-cli', 'opencode-sdk'],
-  ['openai', 'openai-api'],
-  ['openai-api', 'openai-api'],
+  // Shared ACP
   ['acp', 'acp'],
   ['acp-stdio', 'acp'],
-  // Built-in ACP agent ids / short names map to the shared AcpAdapter
+  // Built-in CLI agent ids / short names → AcpAdapter
+  ['claude', 'acp'],
+  ['claude-code', 'acp'],
+  ['claude_cli', 'acp'],
+  ['claude_sdk', 'acp'],
+  ['claude-sdk', 'acp'],
+  ['claude-agent-acp', 'acp'],
+  ['codex', 'acp'],
+  ['codex-cli', 'acp'],
+  ['codex-acp', 'acp'],
+  ['codex-appserver', 'acp'],
+  ['gemini', 'acp'],
+  ['gemini-cli', 'acp'],
+  ['gemini-headless', 'acp'],
+  ['opencode', 'acp'],
+  ['opencode-cli', 'acp'],
+  ['opencode-sdk', 'acp'],
   ['grok', 'acp'],
   ['grok-build', 'acp'],
   ['qwen', 'acp'],
@@ -45,28 +50,48 @@ const ADAPTER_ALIASES = new Map<string, string>([
   ['copilot', 'acp'],
   ['github-copilot', 'acp'],
   ['github-copilot-cli', 'acp'],
+  // Non-agent HTTP API
+  ['openai', 'openai-api'],
+  ['openai-api', 'openai-api'],
 ])
 
-function normalizeAdapterType(adapterType: string, config?: Record<string, any>): string {
-  if (adapterType) {
-    return ADAPTER_ALIASES.get(adapterType) || adapterType
+/** Commands that imply the shared ACP stdio adapter (not openai-api). */
+const ACP_COMMAND_HINTS = [
+  'claude-agent-acp',
+  'claude',
+  'codex-acp',
+  'codex',
+  'gemini',
+  'opencode',
+  'grok',
+  'qwen',
+  'kimi',
+  'copilot',
+]
+
+export function normalizeAdapterType(adapterType: string, config?: Record<string, any>): string {
+  const raw = (adapterType || '').trim()
+  if (raw) {
+    const lowered = raw.toLowerCase()
+    if (ADAPTER_ALIASES.has(lowered)) {
+      return ADAPTER_ALIASES.get(lowered)!
+    }
+    // Explicit retired type still requested as free-form string → route to ACP
+    // so sessions never re-enter removed SDK/headless runtimes.
+    if (isRetiredBuiltinAdapterType(lowered) || isAcpAdapterType(lowered)) {
+      return 'acp'
+    }
+    return lowered
   }
-  const command = (config?.command || '').toLowerCase()
-  if (command.includes('claude')) return 'claude-sdk'
-  if (command.includes('codex')) return 'codex-appserver'
-  if (command.includes('gemini')) return 'gemini-headless'
-  if (command.includes('opencode')) return 'opencode-sdk'
-  if (command.includes('openai')) return 'openai-api'
-  // Prefer shared ACP adapter for verified ACP CLI commands
-  if (
-    command.includes('grok')
-    || command.includes('qwen')
-    || command.includes('kimi')
-    || command.includes('copilot')
-  ) {
+
+  const command = String(config?.command || config?.executablePath || '').toLowerCase()
+  if (command.includes('openai') && !command.includes('codex')) {
+    return 'openai-api'
+  }
+  if (ACP_COMMAND_HINTS.some((hint) => command.includes(hint))) {
     return 'acp'
   }
-  return adapterType
+  return adapterType || ''
 }
 
 function createAdapter(
@@ -76,19 +101,17 @@ function createAdapter(
 ): ProviderAdapter {
   const normalized = normalizeAdapterType(adapterType, config)
   switch (normalized) {
-    case 'claude-sdk':
-      return new ClaudeAdapter(config, emit)
-    case 'codex-appserver':
-      return new CodexAdapter(config, emit)
-    case 'gemini-headless':
-      return new GeminiAdapter(config, emit)
-    case 'opencode-sdk':
-      return new OpenCodeAdapter(config, emit)
     case 'openai-api':
       return new OpenAIAdapter(config, emit)
     case 'acp':
       return new AcpAdapter(config, emit)
     default:
+      if (isRetiredBuiltinAdapterType(adapterType) || isRetiredBuiltinAdapterType(normalized)) {
+        throw new Error(
+          `Retired adapter '${adapterType}' is no longer available. `
+          + 'Built-in CLI agents use ACP v1 stdio (adapterType: acp).',
+        )
+      }
       throw new Error(`Unknown adapter: ${adapterType} (normalized: ${normalized})`)
   }
 }
@@ -123,7 +146,8 @@ export class BridgeManager {
     await adapter.init()
     this.sessions.set(sessionId, { adapter, eventCallback })
 
-    console.log(`[bridge] Session initialized: ${sessionId} (${adapterType})`)
+    const resolved = normalizeAdapterType(adapterType, config)
+    console.log(`[bridge] Session initialized: ${sessionId} (${adapterType} → ${resolved})`)
   }
 
   async sendMessage(

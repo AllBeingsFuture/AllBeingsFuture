@@ -1,20 +1,14 @@
 /**
  * Canonical built-in AI provider presets.
  *
- * New ACP agents reuse the shared AcpAdapter (stdio NDJSON JSON-RPC v1).
- * Do not add provider-specific streaming runtimes here.
+ * All built-in CLI agents use the shared AcpAdapter (stdio NDJSON JSON-RPC v1).
+ * OpenAI-compatible HTTP APIs remain a separate non-agent adapter type.
  *
- * ACP launch commands are taken only from official registry/docs or local
- * CLI --help verification — never invent unusable presets.
+ * ACP launch commands come only from the official ACP registry / CLI --help
+ * verification — never invent unusable presets.
  */
 
-export type BuiltinAdapterType =
-  | 'claude-sdk'
-  | 'codex-appserver'
-  | 'gemini-headless'
-  | 'opencode-sdk'
-  | 'openai-api'
-  | 'acp'
+export type BuiltinAdapterType = 'openai-api' | 'acp'
 
 export interface BuiltinProviderDefault {
   id: string
@@ -33,51 +27,78 @@ export interface BuiltinProviderDefault {
   acpVerification?: string
 }
 
+/** Built-in provider ids that were historically non-ACP and require DB upgrade. */
+export const LEGACY_BUILTIN_ACP_UPGRADE_IDS = [
+  'claude-code',
+  'codex',
+  'gemini-cli',
+  'opencode',
+] as const
+
+/** Adapter types that must no longer be selected for built-in CLI agents. */
+export const RETIRED_BUILTIN_ADAPTER_TYPES = [
+  'claude-sdk',
+  'codex-appserver',
+  'gemini-headless',
+  'opencode-sdk',
+] as const
+
 /**
- * Built-in providers seeded into SQLite on migrate.
- * Keep Claude Code / Codex / Gemini / OpenCode on their existing adapters.
- * Additional agents must use adapterType `acp` and go through AcpAdapter.
+ * Built-in CLI providers seeded into SQLite on migrate.
+ * Every entry uses adapterType `acp` and is dispatched through AcpAdapter.
  */
 export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
   {
     id: 'claude-code',
     name: 'Claude Code',
-    command: 'claude',
-    adapterType: 'claude-sdk',
+    // Official ACP registry: @agentclientprotocol/claude-agent-acp (no native claude --acp)
+    command: 'claude-agent-acp',
+    adapterType: 'acp',
     defaultArgs: '',
     isBuiltin: true,
     isEnabled: true,
     sortOrder: 1,
+    acpVerification:
+      'Official ACP registry claude-acp/agent.json → npx @agentclientprotocol/claude-agent-acp (bin claude-agent-acp); app dependency for offline-resolvable spawn',
   },
   {
     id: 'codex',
     name: 'Codex CLI',
-    command: 'codex',
-    adapterType: 'codex-appserver',
+    // Official ACP registry: @agentclientprotocol/codex-acp (codex app-server is not ACP)
+    command: 'codex-acp',
+    adapterType: 'acp',
     defaultArgs: '',
     isBuiltin: true,
     isEnabled: true,
     sortOrder: 2,
+    acpVerification:
+      'Official ACP registry codex-acp/agent.json → npx @agentclientprotocol/codex-acp (bin codex-acp); app dependency; local codex CLI at ~/.npm-global/bin/codex used via CODEX_PATH when present',
   },
   {
     id: 'gemini-cli',
     name: 'Gemini CLI',
     command: 'gemini',
-    adapterType: 'gemini-headless',
-    defaultArgs: '',
+    adapterType: 'acp',
+    // Official registry args: --acp
+    defaultArgs: '--acp',
     isBuiltin: true,
     isEnabled: true,
     sortOrder: 3,
+    acpVerification:
+      'Official ACP registry gemini/agent.json → @google/gemini-cli --acp (native ACP)',
   },
   {
     id: 'opencode',
     name: 'OpenCode',
     command: 'opencode',
-    adapterType: 'opencode-sdk',
-    defaultArgs: '',
+    adapterType: 'acp',
+    // Official registry binary args: acp
+    defaultArgs: 'acp',
     isBuiltin: true,
     isEnabled: true,
     sortOrder: 4,
+    acpVerification:
+      'Official ACP registry opencode/agent.json → opencode acp (native ACP subcommand)',
   },
   {
     id: 'grok-build',
@@ -90,46 +111,46 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
     isEnabled: true,
     sortOrder: 5,
     acpVerification:
-      'Local `grok agent stdio --help` + official ACP registry agent.json (npx @xai-official/grok agent stdio)',
+      'Local `grok agent stdio --help` + official ACP registry grok-build/agent.json (agent stdio)',
   },
   {
     id: 'qwen-code',
     name: 'Qwen Code',
     command: 'qwen',
     adapterType: 'acp',
-    // Official registry args; source also documents --acp (experimental-acp deprecated)
+    // Official registry args
     defaultArgs: '--acp --experimental-skills',
     isBuiltin: true,
     isEnabled: true,
     sortOrder: 6,
     acpVerification:
-      'Official ACP registry agent.json + Qwen Code CLI source option `--acp` ("Starts the agent in ACP mode")',
+      'Official ACP registry qwen-code/agent.json → --acp --experimental-skills',
   },
   {
     id: 'kimi-cli',
     name: 'Kimi CLI',
     command: 'kimi',
     adapterType: 'acp',
-    // Official README: configure ACP client with command `kimi` args `["acp"]`
+    // Official README / registry: kimi acp
     defaultArgs: 'acp',
     isBuiltin: true,
     isEnabled: true,
     sortOrder: 7,
     acpVerification:
-      'Official Kimi CLI README ACP section + ACP registry agent.json (`kimi acp`)',
+      'Official ACP registry kimi/agent.json → kimi acp',
   },
   {
     id: 'github-copilot',
     name: 'GitHub Copilot CLI',
     command: 'copilot',
     adapterType: 'acp',
-    // Official ACP registry: npx @github/copilot --acp
+    // Official ACP registry github-copilot-cli: --acp
     defaultArgs: '--acp',
     isBuiltin: true,
     isEnabled: true,
     sortOrder: 8,
     acpVerification:
-      'Official ACP registry agent.json (npx @github/copilot --acp) + agentclientprotocol.com agents list',
+      'Official ACP registry github-copilot-cli/agent.json → copilot --acp',
   },
 ] as const
 
@@ -141,9 +162,18 @@ export function getAcpBuiltinProviders(): BuiltinProviderDefault[] {
   return getBuiltinProviderDefaults().filter((entry) => entry.adapterType === 'acp')
 }
 
+export function getBuiltinProviderDefaultById(id: string): BuiltinProviderDefault | undefined {
+  return BUILTIN_PROVIDER_DEFAULTS.find((entry) => entry.id === id)
+}
+
 export function isAcpAdapterType(adapterType: string | undefined | null): boolean {
   const t = (adapterType || '').toLowerCase()
   return t === 'acp' || t === 'acp-stdio'
+}
+
+export function isRetiredBuiltinAdapterType(adapterType: string | undefined | null): boolean {
+  const t = (adapterType || '').toLowerCase()
+  return (RETIRED_BUILTIN_ADAPTER_TYPES as readonly string[]).includes(t)
 }
 
 /**
