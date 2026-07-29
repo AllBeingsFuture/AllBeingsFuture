@@ -220,6 +220,7 @@ export default function SessionCreator({ onClose }: Props) {
   // 常用目录 / 工作区
   const [recentDirs, setRecentDirs] = useState<RecentDir[]>([])
   const [showAllDirs, setShowAllDirs] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [defaultsReady, setDefaultsReady] = useState(false)
@@ -348,16 +349,6 @@ export default function SessionCreator({ onClose }: Props) {
     }))
   ), [providers])
 
-  const handleTogglePin = (path: string) => {
-    const dirs = loadRecentDirs()
-    const dir = dirs.find(d => d.path === path)
-    if (dir) {
-      dir.isPinned = !dir.isPinned
-      saveRecentDirs(dirs)
-      setRecentDirs([...dirs])
-    }
-  }
-
   const handleRemoveDir = (path: string) => {
     const dirs = loadRecentDirs().filter(d => d.path !== path)
     saveRecentDirs(dirs)
@@ -466,75 +457,32 @@ export default function SessionCreator({ onClose }: Props) {
     }
   }
 
+  const hasQuickPaths = workspaces.length > 0 || recentDirs.length > 0
+  // 默认名形如「会话 17:19:26」，用户改过名称才在折叠摘要中提示
+  const hasCustomName = Boolean(name.trim()) && !/^会话\s/.test(name.trim())
+  const advancedSummary = [
+    hasCustomName ? '已命名' : '',
+    prompt.trim() ? '含初始指令' : '',
+    isolateOnCreate ? '立即隔离' : '',
+  ].filter(Boolean).join(' · ')
+
   return (
     <DraggableDialog
       title="新建会话"
       icon={<MessageSquarePlus size={16} />}
-      widthClass="w-[560px]"
-      heightClass="max-h-[85vh]"
+      widthClass="w-[480px]"
+      heightClass="max-h-[80vh]"
       onClose={onClose}
       testId="session-creator"
     >
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {/* ── 1. 会话名称 ── */}
-        <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1.5">会话名称</label>
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60"
-          />
-        </div>
-
-        {/* ── 2. 工作区（优先，免手填路径） ── */}
-        <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1.5">
-            <span className="inline-flex items-center gap-1.5">
-              <Layers size={12} />
-              工作区
-            </span>
-          </label>
-          {workspaces.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {workspaces.map(ws => {
-                const primaryPath = resolveWorkspacePrimaryPath(ws)
-                const selected = selectedWorkspaceId === ws.id
-                return (
-                  <button
-                    key={ws.id}
-                    type="button"
-                    onClick={() => handleSelectWorkspace(ws.id)}
-                    title={primaryPath || ws.name}
-                    className={`max-w-full rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors ${
-                      selected
-                        ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
-                        : 'border-white/10 text-gray-300 hover:border-white/20 hover:bg-white/5'
-                    }`}
-                  >
-                    <div className="truncate font-medium">{ws.name}</div>
-                    {primaryPath && (
-                      <div className="mt-0.5 max-w-[180px] truncate text-[10px] text-gray-500">
-                        {shortDirName(primaryPath)}
-                      </div>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          ) : (
-            <p className="text-[11px] text-gray-600">
-              尚未配置工作区。可在「设置 → 工作区」添加项目，或下方直接选目录。
-            </p>
-          )}
-        </div>
-
-        {/* ── 3. 工作目录 ── */}
+      {/* Body：默认只展示创建必需项，其余收入高级选项 */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5">
+        {/* ── 1. 工作目录 ── */}
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1.5">
             工作目录 <span className="text-red-400">*</span>
             {defaultsReady && workDir && (
-              <span className="ml-2 font-normal text-gray-600">已自动填入上次/默认路径</span>
+              <span className="ml-2 font-normal text-gray-600">已自动填入</span>
             )}
           </label>
           <div className="flex gap-2">
@@ -555,147 +503,117 @@ export default function SessionCreator({ onClose }: Props) {
               <FolderOpen size={16} />
             </button>
           </div>
-        </div>
 
-        {/* ── 4. 常用目录 ── */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-medium text-gray-400">常用目录</label>
-            <button
-              onClick={handleAddDir}
-              className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              + 添加
-            </button>
-          </div>
-
-          {visibleDirs.length > 0 ? (
-            <div className="max-h-[120px] overflow-y-auto space-y-1">
-              {visibleDirs.map(dir => (
-                <div
-                  key={dir.path}
-                  onClick={() => handleSelectDir(dir.path)}
-                  className={`group flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors text-xs ${
-                    workDir === dir.path && !selectedWorkspaceId
-                      ? 'bg-blue-500/15 border border-blue-400/40 text-blue-300'
-                      : 'border border-transparent hover:bg-white/5 text-gray-300 hover:text-white'
-                  }`}
+          {/* 快捷路径：工作区 + 常用目录合并为 chips */}
+          <div className="mt-2">
+            {hasQuickPaths ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {workspaces.map(ws => {
+                  const primaryPath = resolveWorkspacePrimaryPath(ws)
+                  const selected = selectedWorkspaceId === ws.id
+                  return (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      onClick={() => handleSelectWorkspace(ws.id)}
+                      title={primaryPath || ws.name}
+                      className={`inline-flex max-w-[160px] items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                        selected
+                          ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                          : 'border-white/10 text-gray-400 hover:border-white/20 hover:bg-white/5 hover:text-gray-200'
+                      }`}
+                    >
+                      <Layers size={10} className="shrink-0 opacity-70" />
+                      <span className="truncate">{ws.name}</span>
+                    </button>
+                  )
+                })}
+                {visibleDirs.map(dir => {
+                  const selected = workDir === dir.path && !selectedWorkspaceId
+                  return (
+                    <button
+                      key={dir.path}
+                      type="button"
+                      onClick={() => handleSelectDir(dir.path)}
+                      title={dir.path}
+                      className={`group inline-flex max-w-[160px] items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                        selected
+                          ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                          : 'border-white/10 text-gray-400 hover:border-white/20 hover:bg-white/5 hover:text-gray-200'
+                      }`}
+                    >
+                      {dir.isPinned
+                        ? <Star size={10} className="shrink-0 fill-current text-yellow-400" />
+                        : <FolderOpen size={10} className="shrink-0 opacity-70" />}
+                      <span className="truncate">{shortDirName(dir.path)}</span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={e => { e.stopPropagation(); handleRemoveDir(dir.path) }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            handleRemoveDir(dir.path)
+                          }
+                        }}
+                        className="ml-0.5 hidden shrink-0 text-gray-500 hover:text-red-400 group-hover:inline"
+                        title="移除"
+                      >
+                        <X size={10} />
+                      </span>
+                    </button>
+                  )
+                })}
+                {unpinnedDirs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllDirs(v => !v)}
+                    className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-white/10 px-2 py-1 text-[11px] text-gray-500 hover:border-white/20 hover:text-gray-300 transition-colors"
+                  >
+                    {showAllDirs ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                    {showAllDirs ? '收起' : `+${unpinnedDirs.length}`}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAddDir}
+                  className="inline-flex items-center rounded-full border border-dashed border-white/10 px-2.5 py-1 text-[11px] text-blue-400 hover:border-blue-400/30 hover:bg-blue-500/10 transition-colors"
                 >
-                  <FolderOpen size={12} className="shrink-0 opacity-60" />
-                  <span className="flex-1 truncate">{shortDirName(dir.path)}</span>
-                  <button
-                    onClick={e => { e.stopPropagation(); handleTogglePin(dir.path) }}
-                    className={`shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${
-                      dir.isPinned ? 'opacity-100 text-yellow-400' : 'text-gray-500 hover:text-yellow-400'
-                    }`}
-                  >
-                    <Star size={12} className={dir.isPinned ? 'fill-current' : ''} />
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); handleRemoveDir(dir.path) }}
-                    className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-opacity"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[11px] text-gray-600 py-1">点击「+ 添加」收藏常用项目目录</p>
-          )}
-
-          {unpinnedDirs.length > 0 && (
-            <button
-              onClick={() => setShowAllDirs(v => !v)}
-              className="flex items-center gap-1 mt-1 text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              {showAllDirs ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              {showAllDirs ? '收起' : `展开更多 ${unpinnedDirs.length} 个`}
-            </button>
-          )}
-        </div>
-
-        {/* ── 5. Worktree 隔离策略 ── */}
-        {autoWorktree && worktreeState === 'git' && (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-300">
-              <GitBranch size={12} className="text-emerald-400" />
-              Git Worktree 隔离
-            </div>
-            <div className="grid grid-cols-2 gap-2">
+                  + 添加
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setIsolateOnCreate(false)}
-                className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                  !isolateOnCreate
-                    ? 'border-emerald-400/40 bg-emerald-500/10'
-                    : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                }`}
+                onClick={handleAddDir}
+                className="text-[11px] text-gray-500 hover:text-blue-400 transition-colors"
               >
-                <div className="text-[11px] font-medium text-white">改代码时再隔离</div>
-                <div className="mt-0.5 text-[10px] text-gray-500">先在主目录启动，会话内可一键进入 worktree</div>
+                + 添加常用目录
               </button>
-              <button
-                type="button"
-                onClick={() => setIsolateOnCreate(true)}
-                className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                  isolateOnCreate
-                    ? 'border-emerald-400/40 bg-emerald-500/10'
-                    : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                }`}
-              >
-                <div className="text-[11px] font-medium text-white">创建时立即隔离</div>
-                <div className="mt-0.5 text-[10px] text-gray-500">直接在独立 worktree 中启动会话</div>
-              </button>
-            </div>
+            )}
           </div>
-        )}
-
-        {/* ── 6. 初始指令 ── */}
-        <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1.5">初始指令（可选）</label>
-          <textarea
-            value={prompt}
-            onChange={e => setPrompt(e.target.value)}
-            rows={3}
-            placeholder="创建后自动发送的指令..."
-            className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60 resize-none"
-          />
-          <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
-            {autoWorktree
-              ? (
-                  worktreeState === 'git'
-                    ? (isolateOnCreate
-                        ? '将创建独立 worktree 并在其中启动会话；完成后可在工具栏合并回主分支。'
-                        : '当前目录属于 Git 仓库。会话会先在主目录启动；需要改代码时，可在会话工具栏一键进入 Worktree，或由 Agent 按规则进入。')
-                    : worktreeState === 'plain'
-                      ? '当前目录不是 Git 仓库。会话将直接在该目录启动；如果后续需要改代码，建议选择 Git 仓库或工作区。'
-                      : '已开启 Git worktree 规则。选择 Git 仓库或工作区后，可选择立即隔离或延迟隔离。'
-                )
-              : '已关闭 Git worktree 规则。新会话会直接使用当前目录；如果你要做代码修改，建议在设置中重新开启。'}
-          </p>
         </div>
 
-        {/* ── 7. AI 提供者 ── */}
+        {/* ── 2. AI 提供者（紧凑 pill） ── */}
         <div>
-          <label className="block text-xs font-medium text-gray-400 mb-2">AI 提供者</label>
+          <label className="block text-xs font-medium text-gray-400 mb-1.5">AI 提供者</label>
           {providerCards.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {providerCards.map(p => (
                 <button
                   key={p.id}
+                  type="button"
                   onClick={() => setProviderId(p.id)}
-                  className={`px-3 py-2 rounded-lg border text-left transition-colors ${
+                  title={p.desc}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
                     providerId === p.id
                       ? 'border-blue-400/40 bg-blue-500/10'
                       : 'border-white/10 hover:border-white/20 hover:bg-white/5'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{p.icon}</span>
-                    <span className="text-xs font-medium text-white">{p.name}</span>
-                  </div>
-                  <p className="text-[10px] text-gray-500 mt-0.5 ml-6">{p.desc}</p>
+                  <span className="text-sm leading-none">{p.icon}</span>
+                  <span className="text-xs font-medium text-white">{p.name}</span>
                 </button>
               ))}
             </div>
@@ -706,39 +624,132 @@ export default function SessionCreator({ onClose }: Props) {
           )}
         </div>
 
-        {/* ── 8. 会话模式 ── */}
+        {/* ── 3. 会话模式（紧凑，去掉副标题） ── */}
         <div>
-          <label className="block text-xs font-medium text-gray-400 mb-2">会话模式</label>
-          <div className="flex gap-2">
+          <label className="block text-xs font-medium text-gray-400 mb-1.5">会话模式</label>
+          <div className="flex gap-1.5">
             {modes.map(m => (
               <button
                 key={m.id}
+                type="button"
                 onClick={() => setMode(m.id)}
-                className={`flex-1 px-2.5 py-2 rounded-lg border text-center transition-colors ${
+                title={m.desc}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 transition-colors ${
                   mode === m.id
                     ? 'border-blue-400/40 bg-blue-500/10'
                     : 'border-white/10 hover:border-white/20 hover:bg-white/5'
                 }`}
               >
-                <m.icon size={14} className="mx-auto mb-0.5 text-slate-300" />
-                <div className="text-[11px] font-medium text-white">{m.label}</div>
-                <div className="text-[10px] text-gray-500 mt-0.5">{m.desc}</div>
+                <m.icon size={13} className="shrink-0 text-slate-300" />
+                <span className="text-[11px] font-medium text-white">{m.label}</span>
               </button>
             ))}
           </div>
         </div>
 
+        {/* ── 4. 高级选项（默认折叠） ── */}
+        <div className="rounded-xl border border-white/10 bg-white/[0.02]">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(v => !v)}
+            className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
+            aria-expanded={showAdvanced}
+          >
+            <span className="flex items-center gap-1.5 text-xs font-medium text-gray-300">
+              {showAdvanced ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              高级选项
+            </span>
+            {!showAdvanced && advancedSummary && (
+              <span className="max-w-[220px] truncate text-[10px] text-gray-600">{advancedSummary}</span>
+            )}
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-3.5 border-t border-white/10 px-3 py-3">
+              {/* 会话名称 */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">会话名称</label>
+                <input
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60"
+                />
+              </div>
+
+              {/* Worktree 隔离策略 */}
+              {autoWorktree && worktreeState === 'git' && (
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-gray-400">
+                    <GitBranch size={12} className="text-emerald-400" />
+                    Git Worktree 隔离
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsolateOnCreate(false)}
+                      className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                        !isolateOnCreate
+                          ? 'border-emerald-400/40 bg-emerald-500/10'
+                          : 'border-white/10 hover:border-white/20 hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="text-[11px] font-medium text-white">改代码时再隔离</div>
+                      <div className="mt-0.5 text-[10px] text-gray-500">先在主目录启动，会话内可一键进入</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsolateOnCreate(true)}
+                      className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                        isolateOnCreate
+                          ? 'border-emerald-400/40 bg-emerald-500/10'
+                          : 'border-white/10 hover:border-white/20 hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="text-[11px] font-medium text-white">创建时立即隔离</div>
+                      <div className="mt-0.5 text-[10px] text-gray-500">直接在独立 worktree 中启动</div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 初始指令 */}
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">初始指令（可选）</label>
+                <textarea
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                  rows={2}
+                  placeholder="创建后自动发送的指令..."
+                  className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-sm text-white outline-none focus:border-blue-400/60 resize-none"
+                />
+                <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
+                  {autoWorktree
+                    ? (
+                        worktreeState === 'git'
+                          ? (isolateOnCreate
+                              ? '将创建独立 worktree 并在其中启动会话；完成后可在工具栏合并回主分支。'
+                              : '当前目录属于 Git 仓库。会话会先在主目录启动；需要改代码时，可在会话工具栏一键进入 Worktree，或由 Agent 按规则进入。')
+                          : worktreeState === 'plain'
+                            ? '当前目录不是 Git 仓库。会话将直接在该目录启动；如果后续需要改代码，建议选择 Git 仓库或工作区。'
+                            : '已开启 Git worktree 规则。选择 Git 仓库或工作区后，可选择立即隔离或延迟隔离。'
+                      )
+                    : '已关闭 Git worktree 规则。新会话会直接使用当前目录；如果你要做代码修改，建议在设置中重新开启。'}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Error */}
       {error && (
-        <div className="mx-6 mb-2 px-3 py-2 bg-red-900/30 border border-red-700/50 rounded-lg text-xs text-red-400">
+        <div className="mx-5 mb-2 px-3 py-2 bg-red-900/30 border border-red-700/50 rounded-lg text-xs text-red-400">
           {error}
         </div>
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/10">
+      <div className="flex items-center justify-end gap-3 px-5 py-3.5 border-t border-white/10">
         <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white rounded-lg transition-colors">
           取消
         </button>

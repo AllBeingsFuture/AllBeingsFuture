@@ -89,6 +89,10 @@ describe('SessionCreator', () => {
     openSessionMock.mockResolvedValue(undefined)
   })
 
+  async function expandAdvanced() {
+    fireEvent.click(screen.getByRole('button', { name: /高级选项/ }))
+  }
+
   it('keeps session creation on the selected directory but records the git repo for later worktree entry', async () => {
     getRepoRootMock.mockResolvedValue('C:/repo')
 
@@ -98,6 +102,7 @@ describe('SessionCreator', () => {
       target: { value: 'C:/repo' },
     })
 
+    await expandAdvanced()
     await screen.findByText(/当前目录属于 Git 仓库/)
 
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
@@ -120,6 +125,7 @@ describe('SessionCreator', () => {
       target: { value: 'C:/plain-dir' },
     })
 
+    await expandAdvanced()
     await screen.findByText(/当前目录不是 Git 仓库/)
 
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
@@ -150,6 +156,7 @@ describe('SessionCreator', () => {
     await screen.findByText('Demo Workspace')
     fireEvent.click(screen.getByRole('button', { name: /Demo Workspace/ }))
 
+    await expandAdvanced()
     await screen.findByText('创建时立即隔离')
     fireEvent.click(screen.getByRole('button', { name: /创建时立即隔离/ }))
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
@@ -161,6 +168,14 @@ describe('SessionCreator', () => {
         gitRepoPath: 'C:/repo/demo',
       }))
     })
+  })
+
+  it('keeps advanced options collapsed by default to reduce dialog clutter', () => {
+    renderWithProviders(<SessionCreator onClose={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: /高级选项/ })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('创建后自动发送的指令...')).not.toBeInTheDocument()
+    expect(screen.queryByText('会话名称')).not.toBeInTheDocument()
   })
 
   it('does not re-run executable detection when only switching the selected provider', async () => {
