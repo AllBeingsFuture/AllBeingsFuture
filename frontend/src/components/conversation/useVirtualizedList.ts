@@ -144,9 +144,10 @@ function getItemFingerprint(item: unknown, index: number, estimatedSize: number)
  * estimate↔measured thrash and visible scroll jumps. ResizeObserver still pushes
  * the true height when the DOM size actually changes.
  *
- * Floor each resolved row at max(estimate, measured) so totalHeight cannot sit
- * below the larger of "content-length estimate" and the last real paint — chronic
- * under-estimation shrinks maxScrollTop and makes mid-history look near-bottom.
+ * When a valid measured height exists, trust it over the estimate. Using
+ * max(estimate, measured) permanently locked collapsed thinking rows (real ~40px)
+ * to content-length estimates of hundreds/thousands of px, inflating totalHeight
+ * and leaving huge empty gaps in the virtual list.
  */
 function resolveMeasuredSize<T>(
   entry: MeasuredSizeCacheValue | undefined,
@@ -158,11 +159,11 @@ function resolveMeasuredSize<T>(
   const safeEstimate = Math.max(1, estimatedSize)
 
   if (typeof entry === 'number' && entry > 0) {
-    return { fingerprint, size: Math.max(safeEstimate, entry) }
+    return { fingerprint, size: entry }
   }
 
   if (entry && typeof entry.size === 'number' && entry.size > 0) {
-    return { fingerprint, size: Math.max(safeEstimate, entry.size) }
+    return { fingerprint, size: entry.size }
   }
 
   return { fingerprint, size: safeEstimate }

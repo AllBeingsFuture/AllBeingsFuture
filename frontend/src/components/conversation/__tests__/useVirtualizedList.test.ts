@@ -152,7 +152,9 @@ describe('buildVirtualLayout', () => {
     ])
   })
 
-  it('floors resolved size at max(estimate, measured) so totalHeight is not chronically low', () => {
+  it('uses measured size when available even if smaller than estimate', () => {
+    // Collapsed thinking is ~40px while content-length estimates can be 100s–1000s.
+    // Trusting max(estimate, measured) permanently inflated totalHeight and left gaps.
     const measured = new Map<string, number>([['item-0', 40]])
     const layout = buildVirtualLayout({
       items,
@@ -164,9 +166,9 @@ describe('buildVirtualLayout', () => {
       viewportHeight: 200,
     })
 
-    // 100 + 9*100 = 1000 — measured must not shrink the spacer below the estimate floor.
-    expect(layout.totalHeight).toBe(1000)
-    expect(layout.items[0]?.size).toBe(100)
+    // 40 + 9*100 = 940 — measured wins over a larger estimate.
+    expect(layout.totalHeight).toBe(940)
+    expect(layout.items[0]?.size).toBe(40)
   })
 })
 

@@ -198,15 +198,33 @@ function getGroupKey(sessionId: string, group: MessageGroup): string {
   return `${sessionId}-${group.type}-${group.index}`
 }
 
-function estimateMessageGroupHeight(group: MessageGroup): number {
+/** Collapsed ThinkingBlock is a single compact row (~32–48px); expand raises height via measure. */
+const THINKING_COLLAPSED_HEIGHT = 44
+/** Per-image height pad for user messages with screenshots (base64 previews). */
+const MESSAGE_IMAGE_HEIGHT = 240
+const MESSAGE_IMAGE_HEIGHT_CAP = 960
+
+function countMessageImages(group: MessageGroup): number {
+  let count = 0
+  for (const message of group.messages) {
+    const images = (message as { images?: unknown }).images
+    if (Array.isArray(images) && images.length > 0) {
+      count += images.length
+    }
+  }
+  return count
+}
+
+/** Exported for unit tests; used by virtual list estimateSize. */
+export function estimateMessageGroupHeight(group: MessageGroup): number {
   const totalContentLength = group.messages.reduce((sum, message) => sum + (message.content?.length || 0), 0)
   const newlineCount = group.messages.reduce((sum, message) => sum + ((message.content?.match(/\n/g) || []).length), 0)
 
-  // Prefer over-estimates (especially for unmeasured history the fling jumps into).
-  // Under-estimated totalHeight shrinks maxScrollTop → "假顶部" when scrolling fast.
+  // Prefer over-estimates for unmeasured history the fling jumps into, but never
+  // invent expanded thinking height — ThinkingBlock defaults to collapsed.
 
   if (group.type === 'thinking') {
-    return Math.max(120, Math.min(1400, 112 + Math.ceil(totalContentLength / 5) * 14 + newlineCount * 12))
+    return THINKING_COLLAPSED_HEIGHT
   }
 
   if (group.type === 'tool_group') {
@@ -217,7 +235,12 @@ function estimateMessageGroupHeight(group: MessageGroup): number {
     return Math.max(160, 160 + Math.min(800, group.messages.length * 64))
   }
 
-  return Math.max(140, Math.min(4000, 120 + Math.ceil(totalContentLength / 6) * 22 + newlineCount * 16))
+  const textHeight = Math.max(140, Math.min(4000, 120 + Math.ceil(totalContentLength / 6) * 22 + newlineCount * 16))
+  const imageCount = countMessageImages(group)
+  if (imageCount <= 0) return textHeight
+
+  const imageHeight = Math.min(MESSAGE_IMAGE_HEIGHT_CAP, imageCount * MESSAGE_IMAGE_HEIGHT)
+  return Math.min(4000, textHeight + imageHeight)
 }
 
 /** Detect file-editing tool names (MCP allbeingsfuture tools + native Edit/Write) */
