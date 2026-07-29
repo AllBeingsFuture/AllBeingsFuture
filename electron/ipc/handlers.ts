@@ -211,7 +211,7 @@ export function registerAllIpcHandlers(
   stickerService.initialize().catch(() => {})
   updateService.init()
 
-  // Seed builtin MCP servers and skills on startup (idempotent)
+  // Purge any previously seeded built-in MCP/skills; catalogs are no longer shipped
   try { mcpService.seedBuiltins() } catch {}
   try { skillService.seedBuiltins() } catch {}
 

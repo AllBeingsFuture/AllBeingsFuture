@@ -1,8 +1,0 @@
-interface:
-  display_name: Switch Persona
-  short_description: 切换 Agent 人格预设角色。支持 8 种预设：默认助手、商务助理、技术专家、私人管家、女友感、男友感、家人感、贾维斯。
-  default_prompt: Use $switch-persona
-i18n:
-  zh:
-    name: 切换人格
-    description: 切换 Agent 人格预设角色，支持默认助手、商务助理、技术专家等多种预设。

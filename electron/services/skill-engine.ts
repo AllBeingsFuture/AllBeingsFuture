@@ -28,7 +28,7 @@ export class SkillEngine {
 
   /**
    * Load skills into the engine.
-   * Call this with all available skills (builtin + user-defined from DB).
+   * Call this with enabled user-installed skills from the DB.
    */
   loadSkills(skills: SkillDef[]): void {
     this.skills = skills

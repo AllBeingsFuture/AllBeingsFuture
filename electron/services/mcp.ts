@@ -1,50 +1,24 @@
 /**
- * MCPService - MCP server configuration management
- * Replaces Go internal/services/mcp.go
- * Full API matching frontend bindings
+ * MCPService - MCP server configuration management.
+ * Servers are user-installed only; no built-in catalog is seeded or discovered.
  */
 
 import { v4 as uuidv4 } from 'uuid'
 import path from 'node:path'
 import fs from 'node:fs'
-import { app } from 'electron'
 import type { Database } from './database.js'
 import { resolveProcessCommand } from '../bridge/runtime.js'
 
-type DiscoveredServer = {
-  id: string
+type McpSummary = {
   serverIdentifier: string
   name: string
   description: string
-  command: string
-  args: string[]
-  env: Record<string, string>
-  source: 'builtin'
-  path: string
-  transport: 'stdio'
-  toolCount: number
-  hasInstructions: boolean
-  instructions: string
-  tools: string[]
-  compatibleProviders: string[] | 'all'
-  tags: string[]
-  author: string
-  homepage: string
-  installMethod?: string
-  installCommand?: string
-  category: string
 }
 
-type McpSummary = Pick<DiscoveredServer, 'serverIdentifier' | 'name' | 'description'>
-
 export class MCPService {
-  constructor(private db: Database) {}
+  private purgedBuiltins = false
 
-  private getMcpsDir(): string {
-    return app.isPackaged
-      ? path.join(process.resourcesPath, 'mcps')
-      : path.join(app.getAppPath(), 'electron', 'embedded-assets', 'mcps')
-  }
+  constructor(private db: Database) {}
 
   private slugify(value: string): string {
     return String(value || '')
@@ -63,119 +37,20 @@ export class MCPService {
     }
   }
 
-  private resolveArgs(serverDir: string, args: unknown): string[] {
-    if (!Array.isArray(args)) return []
-
-    return args.map((value) => {
-      if (typeof value !== 'string') return String(value ?? '')
-      if (!value || value.startsWith('-') || value.startsWith('/') || value.includes(':')) {
-        return value
-      }
-      const candidate = path.join(serverDir, value)
-      return fs.existsSync(candidate) ? candidate : value
-    })
+  /**
+   * Remove previously auto-seeded built-in MCP rows. Preserves user-installed custom servers.
+   */
+  private purgeSeededBuiltins(): void {
+    this.db.raw.prepare(`
+      DELETE FROM mcp_servers
+      WHERE id LIKE 'builtin-%'
+    `).run()
+    this.purgedBuiltins = true
   }
 
-  private readJsonFile(filePath: string): Record<string, any> | null {
-    try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-    } catch {
-      return null
-    }
-  }
-
-  private readTextFile(filePath: string): string {
-    try {
-      return fs.readFileSync(filePath, 'utf-8')
-    } catch {
-      return ''
-    }
-  }
-
-  private discoverBuiltins(): Map<string, DiscoveredServer> {
-    const mcpsDir = this.getMcpsDir()
-    const discovered = new Map<string, DiscoveredServer>()
-
-    if (!fs.existsSync(mcpsDir)) return discovered
-
-    const entries = fs.readdirSync(mcpsDir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-
-      const serverDir = path.join(mcpsDir, entry.name)
-      const metadataPath = path.join(serverDir, 'SERVER_METADATA.json')
-      const metadata = this.readJsonFile(metadataPath)
-      if (!metadata) continue
-
-      const serverIdentifier = String(metadata.serverIdentifier || entry.name).trim()
-      if (!serverIdentifier) continue
-
-      const toolsDir = path.join(serverDir, 'tools')
-      const tools = fs.existsSync(toolsDir)
-        ? fs.readdirSync(toolsDir, { withFileTypes: true })
-          .filter(file => file.isFile() && file.name.endsWith('.json'))
-          .map(file => file.name.replace(/\.json$/i, ''))
-          .sort((left, right) => left.localeCompare(right))
-        : []
-      const instructionsPath = path.join(serverDir, 'INSTRUCTIONS.md')
-
-      discovered.set(`builtin-${serverIdentifier}`, {
-        id: `builtin-${serverIdentifier}`,
-        serverIdentifier,
-        name: String(metadata.serverName || entry.name).trim(),
-        description: String(metadata.serverDescription || '').trim(),
-        command: String(metadata.command || 'node').trim(),
-        args: this.resolveArgs(serverDir, metadata.args),
-        env: metadata.env && typeof metadata.env === 'object'
-          ? Object.fromEntries(Object.entries(metadata.env).map(([key, value]) => [key, String(value)]))
-          : {},
-        source: 'builtin',
-        path: serverDir,
-        transport: 'stdio',
-        toolCount: tools.length,
-        hasInstructions: fs.existsSync(instructionsPath),
-        instructions: this.readTextFile(instructionsPath),
-        tools,
-        compatibleProviders: Array.isArray(metadata.compatibleProviders) ? metadata.compatibleProviders : 'all',
-        tags: Array.isArray(metadata.tags) ? metadata.tags.map((tag: unknown) => String(tag)) : [],
-        author: String(metadata.author || '').trim(),
-        homepage: String(metadata.homepage || '').trim(),
-        installMethod: metadata.installMethod ? String(metadata.installMethod) : undefined,
-        installCommand: metadata.installCommand ? String(metadata.installCommand) : undefined,
-        category: String(metadata.category || entry.name || 'custom').trim(),
-      })
-    }
-
-    return discovered
-  }
-
-  private pruneMissingBuiltins(validIds: Set<string>): void {
-    const rows = this.db.raw
-      .prepare("SELECT id FROM mcp_servers WHERE id LIKE 'builtin-%'")
-      .all() as Array<{ id: string }>
-
-    for (const row of rows) {
-      if (validIds.has(row.id)) continue
-      this.db.raw.prepare("DELETE FROM mcp_servers WHERE id = ?").run(row.id)
-    }
-  }
-
-  private syncBuiltinsInternal(): Map<string, DiscoveredServer> {
-    const discovered = this.discoverBuiltins()
-
-    for (const server of discovered.values()) {
-      this.install({
-        id: server.id,
-        name: server.name,
-        description: server.description,
-        command: server.command,
-        args: server.args,
-        env: server.env,
-      })
-    }
-
-    this.pruneMissingBuiltins(new Set(discovered.keys()))
-    return discovered
+  private ensureBuiltinsPurged(): void {
+    if (this.purgedBuiltins) return
+    this.purgeSeededBuiltins()
   }
 
   private inspectCommand(command: string): { ok: boolean; resolvedCommand: string } {
@@ -197,55 +72,56 @@ export class MCPService {
     }
   }
 
-  private mergeRow(row: any, discovered?: DiscoveredServer): any {
-    const command = row.command || discovered?.command || ''
-    const args = this.parseJson(row.args_json, discovered?.args || [])
-    const env = this.parseJson(row.env_json, discovered?.env || {})
-    const source = discovered?.source || (String(row.id || '').startsWith('builtin-') ? 'builtin' : 'custom')
+  private mergeRow(row: any): any {
+    const command = row.command || ''
+    const args = this.parseJson(row.args_json, [])
+    const env = this.parseJson(row.env_json, {})
+    // Built-in catalog removed; any remaining row is treated as custom.
+    const source = 'custom'
     const inspect = this.inspectCommand(command)
 
     return {
       ...row,
-      name: row.name || discovered?.name || '',
-      description: row.description || discovered?.description || '',
+      name: row.name || '',
+      description: row.description || '',
       command,
       args,
       env,
       isEnabled: !!row.is_enabled,
       enabled: !!row.is_enabled,
       source,
-      serverIdentifier: discovered?.serverIdentifier || this.slugify(row.name || row.id || ''),
-      path: discovered?.path || '',
-      transport: discovered?.transport || 'stdio',
-      toolCount: discovered?.toolCount || 0,
-      tools: discovered?.tools || [],
-      hasInstructions: discovered?.hasInstructions || false,
-      instructions: discovered?.instructions || '',
-      compatibleProviders: discovered?.compatibleProviders || 'all',
-      tags: discovered?.tags || [],
-      author: discovered?.author || '',
-      homepage: discovered?.homepage || '',
-      installMethod: discovered?.installMethod || '',
-      installCommand: discovered?.installCommand || '',
-      category: discovered?.category || 'custom',
-      removable: source !== 'builtin',
+      serverIdentifier: this.slugify(row.name || row.id || ''),
+      path: '',
+      transport: 'stdio',
+      toolCount: 0,
+      tools: [],
+      hasInstructions: false,
+      instructions: '',
+      compatibleProviders: 'all',
+      tags: [],
+      author: '',
+      homepage: '',
+      installMethod: '',
+      installCommand: '',
+      category: 'custom',
+      removable: true,
       isInstalled: inspect.ok,
       resolvedCommand: inspect.resolvedCommand,
     }
   }
 
-  private getInternal(id: string, discovered?: Map<string, DiscoveredServer>): any {
+  private getInternal(id: string): any {
     const row = this.db.raw.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as any
-    return row ? this.mergeRow(row, discovered?.get(id)) : null
+    return row ? this.mergeRow(row) : null
   }
 
   private listInternal(onlyEnabled: boolean): any[] {
-    const discovered = this.syncBuiltinsInternal()
+    this.ensureBuiltinsPurged()
     const sql = onlyEnabled
       ? 'SELECT * FROM mcp_servers WHERE is_enabled = 1 ORDER BY name'
       : 'SELECT * FROM mcp_servers ORDER BY name'
 
-    return this.db.raw.prepare(sql).all().map((row: any) => this.mergeRow(row, discovered.get(row.id)))
+    return this.db.raw.prepare(sql).all().map((row: any) => this.mergeRow(row))
   }
 
   list(): any[] {
@@ -253,12 +129,17 @@ export class MCPService {
   }
 
   get(id: string): any {
-    const discovered = this.syncBuiltinsInternal()
-    return this.getInternal(id, discovered)
+    this.ensureBuiltinsPurged()
+    return this.getInternal(id)
   }
 
   install(srv: any): any {
+    this.ensureBuiltinsPurged()
     const id = srv.id || uuidv4()
+    // Never reintroduce catalog ids via install.
+    if (String(id).startsWith('builtin-')) {
+      throw new Error('Built-in MCP catalog is disabled; use a custom server id')
+    }
     const now = new Date().toISOString()
     this.db.raw.prepare(`
       INSERT INTO mcp_servers (id, name, description, command, args_json, env_json, is_enabled, created_at, updated_at)
@@ -329,16 +210,18 @@ export class MCPService {
     }
   }
 
+  /**
+   * Startup hook (name retained for API compatibility).
+   * Purges any previously seeded built-in MCP rows; does not reinstall any catalog.
+   */
   seedBuiltins(): void {
-    this.syncBuiltinsInternal()
+    this.purgeSeededBuiltins()
   }
 
   getEnabledServerConfigs(): Record<string, { command: string; args: string[]; env: Record<string, string>; cwd?: string }> {
     const configs: Record<string, { command: string; args: string[]; env: Record<string, string>; cwd?: string }> = {}
 
     for (const server of this.listInternal(true)) {
-      if (server.id === 'builtin-agent-control') continue
-
       const key = server.serverIdentifier || this.slugify(server.name || server.id || '')
       if (!key) continue
 
@@ -346,7 +229,6 @@ export class MCPService {
         command: server.command || 'node',
         args: Array.isArray(server.args) ? server.args : [],
         env: server.env && typeof server.env === 'object' ? server.env : {},
-        ...(server.path ? { cwd: server.path } : {}),
       }
     }
 
@@ -355,7 +237,6 @@ export class MCPService {
 
   getEnabledServerSummaries(limit = 24): McpSummary[] {
     return this.listInternal(true)
-      .filter(server => server.id !== 'builtin-agent-control')
       .map(server => ({
         serverIdentifier: server.serverIdentifier,
         name: server.name,
@@ -369,7 +250,7 @@ export class MCPService {
   update(id: string, data: any): void {
     const now = new Date().toISOString()
     this.db.raw.prepare('UPDATE mcp_servers SET name = ?, description = ?, command = ?, args_json = ?, env_json = ?, is_enabled = ?, updated_at = ? WHERE id = ?')
-      .run(data.name || '', data.description || '', data.command || '', JSON.stringify(data.args || []), JSON.stringify(data.env || {}), data.isEnabled ? 1 : 0, now, id)
+      .run(data.name || '', data.description || '', data.command || '', JSON.stringify(data.args || []), JSON.stringify(data.env || []), data.isEnabled ? 1 : 0, now, id)
   }
   delete(id: string): void { this.uninstall(id) }
 }

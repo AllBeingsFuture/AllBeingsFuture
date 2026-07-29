@@ -1,8 +1,0 @@
-interface:
-  display_name: Toggle Proactive
-  short_description: 开关活人感模式。开启后 Agent 会主动发送问候、任务提醒、关键回顾等消息。
-  default_prompt: Use $toggle-proactive
-i18n:
-  zh:
-    name: 活人感模式
-    description: 开关活人感模式，开启后 Agent 会主动发送问候、任务提醒和关键回顾。
