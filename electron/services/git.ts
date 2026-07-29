@@ -5,7 +5,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { mkdir, rm } from 'node:fs/promises'
+import { access, constants, mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { detectGitCmdPath } from '../bridge/runtime.js'
@@ -65,6 +65,49 @@ export class GitService {
 
   async getRepoRoot(dirPath: string): Promise<string> {
     return this.getPrimaryRepoPath(dirPath)
+  }
+
+  /**
+   * 确保目录是 Git 仓库：已是仓库则返回主仓库根路径；
+   * 否则在该目录 git init，并创建首个提交（worktree 需要 HEAD）。
+   */
+  async ensureRepo(dirPath: string): Promise<string> {
+    const normalized = normalizeFilePath(dirPath)
+    if (!normalized) throw new Error('目录路径为空')
+
+    try {
+      await access(normalized, constants.F_OK)
+    } catch {
+      throw new Error(`目录不存在: ${normalized}`)
+    }
+
+    const existing = await this.getRepoRoot(normalized).catch(() => '')
+    if (existing) return existing
+
+    await this.git(['init', '-b', 'main'], normalized)
+
+    const hasHead = await this.git(['rev-parse', '--verify', 'HEAD'], normalized)
+      .then(() => true)
+      .catch(() => false)
+
+    if (!hasHead) {
+      // 尽量纳入现有文件；无文件时用空提交保证后续 worktree 可用
+      await this.git(['add', '-A'], normalized).catch(() => {})
+      try {
+        await this.git([
+          '-c', 'user.email=allbeingsfuture@local',
+          '-c', 'user.name=AllBeingsFuture',
+          'commit',
+          '--allow-empty',
+          '-m',
+          'chore: initialize repository for worktree isolation',
+        ], normalized)
+      } catch (err: any) {
+        throw new Error(`初始化 Git 仓库后创建首个提交失败: ${err?.message || String(err)}`)
+      }
+    }
+
+    return this.getPrimaryRepoPath(normalized)
   }
 
   private async getPrimaryRepoPath(dirPath: string): Promise<string> {

@@ -423,7 +423,8 @@ export default function SessionCreator({ onClose }: Props) {
       ) || ''
       repoRootCache.set(trimmedWorkDir, gitRepoPath)
 
-      const shouldIsolate = Boolean(autoWorktree && isolateOnCreate && gitRepoPath)
+      // 默认隔离：即使目录尚非 Git 仓库，创建时也会自动 init 再进入 worktree
+      const shouldIsolate = Boolean(autoWorktree && isolateOnCreate)
 
       const config = {
         name,
@@ -433,7 +434,8 @@ export default function SessionCreator({ onClose }: Props) {
         initialPrompt: prompt,
         autoAccept,
         worktreeEnabled: shouldIsolate,
-        gitRepoPath,
+        // 非 Git 目录时为空；chatCore 会 EnsureRepo 后写入 worktreeSourceRepo
+        gitRepoPath: gitRepoPath || trimmedWorkDir,
         gitBranch: '',
       } as SessionConfig
       const session = await workbenchApi.session.create(config)
@@ -676,8 +678,8 @@ export default function SessionCreator({ onClose }: Props) {
                 />
               </div>
 
-              {/* Worktree 隔离策略 */}
-              {autoWorktree && worktreeState === 'git' && (
+              {/* Worktree 隔离策略：Git 与非 Git 均可（非 Git 会自动 init） */}
+              {autoWorktree && (worktreeState === 'git' || worktreeState === 'plain') && (
                 <div>
                   <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-gray-400">
                     <GitBranch size={12} className="text-emerald-400" />
@@ -706,7 +708,9 @@ export default function SessionCreator({ onClose }: Props) {
                       }`}
                     >
                       <div className="text-[11px] font-medium text-white">创建时立即隔离</div>
-                      <div className="mt-0.5 text-[10px] text-gray-500">直接在独立 worktree 中启动</div>
+                      <div className="mt-0.5 text-[10px] text-gray-500">
+                        {worktreeState === 'plain' ? '先自动 git init，再进入 worktree' : '直接在独立 worktree 中启动'}
+                      </div>
                     </button>
                   </div>
                 </div>
@@ -727,11 +731,13 @@ export default function SessionCreator({ onClose }: Props) {
                     ? (
                         worktreeState === 'git'
                           ? (isolateOnCreate
-                              ? '将创建独立 worktree 并在其中启动会话；完成后可在工具栏合并回主分支。'
+                              ? '将创建独立 worktree（.allbeingsfuture-worktrees/）并在其中启动会话；完成后可在工具栏合并回主分支。'
                               : '当前目录属于 Git 仓库。会话会先在主目录启动；需要改代码时，可在会话工具栏一键进入 Worktree，或由 Agent 按规则进入。')
                           : worktreeState === 'plain'
-                            ? '当前目录不是 Git 仓库。会话将直接在该目录启动；如果后续需要改代码，建议选择 Git 仓库或工作区。'
-                            : '已开启 Git worktree 规则。选择 Git 仓库或工作区后，可选择立即隔离或延迟隔离。'
+                            ? (isolateOnCreate
+                                ? '当前目录不是 Git 仓库。创建时将自动 git init（并生成首个提交），再在 .allbeingsfuture-worktrees/ 下启动隔离会话。'
+                                : '当前目录不是 Git 仓库。会话将直接在该目录启动；需要改代码时一键隔离会自动 git init 后再进入 worktree。')
+                            : '已开启 Git worktree 规则。选择目录后可立即隔离；非 Git 目录会自动初始化仓库。'
                       )
                     : '已关闭 Git worktree 规则。新会话会直接使用当前目录；如果你要做代码修改，建议在设置中重新开启。'}
                 </p>

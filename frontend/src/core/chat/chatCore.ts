@@ -243,11 +243,23 @@ function buildWorktreeIdentifiers(config: SessionConfig) {
   return { branchName: `${fromName}-${stamp}`, taskId: `${fromName}-${stamp}` }
 }
 
+/** 已是 Git 仓库则返回根路径；否则自动 init 后再返回 */
+async function resolveOrInitRepoPath(repoCandidate: string): Promise<string> {
+  const existing = await GitService.GetRepoRoot(repoCandidate).catch(() => '')
+  if (existing) return existing
+
+  const ensured = await GitService.EnsureRepo(repoCandidate).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new Error(`目录不是 Git 仓库，自动初始化失败: ${repoCandidate}${message ? `（${message}）` : ''}`)
+  })
+  if (!ensured) throw new Error(`目录不是 Git 仓库，自动初始化失败: ${repoCandidate}`)
+  return ensured
+}
+
 async function createSessionWithWorktree(config: SessionConfig) {
   const repoCandidate = (config.gitRepoPath || config.workingDirectory || '').trim()
-  if (!repoCandidate) throw new Error('启用 Worktree 隔离时必须提供 Git 仓库目录')
-  const repoPath = await GitService.GetRepoRoot(repoCandidate).catch(() => '')
-  if (!repoPath) throw new Error(`目录不是 Git 仓库，无法启用隔离: ${repoCandidate}`)
+  if (!repoCandidate) throw new Error('启用 Worktree 隔离时必须提供工作目录')
+  const repoPath = await resolveOrInitRepoPath(repoCandidate)
 
   const { branchName, taskId } = buildWorktreeIdentifiers(config)
   const worktree = await GitService.CreateWorktree(repoPath, branchName, taskId) as WorktreeCreateResult | null
@@ -312,10 +324,9 @@ async function enterSessionWorktree(session: Session): Promise<Session> {
     || session.workingDirectory
     || ''
   ).trim()
-  if (!repoCandidate) throw new Error('当前会话没有可用的 Git 仓库目录')
+  if (!repoCandidate) throw new Error('当前会话没有可用的工作目录')
 
-  const repoPath = await GitService.GetRepoRoot(repoCandidate).catch(() => '')
-  if (!repoPath) throw new Error(`目录不是 Git 仓库，无法进入 Worktree: ${repoCandidate}`)
+  const repoPath = await resolveOrInitRepoPath(repoCandidate)
 
   const { branchName, taskId } = buildWorktreeIdentifiers({
     name: session.name || 'session',

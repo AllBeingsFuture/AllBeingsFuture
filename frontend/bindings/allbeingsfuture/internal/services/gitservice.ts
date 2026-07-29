@@ -51,6 +51,13 @@ export function GetRepoRoot(path: string): Promise<string> {
 }
 
 /**
+ * Ensure the directory is a git repository (init + initial commit if needed).
+ */
+export function EnsureRepo(path: string): Promise<string> {
+    return ipc("GitService.EnsureRepo", path);
+}
+
+/**
  * Get the git status.
  */
 export function GetStatus(repoPath: string): Promise<models.GitStatus | null> {
