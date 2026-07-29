@@ -1,9 +1,12 @@
 import { SendHorizonal, Square, X, Upload, FileIcon, FolderIcon, LoaderCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MessageTextEditor from './MessageTextEditor'
+import ComposerCapabilities from './ComposerCapabilities'
+import SlashSkillSuggest from './SlashSkillSuggest'
 import { FileTransferService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useDraftStore } from '../../stores/draftStore'
 import type { ImageAttachment, FileAttachment } from '../../stores/draftStore'
+import { useSkillStore } from '../../stores/skillStore'
 
 interface QueuedMessage {
   text: string
@@ -30,6 +33,8 @@ function MessageInput({
   onStop,
 }: Props) {
   const { saveDraft, getDraft, clearDraft } = useDraftStore()
+  const skills = useSkillStore((s) => s.skills)
+  const loadSkills = useSkillStore((s) => s.load)
   const initialDraft = useRef(getDraft(sessionId))
 
   const [value, setValue] = useState(initialDraft.current?.text ?? '')
@@ -40,6 +45,10 @@ function MessageInput({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dragCounterRef = useRef(0)
+
+  useEffect(() => {
+    void loadSkills()
+  }, [loadSkills])
 
   const valueRef = useRef(value)
   const imagesRef = useRef(images)
@@ -286,6 +295,11 @@ function MessageInput({
 
   const hasContent = Boolean(value.trim() || images.length > 0 || files.length > 0)
 
+  const handleSlashPick = useCallback((slashCommand: string) => {
+    setValue(`/${slashCommand} `)
+    focusEditor()
+  }, [focusEditor])
+
   return (
     <div
       className="relative shrink-0 border-t border-white/[0.06] bg-[#0b1019]/85 px-4 py-3 backdrop-blur-sm"
@@ -392,7 +406,14 @@ function MessageInput({
       )}
 
       <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1">
+        <ComposerCapabilities disabled={disabled} />
+
+        <div className="relative min-w-0 flex-1">
+          <SlashSkillSuggest
+            value={value}
+            skills={skills}
+            onPick={handleSlashPick}
+          />
           <MessageTextEditor
             ref={textareaRef}
             value={value}

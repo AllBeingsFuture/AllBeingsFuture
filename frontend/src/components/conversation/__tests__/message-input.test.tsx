@@ -27,6 +27,19 @@ vi.mock('../../../../bindings/allbeingsfuture/internal/services', () => ({
   FileTransferService: {
     PrepareFile: mocks.prepareFile,
   },
+  SkillService: {
+    List: vi.fn().mockResolvedValue([]),
+    ToggleEnabled: vi.fn(),
+    Install: vi.fn(),
+    Delete: vi.fn(),
+  },
+  MCPService: {
+    List: vi.fn().mockResolvedValue([]),
+    ToggleEnabled: vi.fn(),
+    Install: vi.fn(),
+    Uninstall: vi.fn(),
+    UpdateConfig: vi.fn(),
+  },
 }))
 
 describe('MessageInput', () => {
@@ -146,5 +159,15 @@ describe('MessageInput', () => {
     expect(stopButton).toHaveTextContent('正在停止')
     fireEvent.click(stopButton)
     expect(onStop).not.toHaveBeenCalled()
+  })
+
+  it('exposes the composer capability menu next to the editor', () => {
+    renderWithProviders(<MessageInput sessionId="test-session" onSend={vi.fn()} />)
+
+    expect(screen.getByTestId('composer-capabilities')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('打开能力菜单'))
+    expect(screen.getByTestId('composer-capability-menu')).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /技能/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /MCP/ })).toBeInTheDocument()
   })
 })
