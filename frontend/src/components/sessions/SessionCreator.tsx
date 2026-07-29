@@ -443,8 +443,9 @@ export default function SessionCreator({ onClose }: Props) {
         saveLastWorkDir(trimmedWorkDir)
         saveLastWorkspaceId(selectedWorkspaceId)
         addRecentDir(trimmedWorkDir)
-        // Init may fail transiently — still select the session so
-        // ConversationView can retry on mount. sendMessage also auto-inits.
+        // Best-effort pre-warm for a brand-new session only. ConversationView
+        // no longer auto-inits on open (avoids re-running history after restart);
+        // sendMessage still auto-inits if this pre-warm fails.
         try { await workbenchApi.session.init(session.id) } catch {}
         await workbenchApi.navigation.openSession(session.id)
         if (prompt.trim()) {

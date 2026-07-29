@@ -292,21 +292,22 @@ describe('ConversationView session boot', () => {
     restoreAnimationFrameMock()
   })
 
-  it('always calls initProcess on mount to ensure adapter is ready', async () => {
+  it('loads history via pollChat on mount without auto-initing the agent', async () => {
     renderWithProviders(<ConversationView session={makeSession('idle')} />)
 
     await waitFor(() => {
       expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
-      expect(initSessionMock).toHaveBeenCalledWith('session-1')
     })
+    expect(initSessionMock).not.toHaveBeenCalled()
   })
 
-  it('calls initProcess for running sessions so live output can resume', async () => {
+  it('does not auto-init when opening a previously running session (restart safety)', async () => {
     renderWithProviders(<ConversationView session={makeSession('running')} />)
 
     await waitFor(() => {
-      expect(initSessionMock).toHaveBeenCalledWith('session-1')
+      expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
     })
+    expect(initSessionMock).not.toHaveBeenCalled()
   })
 
   it('pins the conversation scroll container to bottom immediately when opening history', async () => {
@@ -320,8 +321,9 @@ describe('ConversationView session boot', () => {
     const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
 
     await waitFor(() => {
-      expect(initSessionMock).toHaveBeenCalledWith('session-1')
+      expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
     })
+    expect(initSessionMock).not.toHaveBeenCalled()
 
     expect(scrollContainer.scrollTop).toBe(360)
   })
@@ -334,8 +336,9 @@ describe('ConversationView session boot', () => {
     const scrollContainer = view.container.querySelector('[data-scroll-container]') as HTMLDivElement
 
     await waitFor(() => {
-      expect(initSessionMock).toHaveBeenCalledWith('session-1')
+      expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
     })
+    expect(initSessionMock).not.toHaveBeenCalled()
 
     storeState.messages = [
       { role: 'user', content: 'late hello' } as ChatMessage,
@@ -395,7 +398,6 @@ describe('ConversationView session boot', () => {
   it('keeps rendering the live snapshot briefly after streaming settles to avoid flashback flicker', async () => {
     vi.useFakeTimers()
     try {
-      initSessionMock.mockReturnValue(new Promise(() => {}))
       deferredValueState.enabled = true
       deferredValueState.value = [
         { role: 'assistant', content: 'stale deferred snapshot' } as ChatMessage,
@@ -491,8 +493,9 @@ describe('ConversationView session boot', () => {
     const composerShell = container.querySelector('[data-message-input-shell]') as HTMLDivElement
 
     await waitFor(() => {
-      expect(initSessionMock).toHaveBeenCalledWith('session-1')
+      expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
     })
+    expect(initSessionMock).not.toHaveBeenCalled()
 
     expect(scrollContainer).toHaveStyle({ scrollPaddingBottom: '108px' })
     expect(scrollContainer.firstElementChild).toHaveStyle({ paddingBottom: '108px' })

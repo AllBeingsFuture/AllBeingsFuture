@@ -829,24 +829,26 @@ export default function ConversationView({ session }: Props) {
     handleAgentStreamEvent(event)
   })
 
-  // Initialize session on first mount / session switch.
-  // IMPORTANT: Do NOT depend on session.status here — status changes frequently
-  // during streaming (idle ↔ running) and would toggle `ready`, disabling the
-  // textarea and stealing focus from the user's input.
+  // Hydrate chat history on first mount / session switch.
+  // Do NOT auto-init the agent process here: after app restart/reinstall that
+  // would relaunch providers and can re-run prior work via ACP session/load.
+  // Agent init happens only on user-initiated send (ProcessService auto-init)
+  // or explicit create/resume/worktree flows. Keep ready independent of status
+  // so streaming status flips do not disable the composer.
   useEffect(() => {
     let cancelled = false
     setReady(false)
     const boot = async () => {
       try {
-        await workbenchApi.session.init(session.id)
+        await pollChat(session.id)
       } catch {
-        // initProcess may throw if session is already active — that's fine
+        // History load is best-effort; composer still opens for a new send.
       }
       if (!cancelled) setReady(true)
     }
     void boot()
     return () => { cancelled = true }
-  }, [session.id])
+  }, [pollChat, session.id])
 
   useEffect(() => {
     void pollChat(session.id)
