@@ -528,7 +528,9 @@ describe('ConversationView session boot', () => {
 })
 
 describe('extractFileChanges', () => {
-  it('ignores stale measured sizes when a reused virtualized key points to different content', () => {
+  it('keeps last measured size when a reused virtualized key changes content fingerprint', () => {
+    // Streaming rewrites fingerprints every token; sticky measurements avoid
+    // estimate↔measured thrash (scroll jumps) until ResizeObserver updates height.
     const layout = buildVirtualLayout({
       items: ['fresh content'],
       getItemKey: () => 'session-2-group-0',
@@ -541,8 +543,8 @@ describe('extractFileChanges', () => {
       viewportHeight: 400,
     })
 
-    expect(layout.totalHeight).toBe(80)
-    expect(layout.items[0]?.size).toBe(80)
+    expect(layout.totalHeight).toBe(420)
+    expect(layout.items[0]?.size).toBe(420)
   })
 
   it('parses Codex apply_patch payloads into per-file change cards', () => {

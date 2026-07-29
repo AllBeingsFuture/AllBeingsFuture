@@ -789,6 +789,8 @@ export default function ConversationView({ session }: Props) {
     contentRef,
     scrollContainerRef,
     handleScroll,
+    handleWheel,
+    handlePointerDown,
     scrollMetrics,
   } = useConversationScroll({
     sessionId: session.id,
@@ -796,6 +798,8 @@ export default function ConversationView({ session }: Props) {
     streaming: shouldRenderLiveMessages,
     bottomOffset: composerClearance,
   })
+
+  const getScrollElement = useCallback(() => scrollContainerRef.current, [scrollContainerRef])
 
   const measureComposerHeight = useCallback(() => {
     const el = composerRef.current
@@ -882,6 +886,7 @@ export default function ConversationView({ session }: Props) {
     overscanPx: VIRTUALIZATION_OVERSCAN_PX,
     scrollTop: scrollMetrics.scrollTop,
     viewportHeight: scrollMetrics.viewportHeight,
+    getScrollElement,
   })
   const handleSend = useCallback(async (text: string, images?: Array<{data: string; mimeType: string}>) => {
     await workbenchApi.chat.appendMessage(session.id, text, images)
@@ -994,6 +999,8 @@ export default function ConversationView({ session }: Props) {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
         data-scroll-container
         className="flex-1 overflow-y-auto px-6 py-6"
         style={{ overflowAnchor: 'none', scrollPaddingBottom: `${composerClearance}px` }}
