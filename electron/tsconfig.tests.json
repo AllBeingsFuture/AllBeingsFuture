@@ -9,9 +9,13 @@
     "bridge/**/*.ts",
     "services/agent-stream-normalizer.ts",
     "services/agent-stream-types.ts",
+    "services/builtin-skills.ts",
     "services/concurrency-guard.ts",
+    "services/mcp.ts",
     "services/provider-defaults.ts",
     "services/provider.ts",
+    "services/skill-engine.ts",
+    "services/skill.ts",
     "tests/**/*.ts"
   ],
   "exclude": [
