@@ -106,13 +106,18 @@ describe('ComposerCapabilities', () => {
     expect(onAttachFiles).toHaveBeenCalledTimes(1)
   })
 
-  it('shows enabled summary chips and toggles a skill', async () => {
+  it('does not show enabled summary chips next to the + button', () => {
     renderWithProviders(<ComposerCapabilities />)
 
-    expect(screen.getByLabelText('已启用 1 个技能')).toBeInTheDocument()
-    expect(screen.getByLabelText('已启用 1 个 MCP')).toBeInTheDocument()
+    expect(screen.queryByLabelText('已启用 1 个技能')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('已启用 1 个 MCP')).not.toBeInTheDocument()
+  })
 
-    fireEvent.click(screen.getByLabelText('已启用 1 个技能'))
+  it('opens skills picker from the + menu and toggles a skill', async () => {
+    renderWithProviders(<ComposerCapabilities />)
+
+    fireEvent.click(screen.getByLabelText('打开能力菜单'))
+    fireEvent.click(screen.getByRole('menuitem', { name: /技能/ }))
     expect(await screen.findByTestId('capability-picker-skills')).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('禁用技能 Code Review'))

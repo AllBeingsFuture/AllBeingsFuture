@@ -81,18 +81,18 @@ function RowShell({
   trailing: ReactNode
 }) {
   return (
-    <div className="flex items-start gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2 transition hover:bg-white/[0.04]">
+    <div className="flex items-start gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 transition hover:bg-white/[0.04]">
       <div className="mt-0.5 shrink-0 text-blue-400/90">{icon}</div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-[13px] font-medium text-gray-100">{title}</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="truncate text-sm font-medium text-gray-100">{title}</span>
           {badges}
         </div>
         {subtitle ? (
-          <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-gray-500">{subtitle}</p>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">{subtitle}</p>
         ) : null}
       </div>
-      <div className="shrink-0 pt-0.5">{trailing}</div>
+      <div className="shrink-0 self-center">{trailing}</div>
     </div>
   )
 }
@@ -126,11 +126,11 @@ function SkillRows({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {filtered.map((skill) => (
         <RowShell
           key={skill.id}
-          icon={<Sparkles size={14} />}
+          icon={<Sparkles size={15} />}
           title={skill.name}
           subtitle={skill.description || undefined}
           badges={
@@ -183,11 +183,11 @@ function McpRows({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {filtered.map((server) => (
         <RowShell
           key={server.id}
-          icon={<Server size={14} />}
+          icon={<Server size={15} />}
           title={server.name}
           subtitle={server.description || undefined}
           badges={
@@ -524,49 +524,49 @@ export default function CapabilityPicker({
       role="dialog"
       aria-label={`${title} 选择面板`}
       data-testid={`capability-picker-${kind}`}
-      className={`absolute bottom-full left-0 z-30 mb-2 w-[min(100%,380px)] overflow-hidden rounded-xl border border-white/[0.1] bg-[#0c121c] shadow-[0_16px_48px_rgba(0,0,0,0.45)] ${className}`}
+      className={`absolute bottom-full left-0 z-30 mb-2 w-[min(92vw,540px)] overflow-hidden rounded-xl border border-white/[0.1] bg-[#0c121c] shadow-[0_16px_48px_rgba(0,0,0,0.45)] ${className}`}
     >
-      <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2">
-        <Icon size={14} className="text-blue-400" />
+      <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
+        <Icon size={15} className="text-blue-400" />
         <span className="text-sm font-medium text-gray-100">{title}</span>
-        <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-gray-400">
+        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-gray-400">
           已启用 {enabledCount}/{items.length}
         </span>
         <div className="flex-1" />
         <button
           type="button"
           onClick={() => setShowAdd((v) => !v)}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-gray-400 transition hover:bg-white/5 hover:text-gray-200"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition hover:bg-white/5 hover:text-gray-200"
           aria-label={kind === 'skills' ? '添加自定义技能' : '添加自定义 MCP'}
         >
-          <Plus size={12} />
+          <Plus size={13} />
           添加
         </button>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md p-1 text-gray-500 transition hover:bg-white/5 hover:text-gray-200"
+          className="rounded-md p-1.5 text-gray-500 transition hover:bg-white/5 hover:text-gray-200"
           aria-label="关闭"
         >
-          <X size={14} />
+          <X size={15} />
         </button>
       </div>
 
-      <div className="border-b border-white/[0.06] px-3 py-2">
-        <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5">
-          <Search size={12} className="shrink-0 text-gray-500" />
+      <div className="border-b border-white/[0.06] px-4 py-2.5">
+        <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+          <Search size={13} className="shrink-0 text-gray-500" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={kind === 'skills' ? '搜索技能…' : '搜索 MCP…'}
-            className="min-w-0 flex-1 bg-transparent text-xs text-gray-100 outline-none placeholder:text-gray-600"
+            className="min-w-0 flex-1 bg-transparent text-sm text-gray-100 outline-none placeholder:text-gray-600"
             autoFocus
           />
-          {loading ? <Loader2 size={12} className="animate-spin text-gray-500" /> : null}
+          {loading ? <Loader2 size={13} className="animate-spin text-gray-500" /> : null}
         </div>
       </div>
 
-      <div className="max-h-[280px] space-y-2 overflow-y-auto px-2.5 py-2">
+      <div className="max-h-[min(60vh,460px)] space-y-2.5 overflow-y-auto px-3.5 py-3">
         {showAdd ? (
           kind === 'skills' ? (
             <CustomSkillForm
@@ -584,7 +584,7 @@ export default function CapabilityPicker({
         ) : null}
 
         {error ? (
-          <div className="rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-300">
+          <div className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
             {error}
           </div>
         ) : null}
@@ -606,7 +606,7 @@ export default function CapabilityPicker({
         )}
       </div>
 
-      <div className="border-t border-white/[0.06] px-3 py-1.5 text-[10px] text-gray-600">
+      <div className="border-t border-white/[0.06] px-4 py-2 text-[11px] leading-4 text-gray-600">
         {kind === 'mcp'
           ? '启用状态写入全局配置；新会话启动时注入 MCP。已在运行的会话需重新初始化后才会生效。'
           : '启用状态写入全局配置；下一条消息会按当前启用技能展开 / 命令。'}
