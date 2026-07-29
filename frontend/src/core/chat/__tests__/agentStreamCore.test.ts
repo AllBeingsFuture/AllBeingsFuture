@@ -107,7 +107,7 @@ describe('agentStreamCore', () => {
           partial: false,
           toolUseId: 'tool-x',
           toolName: 'Bash',
-        } as ChatMessage,
+        } as unknown as ChatMessage,
       ],
       stream: first.stream,
     }
