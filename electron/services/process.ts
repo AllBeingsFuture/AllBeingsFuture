@@ -572,12 +572,11 @@ export class ProcessService {
     // - Top-level (Supervisor): file discovery (+ agent-control MCP)
     // - Child (Worker): appendSystemPrompt only — children share the parent workDir,
     //   so we must NOT rewrite AGENTS.md / .claude/rules (would pollute the parent).
-    //   Worker rules explicitly override any Supervisor scheduling text found on disk.
+    //   Worker rules override Supervisor scheduling text found on disk.
     if (session.parentSessionId) {
       try {
         const workerRules = buildWorkerRulesContent()
         const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
-        // Worker role first so it outranks later session-level custom text if any.
         config.appendSystemPrompt = existingPrompt
           ? `${workerRules}\n\n${existingPrompt}`
           : workerRules
@@ -1420,13 +1419,19 @@ export class ProcessService {
 
   /**
    * Clean up the supervisor prompt rules file for a session.
-   * Called when a parent session is stopped or encounters a terminal error.
+   * Called when a session is stopped or encounters a terminal error.
+   * Parent and child may share the same workDir — only remove files when no
+   * other live session still tracks that directory (ref-count by workDir).
    */
   private cleanupSupervisorPromptForSession(sessionId: string): void {
     const workDir = this.supervisorPromptSessions.get(sessionId)
-    if (workDir) {
+    if (!workDir) return
+    this.supervisorPromptSessions.delete(sessionId)
+    const stillInUse = [...this.supervisorPromptSessions.values()].some(
+      tracked => tracked === workDir,
+    )
+    if (!stillInUse) {
       cleanupSupervisorPrompt(workDir)
-      this.supervisorPromptSessions.delete(sessionId)
     }
   }
 

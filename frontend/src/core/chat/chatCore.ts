@@ -64,6 +64,8 @@ export interface ChatPatchEvent {
 export interface AgentUpdateEvent {
   parentSessionId: string
   agent: AgentInfo
+  /** When true, remove this agent from the sidebar instead of upserting */
+  removed?: boolean
 }
 
 export interface ChatSnapshot {
@@ -494,24 +496,42 @@ export const chatCore = {
     return buildChatStatePatch(snapshot, data.sessionId, data.messages ?? [], data.streaming, data.error || '')
   },
 
+  /** Apply a chat patch onto an arbitrary message list (selected or buffered). */
+  applyMessagePatch(messages: ChatMessage[], data: ChatPatchEvent) {
+    if (!data.message || data.type === 'meta') return messages
+    if (data.type === 'upsert_last') return upsertLastPatchedMessage(messages, data.message)
+    if (data.type === 'append') return appendPatchedMessage(messages, data.message)
+    return messages
+  },
+
   applyChatPatch(snapshot: ChatSnapshot, data: ChatPatchEvent) {
     const next: Partial<ChatSnapshot> = { sessions: chatCore.syncRuntimeStatus(snapshot.sessions, data.sessionId, data.streaming) }
     if (data.sessionId !== snapshot.selectedId) return next
-    let nextMessages = snapshot.messages
-    if (data.message) {
-      nextMessages = data.type === 'upsert_last'
-        ? upsertLastPatchedMessage(snapshot.messages, data.message)
-        : data.type === 'append'
-        ? appendPatchedMessage(snapshot.messages, data.message)
-        : snapshot.messages
-    }
+    const nextMessages = chatCore.applyMessagePatch(snapshot.messages, data)
     return { ...next, messages: nextMessages, streaming: data.streaming, chatError: chatCore.localizeChatError(data.error || '') }
   },
 
   applyAgentUpdate(snapshot: ChatSnapshot, data: AgentUpdateEvent) {
-    const { parentSessionId, agent } = data
+    const { parentSessionId, agent, removed } = data
     if (!parentSessionId || !agent) return null
     const prevList = snapshot.agents[parentSessionId] || []
+
+    // Explicit close: drop agent from sidebar and reverse map
+    if (removed === true) {
+      const nextList = prevList.filter(
+        item => item.agentId !== agent.agentId && item.childSessionId !== agent.childSessionId,
+      )
+      const nextChildToParent = { ...snapshot.childToParent }
+      if (agent.childSessionId && nextChildToParent[agent.childSessionId]) {
+        delete nextChildToParent[agent.childSessionId]
+      }
+      return {
+        agents: { ...snapshot.agents, [parentSessionId]: nextList },
+        childToParent: nextChildToParent,
+        sessions: snapshot.sessions,
+      }
+    }
+
     const existingIndex = prevList.findIndex(item => item.agentId === agent.agentId)
     const nextList = existingIndex >= 0 ? prevList.map((item, index) => index === existingIndex ? agent : item) : [...prevList, agent]
     return {
@@ -547,12 +567,16 @@ export const chatCore = {
     for (const session of snapshot.sessions) {
       const parentSessionId = (session as SessionWithParent).parentSessionId
       if (!parentSessionId || seenChildIds.has(session.id)) continue
+      // Closed / terminated children must not reappear in the sidebar
+      if (session.status === 'terminated') continue
+      // Skip terminal statuses rehydrated from DB (prefer live tracker only)
+      if (session.status === 'completed' || session.status === 'error') continue
       const agent: AgentInfo = {
         agentId: `session-${session.id}`,
         name: session.name,
         parentSessionId,
         childSessionId: session.id,
-        status: ['starting', 'running', 'waiting_input'].includes(session.status) ? 'running' : session.status === 'idle' ? 'idle' : session.status === 'error' ? 'failed' : session.status === 'terminated' ? 'cancelled' : 'completed',
+        status: ['starting', 'running', 'waiting_input'].includes(session.status) ? 'running' : session.status === 'idle' ? 'idle' : 'completed',
         workDir: session.workingDirectory,
         createdAt: session.startedAt ? String(session.startedAt) : '',
         providerId: session.providerId,

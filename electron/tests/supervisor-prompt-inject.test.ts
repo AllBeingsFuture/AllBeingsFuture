@@ -92,6 +92,33 @@ test('process.ts cleanup tracks the same directory that was injected', () => {
     /private cleanupSupervisorPromptForSession\(sessionId: string\): void \{\s*const workDir = this\.supervisorPromptSessions\.get\(sessionId\)/,
   )
   assert.match(source, /cleanupSupervisorPrompt\(workDir\)/)
+  // Shared workDir (parent + child) must ref-count before deleting rules files
+  assert.match(source, /stillInUse/)
+  assert.match(source, /supervisorPromptSessions\.values\(\)/)
+})
+
+test('process.ts injects agent-control and ABF rules for child sessions too', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  // Must not gate the whole inject block on parent-only sessions
+  assert.equal(
+    /if\s*\(\s*!session\.parentSessionId\s*\)\s*\{\s*try\s*\{[\s\S]*?agent-control/.test(source),
+    false,
+    'agent-control must not be wrapped in if (!session.parentSessionId)',
+  )
+  assert.match(source, /Inject agent-control \+ ABF rules for ALL sessions/)
+  assert.match(source, /ABF_PARENT_SESSION_ID:\s*sessionId/)
+})
+
+test('closeChildSession removes tracker entry and emits removed for UI', () => {
+  const lifecyclePath = path.join(electronRoot, 'services/agent-lifecycle.ts')
+  const trackerPath = path.join(electronRoot, 'services/agent-tracker.ts')
+  const lifecycle = readFileSync(lifecyclePath, 'utf8')
+  const tracker = readFileSync(trackerPath, 'utf8')
+  assert.match(tracker, /removeByChildSessionId\s*\(/)
+  assert.match(lifecycle, /removePersistentAgent\s*\(/)
+  assert.match(lifecycle, /updateStatus\(\s*childSessionId\s*,\s*'terminated'\s*\)/)
+  assert.match(lifecycle, /emitAgentRemoved|removed:\s*true/)
+  assert.match(lifecycle, /Always emit removed even if tracker entry is missing/)
 })
 
 // ---------------------------------------------------------------------------

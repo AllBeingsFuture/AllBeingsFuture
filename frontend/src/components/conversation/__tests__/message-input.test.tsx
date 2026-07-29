@@ -46,7 +46,7 @@ describe('MessageInput', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.ipcEventHandlers.clear()
-    useDraftStore.setState({ drafts: {} })
+    useDraftStore.setState({ drafts: {}, pendingBySession: {} })
   })
 
   it('does not submit Enter while IME composition is active', async () => {
@@ -159,6 +159,30 @@ describe('MessageInput', () => {
     expect(stopButton).toHaveTextContent('正在停止')
     fireEvent.click(stopButton)
     expect(onStop).not.toHaveBeenCalled()
+  })
+
+  it('keeps streaming-queued messages in the session store after the composer unmounts', async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    const { unmount } = renderWithProviders(
+      <MessageInput sessionId="parent-session" streaming onSend={onSend} />,
+    )
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: '给父 agent 的跟进' } })
+    fireEvent.click(screen.getByLabelText('发送消息'))
+
+    await waitFor(() => {
+      expect(useDraftStore.getState().pendingBySession['parent-session']).toEqual([
+        { text: '给父 agent 的跟进', images: undefined },
+      ])
+    })
+    expect(onSend).not.toHaveBeenCalled()
+
+    unmount()
+
+    expect(useDraftStore.getState().pendingBySession['parent-session']).toEqual([
+      { text: '给父 agent 的跟进', images: undefined },
+    ])
   })
 
   it('exposes a unified + menu for attachments, skills, and MCP', () => {

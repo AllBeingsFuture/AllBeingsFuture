@@ -3,12 +3,10 @@ import type { StickerResult } from '../../stores/stickerStore'
 import { useStickerStore } from '../../stores/stickerStore'
 import { FileTransferService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useDraftStore } from '../../stores/draftStore'
-import type { ImageAttachment, FileAttachment } from '../../stores/draftStore'
+import type { ImageAttachment, FileAttachment, PendingMessage } from '../../stores/draftStore'
+import { useSessionStore } from '../../stores/sessionStore'
 
-interface QueuedMessage {
-  text: string
-  images?: Array<{ data: string; mimeType: string }>
-}
+const EMPTY_PENDING: PendingMessage[] = []
 
 interface UseMessageInputOptions {
   sessionId: string
@@ -18,7 +16,14 @@ interface UseMessageInputOptions {
 }
 
 export function useMessageInput({ sessionId, disabled, streaming, onSend }: UseMessageInputOptions) {
-  const { saveDraft, getDraft, clearDraft } = useDraftStore()
+  const { saveDraft, getDraft, clearDraft, enqueuePending, removePendingAt, setPending } = useDraftStore()
+  // Stable empty array — avoid `|| []` which breaks useSyncExternalStore snapshot equality.
+  const messageQueue = useDraftStore((s) => s.pendingBySession[sessionId] ?? EMPTY_PENDING)
+  const flushPendingMessages = useSessionStore((s) => s.flushPendingMessages)
+  const setMessageQueue = useCallback((messages: PendingMessage[] | ((prev: PendingMessage[]) => PendingMessage[])) => {
+    const next = typeof messages === 'function' ? messages(useDraftStore.getState().getPending(sessionId)) : messages
+    setPending(sessionId, next)
+  }, [sessionId, setPending])
   const initialDraft = useRef(getDraft(sessionId))
 
   const [value, setValue] = useState(initialDraft.current?.text ?? '')
@@ -26,7 +31,6 @@ export function useMessageInput({ sessionId, disabled, streaming, onSend }: UseM
   const [files, setFiles] = useState<FileAttachment[]>(initialDraft.current?.files ?? [])
   const [dragging, setDragging] = useState(false)
   const [stickerOpen, setStickerOpen] = useState(false)
-  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -190,7 +194,7 @@ export function useMessageInput({ sessionId, disabled, streaming, onSend }: UseM
     clearDraft(sessionId)
   }, [clearDraft, sessionId])
 
-  const doSendMessage = useCallback(async (msg: QueuedMessage) => {
+  const doSendMessage = useCallback(async (msg: PendingMessage) => {
     await onSend(msg.text, msg.images)
   }, [onSend])
 
@@ -200,34 +204,27 @@ export function useMessageInput({ sessionId, disabled, streaming, onSend }: UseM
 
     clearInput()
 
+    // Session-scoped queue survives parent↔child switches while the parent is streaming.
     if (streaming) {
-      setMessageQueue((q) => [...q, msg])
+      enqueuePending(sessionId, msg)
       return
     }
 
     await doSendMessage(msg)
-  }, [buildMessage, clearInput, disabled, doSendMessage, streaming])
+  }, [buildMessage, clearInput, disabled, doSendMessage, enqueuePending, sessionId, streaming])
 
-  // Auto-send queued messages when streaming ends
+  // Auto-send queued messages when streaming ends (store-backed; also flushed by session store).
   const prevStreamingRef = useRef(streaming)
-  const sendingRef = useRef(false)
   useEffect(() => {
-    if (prevStreamingRef.current && !streaming && messageQueue.length > 0 && !sendingRef.current) {
-      const [next, ...rest] = messageQueue
-      sendingRef.current = true
-      setMessageQueue(rest)
-      doSendMessage(next)
-        .catch(() => {
-          setMessageQueue((q) => [next, ...q])
-        })
-        .finally(() => { sendingRef.current = false })
+    if (prevStreamingRef.current && !streaming) {
+      void flushPendingMessages(sessionId)
     }
     prevStreamingRef.current = streaming
-  }, [streaming, messageQueue, doSendMessage])
+  }, [streaming, sessionId, flushPendingMessages])
 
   const removeQueuedMessage = useCallback((index: number) => {
-    setMessageQueue((q) => q.filter((_, i) => i !== index))
-  }, [])
+    removePendingAt(sessionId, index)
+  }, [removePendingAt, sessionId])
 
   const removeImage = useCallback((index: number) => {
     setImages((current) => current.filter((_, currentIndex) => currentIndex !== index))

@@ -189,6 +189,7 @@ export class AgentLifecycleManager {
 
   /**
    * Explicitly close a persistent child agent.
+   * Removes from tracker and notifies UI to drop the sub-task from the sidebar.
    */
   async closeChildSession(parentSessionId: string, childSessionId: string): Promise<void> {
     const child = this.sessionService.getById(childSessionId)
@@ -206,9 +207,45 @@ export class AgentLifecycleManager {
     const lastAssistant = [...childState.messages].reverse().find(m => m.role === 'assistant')
     const result = lastAssistant?.content || '(no output)'
 
-    // Update tracker and session status
-    this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'completed')
-    this.sessionService.updateStatus(childSessionId, 'completed')
+    // Mark session terminated (not completed) so fetchAllAgents will not rehydrate it
+    this.sessionService.updateStatus(childSessionId, 'terminated')
+
+    // Remove from tracker and emit removed so UI drops the sub-task immediately.
+    // Always emit removed even if tracker entry is missing (stale UI state).
+    const removed = this.removePersistentAgent(parentSessionId, childSessionId)
+    if (!removed) {
+      this.emitAgentRemoved(parentSessionId, {
+        agentId: `persistent-${childSessionId}`,
+        name: child.name,
+        parentSessionId,
+        childSessionId,
+        status: 'cancelled',
+        summary: '',
+        sdkSessionId: '',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        streaming: false,
+      })
+    }
+
+    // Clean active child stack / names / idle flags
+    const stack = this.activeChildStack.get(parentSessionId)
+    if (stack) {
+      const idx = stack.indexOf(childSessionId)
+      if (idx !== -1) stack.splice(idx, 1)
+      if (stack.length === 0) this.activeChildStack.delete(parentSessionId)
+    }
+    this.childSessionNames.delete(childSessionId)
+    this.agentIdleFlags.delete(childSessionId)
+    const idleWaiters = this.agentIdleWaiters.get(childSessionId)
+    if (idleWaiters) {
+      for (const w of idleWaiters) {
+        if (w.timer) clearTimeout(w.timer)
+        w.resolve({ idle: true, output: result })
+      }
+      this.agentIdleWaiters.delete(childSessionId)
+    }
 
     // Inject final result into parent
     const parentState = this.sessionStates.get(parentSessionId)
@@ -228,6 +265,22 @@ export class AgentLifecycleManager {
     childState.streaming = false
     this.callbacks.emitChatUpdate(childSessionId)
     appLog('info', `Persistent child closed: ${childSessionId}`, 'process')
+  }
+
+  /**
+   * Remove a persistent agent from the tracker and notify the frontend.
+   */
+  removePersistentAgent(parentSessionId: string, childSessionId: string): TrackedAgent | null {
+    const tracker = this.agentTrackers.get(parentSessionId)
+    if (!tracker) return null
+    const removed = tracker.removeByChildSessionId(childSessionId)
+    if (removed) {
+      removed.status = 'cancelled'
+      removed.streaming = false
+      removed.completedAt = removed.completedAt || new Date().toISOString()
+      this.emitAgentUpdate(parentSessionId, removed, true)
+    }
+    return removed
   }
 
   /**
@@ -402,12 +455,28 @@ export class AgentLifecycleManager {
     }
   }
 
-  emitAgentUpdate(parentSessionId: string, agent: TrackedAgent): void {
+  emitAgentUpdate(parentSessionId: string, agent: TrackedAgent, removed = false): void {
+    if (removed) {
+      this.emitAgentRemoved(parentSessionId, agent)
+      return
+    }
     const window = this.getWindow()
     if (window && !window.isDestroyed()) {
       window.webContents.send('agent:update', {
         parentSessionId,
         agent: this.trackedAgentToInfo(agent),
+      })
+    }
+  }
+
+  /** Notify frontend to drop a sub-agent from the parent session sidebar. */
+  emitAgentRemoved(parentSessionId: string, agent: TrackedAgent): void {
+    const window = this.getWindow()
+    if (window && !window.isDestroyed()) {
+      window.webContents.send('agent:update', {
+        parentSessionId,
+        agent: this.trackedAgentToInfo(agent),
+        removed: true,
       })
     }
   }
