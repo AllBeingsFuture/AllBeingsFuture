@@ -15,12 +15,12 @@ describe('uiStore panel system', () => {
     resetAllStores()
   })
 
-  it('includes claudeops-style panels without explorer', () => {
+  it('includes claudeops-style panels without explorer or git worktree management', () => {
     const panelState = createDefaultPanelState()
     const uiState = createDefaultUIState()
     expect(uiState).not.toHaveProperty('explorerView')
     expect(panelState.panelSides).not.toHaveProperty('explorer')
-    expect(panelState.panelSides).toHaveProperty('git')
+    expect(panelState.panelSides).not.toHaveProperty('git')
     expect(panelState.panelSides).toHaveProperty('sessions')
   })
 

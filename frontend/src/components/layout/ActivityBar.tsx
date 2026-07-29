@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Bot, GitBranch, Settings, Users } from 'lucide-react'
+import { Bot, Settings, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { workbenchApi } from '../../app/api/workbench'
 import type { PanelId, PanelSide } from '../../stores/ui-helpers'
@@ -23,7 +23,6 @@ const PANEL_DEFS: {
   disabled?: boolean
 }[] = [
   { id: 'sessions',  icon: Bot,        label: '会话管理' },
-  { id: 'git',       icon: GitBranch,  label: 'Git 分支' },
 ]
 
 /** DropZone 必须定义在组件外部，避免拖拽事件链断裂 */

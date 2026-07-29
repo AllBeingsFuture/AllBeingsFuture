@@ -7,7 +7,6 @@ import TimelinePanel from '../panels/TimelinePanel'
 import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
 import DashboardSidebarView from '../sidebar/DashboardSidebarView'
-import WorktreePanel from '../git/WorktreePanel'
 
 export default function DetailPanel() {
   const activePanelRight = usePanelStore(s => s.activePanelRight)
@@ -18,7 +17,6 @@ export default function DetailPanel() {
       case 'stats':     return <StatsPanel />
       case 'sessions':  return <SessionsContent />
       case 'dashboard': return <DashboardSidebarView />
-      case 'git':       return <WorktreePanel />
       default:          return <TimelinePanel />
     }
   }
