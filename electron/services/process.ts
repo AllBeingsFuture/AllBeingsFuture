@@ -22,7 +22,7 @@ import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
 import { MessageScheduler } from './message-scheduler.js'
 import { appLog } from './log.js'
-import { injectSupervisorPrompt, injectCodexAgentsMd, cleanupSupervisorPrompt, buildAllRulesContent } from './supervisor-prompt.js'
+import { injectSupervisorPrompt, injectAgentsMd, cleanupSupervisorPrompt, buildAllRulesContent } from './supervisor-prompt.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
@@ -550,8 +550,9 @@ export class ProcessService {
     }
 
     // Inject ABF rules for non-child sessions.
-    // Built-in CLI agents all run via ACP; optional file-based rules still use
-    // provider id (Claude rules dir / Codex AGENTS.md) when helpful.
+    // - Claude: .claude/rules/abf-*.md (native file discovery)
+    // - All other providers: AGENTS.md file discovery + appendSystemPrompt dual channel
+    //   (same rule content quality as Claude/Codex, including supervisor guidance)
     if (!session.parentSessionId) {
       try {
         const providerNames = this.providerService.getRunnable().map(p => p.name)
@@ -587,21 +588,36 @@ export class ProcessService {
             const errMsg = err instanceof Error ? err.message : String(err)
             appLog('warn', `Failed to inject Claude rules files: ${errMsg}`, 'process')
           }
-        } else if (isCodexProvider) {
+        } else {
+          // File-based path (Codex-style AGENTS.md) for every non-Claude provider.
           try {
             const promptWorkDir = session.worktreeSourceRepo || workDir
-            injectCodexAgentsMd(promptWorkDir, providerNames)
+            injectAgentsMd(promptWorkDir, providerNames, {
+              includeCodexExtras: isCodexProvider,
+              includeSupervisor: true,
+            })
             this.supervisorPromptSessions.set(sessionId, promptWorkDir)
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err)
-            appLog('warn', `Failed to inject Codex AGENTS.md: ${errMsg}`, 'process')
+            appLog('warn', `Failed to inject AGENTS.md rules: ${errMsg}`, 'process')
           }
-        } else {
-          const rulesContent = buildAllRulesContent(providerNames, false)
-          const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
-          config.appendSystemPrompt = existingPrompt
-            ? `${existingPrompt}\n\n${rulesContent}`
-            : rulesContent
+
+          // Dual channel for non-Codex providers: also prepend full rules via
+          // appendSystemPrompt. Codex already loads AGENTS.md reliably; other ACP
+          // agents may ignore the file and need the prompt path. Content matches
+          // Claude/Codex quality (includeSupervisor=true).
+          if (!isCodexProvider) {
+            try {
+              const rulesContent = buildAllRulesContent(providerNames, true)
+              const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
+              config.appendSystemPrompt = existingPrompt
+                ? `${existingPrompt}\n\n${rulesContent}`
+                : rulesContent
+            } catch (err: unknown) {
+              const errMsg = err instanceof Error ? err.message : String(err)
+              appLog('warn', `Failed to append ABF rules to system prompt: ${errMsg}`, 'process')
+            }
+          }
         }
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err)
