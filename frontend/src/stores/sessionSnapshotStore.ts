@@ -18,11 +18,14 @@ import {
 } from '../core/chat/agentStreamCore'
 import { respondToAgentPermission } from '../hooks/agentStreamIpc'
 import type { AgentSessionStreamState, AgentStreamEvent } from '../types/agentStreamTypes'
+import { useDraftStore } from './draftStore'
 
 interface SessionState extends ChatSnapshot {
   agentStreams: Record<string, AgentSessionStreamState>
   agentStreamMessages: Record<string, ChatMessage[]>
   loading: boolean
+  /** In-flight flush locks so pending queues do not re-enter while a send is running. */
+  pendingFlushInFlight: Record<string, boolean>
   load: () => Promise<void>
   create: (config: SessionConfig) => Promise<Session | null>
   select: (id: string | null) => void
@@ -45,6 +48,8 @@ interface SessionState extends ChatSnapshot {
   fetchAllAgents: () => Promise<void>
   markWorktreeMerged: (id: string) => Promise<void>
   enterWorktree: (id: string) => Promise<Session | null>
+  /** Dispatch the next composer-queued message after a session becomes idle. */
+  flushPendingMessages: (sessionId: string) => Promise<void>
 }
 
 function snapshotOf(state: SessionState): ChatSnapshot {
@@ -70,6 +75,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   childToParent: {},
   agentStreams: {},
   agentStreamMessages: {},
+  pendingFlushInFlight: {},
 
   load: async () => {
     set({ loading: true })
@@ -95,10 +101,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const state = get()
     const patch = chatCore.select(snapshotOf(state), id)
     if (!patch) return
+
+    // Snapshot the live transcript before clearing so parent↔child switches
+    // do not lose messages that only lived in the selected `messages` array.
+    let agentStreamMessages = state.agentStreamMessages
+    if (state.selectedId && state.selectedId !== id && state.messages.length > 0) {
+      agentStreamMessages = {
+        ...agentStreamMessages,
+        [state.selectedId]: state.messages,
+      }
+    }
+
     const stream = id ? state.agentStreams[id] : undefined
-    const bufferedMessages = id ? state.agentStreamMessages[id] : undefined
+    const bufferedMessages = id ? agentStreamMessages[id] : undefined
     set({
       ...patch,
+      agentStreamMessages,
       ...(bufferedMessages ? { messages: bufferedMessages } : {}),
       streaming: isAgentStreamActive(stream),
     })
@@ -146,16 +164,55 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  flushPendingMessages: async (sessionId) => {
+    const state = get()
+    if (state.pendingFlushInFlight[sessionId]) return
+    if (isAgentStreamActive(state.agentStreams[sessionId])) return
+    if (state.selectedId === sessionId && state.streaming) return
+
+    const pending = useDraftStore.getState().getPending(sessionId)
+    if (pending.length === 0) return
+
+    set(current => ({
+      pendingFlushInFlight: { ...current.pendingFlushInFlight, [sessionId]: true },
+    }))
+
+    const next = useDraftStore.getState().shiftPending(sessionId)
+    if (!next) {
+      set(current => {
+        const { [sessionId]: _, ...rest } = current.pendingFlushInFlight
+        return { pendingFlushInFlight: rest }
+      })
+      return
+    }
+
+    try {
+      await get().sendMessage(sessionId, next.text, next.images)
+    } catch {
+      // Put the message back at the front so a later idle event can retry.
+      const remaining = useDraftStore.getState().getPending(sessionId)
+      useDraftStore.getState().setPending(sessionId, [next, ...remaining])
+    } finally {
+      set(current => {
+        const { [sessionId]: _, ...rest } = current.pendingFlushInFlight
+        return { pendingFlushInFlight: rest }
+      })
+    }
+  },
+
   pollChat: async (id) => {
     if (isAgentStreamActive(get().agentStreams[id])) return
     try {
       const patch = await chatCore.poll(snapshotOf(get()), id)
       if (patch) {
         set(patch)
-        if (get().selectedId === id && patch.messages) {
+        // Always keep the per-session buffer warm, even for background sessions.
+        if (patch.messages) {
           set(state => ({ agentStreamMessages: { ...state.agentStreamMessages, [id]: patch.messages! } }))
         }
       }
+      // flushPendingMessages itself re-checks selected streaming / agent stream activity.
+      void get().flushPendingMessages(id)
     } catch (err: unknown) {
       set({ chatError: chatCore.localizeChatError(err instanceof Error ? err.message : String(err)) })
     }
@@ -163,21 +220,58 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   handleChatUpdate: (data) => {
     if (isAgentStreamActive(get().agentStreams[data.sessionId])) return
-    const patch = chatCore.applyChatUpdate(snapshotOf(get()), data)
-    if (patch) {
-      set(patch)
-      if (get().selectedId === data.sessionId && patch.messages) {
-        set(state => ({ agentStreamMessages: { ...state.agentStreamMessages, [data.sessionId]: patch.messages! } }))
-      }
+    const state = get()
+    const patch = chatCore.applyChatUpdate(snapshotOf(state), data)
+    const messages = data.messages ?? []
+    set({
+      ...(patch || {}),
+      agentStreamMessages: {
+        ...state.agentStreamMessages,
+        [data.sessionId]: messages,
+      },
+    })
+    if (!data.streaming) {
+      void get().flushPendingMessages(data.sessionId)
     }
   },
 
   handleChatPatch: (data) => {
-    if (isAgentStreamActive(get().agentStreams[data.sessionId])) return
-    const patch = chatCore.applyChatPatch(snapshotOf(get()), data)
-    set(patch)
-    if (get().selectedId === data.sessionId && patch.messages) {
-      set(state => ({ agentStreamMessages: { ...state.agentStreamMessages, [data.sessionId]: patch.messages! } }))
+    const state = get()
+    const streamActive = isAgentStreamActive(state.agentStreams[data.sessionId])
+    const isUserAppend = data.type === 'append' && data.message?.role === 'user'
+
+    // Normalized agent:stream owns the live transcript, but user turns still
+    // arrive via legacy chat:patch and must never be dropped — including when
+    // the user has already switched to a child session.
+    if (streamActive && !isUserAppend) {
+      const sessions = chatCore.syncRuntimeStatus(state.sessions, data.sessionId, data.streaming)
+      if (sessions !== state.sessions) set({ sessions })
+      if (!data.streaming) void get().flushPendingMessages(data.sessionId)
+      return
+    }
+
+    const selected = state.selectedId === data.sessionId
+    const baseMessages = selected
+      ? state.messages
+      : (state.agentStreamMessages[data.sessionId] || [])
+    const nextMessages = chatCore.applyMessagePatch(baseMessages, data)
+    const sessions = chatCore.syncRuntimeStatus(state.sessions, data.sessionId, data.streaming)
+
+    set({
+      sessions,
+      agentStreamMessages: {
+        ...state.agentStreamMessages,
+        [data.sessionId]: nextMessages,
+      },
+      ...(selected ? {
+        messages: nextMessages,
+        streaming: data.streaming,
+        chatError: chatCore.localizeChatError(data.error || ''),
+      } : {}),
+    })
+
+    if (!data.streaming) {
+      void get().flushPendingMessages(data.sessionId)
     }
   },
 
@@ -209,6 +303,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         chatError: reduction.error,
       } : {}),
     })
+
+    if (!reduction.streaming) {
+      void get().flushPendingMessages(data.sessionId)
+    }
   },
 
   respondToPermission: async (sessionId, requestId, optionId) => {

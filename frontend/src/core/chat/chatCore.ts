@@ -496,17 +496,18 @@ export const chatCore = {
     return buildChatStatePatch(snapshot, data.sessionId, data.messages ?? [], data.streaming, data.error || '')
   },
 
+  /** Apply a chat patch onto an arbitrary message list (selected or buffered). */
+  applyMessagePatch(messages: ChatMessage[], data: ChatPatchEvent) {
+    if (!data.message || data.type === 'meta') return messages
+    if (data.type === 'upsert_last') return upsertLastPatchedMessage(messages, data.message)
+    if (data.type === 'append') return appendPatchedMessage(messages, data.message)
+    return messages
+  },
+
   applyChatPatch(snapshot: ChatSnapshot, data: ChatPatchEvent) {
     const next: Partial<ChatSnapshot> = { sessions: chatCore.syncRuntimeStatus(snapshot.sessions, data.sessionId, data.streaming) }
     if (data.sessionId !== snapshot.selectedId) return next
-    let nextMessages = snapshot.messages
-    if (data.message) {
-      nextMessages = data.type === 'upsert_last'
-        ? upsertLastPatchedMessage(snapshot.messages, data.message)
-        : data.type === 'append'
-        ? appendPatchedMessage(snapshot.messages, data.message)
-        : snapshot.messages
-    }
+    const nextMessages = chatCore.applyMessagePatch(snapshot.messages, data)
     return { ...next, messages: nextMessages, streaming: data.streaming, chatError: chatCore.localizeChatError(data.error || '') }
   },
 
