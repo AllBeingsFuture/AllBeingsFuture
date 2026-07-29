@@ -214,8 +214,8 @@ export default function SessionCreator({ onClose }: Props) {
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [worktreeState, setWorktreeState] = useState<'idle' | 'git' | 'plain'>('idle')
-  /** 创建时立即进入 worktree；默认 false 保持「先在主目录启动」 */
-  const [isolateOnCreate, setIsolateOnCreate] = useState(false)
+  /** 创建时立即进入 worktree；默认 true（内置默认隔离） */
+  const [isolateOnCreate, setIsolateOnCreate] = useState(true)
 
   // 常用目录 / 工作区
   const [recentDirs, setRecentDirs] = useState<RecentDir[]>([])
