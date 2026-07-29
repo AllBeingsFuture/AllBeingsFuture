@@ -1,9 +1,12 @@
 import { SendHorizonal, Square, X, Upload, FileIcon, FolderIcon, LoaderCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MessageTextEditor from './MessageTextEditor'
+import ComposerCapabilities from './ComposerCapabilities'
+import SlashSkillSuggest from './SlashSkillSuggest'
 import { FileTransferService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useDraftStore } from '../../stores/draftStore'
 import type { ImageAttachment, FileAttachment } from '../../stores/draftStore'
+import { useSkillStore } from '../../stores/skillStore'
 
 interface QueuedMessage {
   text: string
@@ -30,6 +33,8 @@ function MessageInput({
   onStop,
 }: Props) {
   const { saveDraft, getDraft, clearDraft } = useDraftStore()
+  const skills = useSkillStore((s) => s.skills)
+  const loadSkills = useSkillStore((s) => s.load)
   const initialDraft = useRef(getDraft(sessionId))
 
   const [value, setValue] = useState(initialDraft.current?.text ?? '')
@@ -39,7 +44,12 @@ function MessageInput({
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCounterRef = useRef(0)
+
+  useEffect(() => {
+    void loadSkills()
+  }, [loadSkills])
 
   const valueRef = useRef(value)
   const imagesRef = useRef(images)
@@ -279,6 +289,24 @@ function MessageInput({
     }
   }, [addImageFile])
 
+  const handleFileInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files
+    if (!selectedFiles) return
+
+    for (let index = 0; index < selectedFiles.length; index += 1) {
+      const file = selectedFiles[index]
+      if (file.type.startsWith('image/')) {
+        addImageFile(file)
+      } else {
+        const path = window.electronAPI?.getPathForFile?.(file) || (file as any).path || file.name
+        if (path) void addFileByPath(path)
+      }
+    }
+
+    event.target.value = ''
+    focusEditor()
+  }, [addImageFile, addFileByPath, focusEditor])
+
   const attachmentSummary = [
     images.length > 0 ? `${images.length} 张图片` : null,
     files.length > 0 ? `${files.length} 个文件` : null,
@@ -286,9 +314,14 @@ function MessageInput({
 
   const hasContent = Boolean(value.trim() || images.length > 0 || files.length > 0)
 
+  const handleSlashPick = useCallback((slashCommand: string) => {
+    setValue(`/${slashCommand} `)
+    focusEditor()
+  }, [focusEditor])
+
   return (
     <div
-      className="relative shrink-0 border-t border-white/[0.06] bg-[#0b1019]/85 px-4 py-3 backdrop-blur-sm"
+      className="relative shrink-0 px-4 pb-4 pt-1"
       data-file-drop-target="message-input"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -296,144 +329,164 @@ function MessageInput({
       onDrop={handleDrop}
     >
       {dragging && (
-        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-400/40 bg-blue-500/[0.06] backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-2 text-blue-400">
-            <Upload size={24} className="animate-bounce" />
+        <div className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-3xl border-2 border-dashed border-sky-400/30 bg-sky-500/[0.06] backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-2 text-sky-300/90">
+            <Upload size={22} className="animate-bounce" />
             <span className="text-sm font-medium">拖放文件到这里</span>
           </div>
         </div>
       )}
 
-      {messageQueue.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {messageQueue.map((msg, index) => (
-            <div
-              key={index}
-              className="group flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/[0.05] px-2.5 py-1.5 text-xs text-amber-300/80"
-            >
-              <span className="shrink-0 text-[10px] font-medium text-amber-500/60">#{index + 1}</span>
-              <span className="max-w-[200px] truncate">
-                {msg.text.length > 30 ? msg.text.slice(0, 30) + '...' : msg.text}
-              </span>
-              {msg.images && msg.images.length > 0 && (
-                <span className="text-[10px] text-amber-500/50">+{msg.images.length}图</span>
-              )}
-              <button
-                type="button"
-                onClick={() => removeQueuedMessage(index)}
-                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-amber-500/20"
-                aria-label={`移除排队消息 ${index + 1}`}
-              >
-                <X size={10} />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setMessageQueue([])}
-            className="flex items-center gap-1 rounded-lg border border-red-500/15 bg-red-500/[0.04] px-2 py-1.5 text-[10px] text-red-400/70 transition-colors hover:border-red-500/25 hover:bg-red-500/[0.08]"
-            aria-label="清空排队"
-          >
-            <X size={10} />
-            <span>清空排队</span>
-          </button>
-        </div>
-      )}
-
-      {(images.length > 0 || files.length > 0) && (
-        <div className="mb-2">
-          <div className="flex flex-wrap gap-2">
-            {images.map((image, index) => (
+      <div className="mx-auto w-full max-w-[42rem]">
+        {messageQueue.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+            {messageQueue.map((msg, index) => (
               <div
-                key={`img-${index}`}
-                className="group relative flex h-[72px] items-center overflow-hidden rounded-xl border border-white/[0.1] bg-white/[0.04]"
+                key={index}
+                className="group flex items-center gap-1.5 rounded-full border border-amber-500/15 bg-amber-500/[0.06] px-2.5 py-1 text-xs text-amber-200/80"
               >
-                <img
-                  src={image.preview}
-                  alt={`图片 ${index + 1}`}
-                  className="h-full w-[100px] object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeImage(index)}
-                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-black/80"
-                  aria-label={`移除图片 ${index + 1}`}
-                >
-                  <X size={10} className="text-white" />
-                </button>
-              </div>
-            ))}
-            {files.map((file, index) => (
-              <div
-                key={`file-${file.path}-${index}`}
-                className="group relative flex h-[72px] items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-4"
-              >
-                {file.isDirectory ? (
-                  <FolderIcon size={28} className="shrink-0 text-yellow-400/80" />
-                ) : (
-                  <FileIcon size={28} className="shrink-0 text-blue-400/80" />
+                <span className="shrink-0 text-[10px] font-medium text-amber-500/60">#{index + 1}</span>
+                <span className="max-w-[200px] truncate">
+                  {msg.text.length > 30 ? msg.text.slice(0, 30) + '...' : msg.text}
+                </span>
+                {msg.images && msg.images.length > 0 && (
+                  <span className="text-[10px] text-amber-500/50">+{msg.images.length}图</span>
                 )}
-                <div className="min-w-0 pr-2">
-                  <p className="max-w-[180px] truncate text-sm text-gray-200">{file.name}</p>
-                  <p className="text-[11px] text-gray-500">{file.size}</p>
-                </div>
                 <button
                   type="button"
-                  onClick={() => removeFile(index)}
-                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-black/80"
-                  aria-label={`移除文件 ${file.name}`}
+                  onClick={() => removeQueuedMessage(index)}
+                  className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-amber-500/20"
+                  aria-label={`移除排队消息 ${index + 1}`}
                 >
-                  <X size={10} className="text-white" />
+                  <X size={10} />
                 </button>
               </div>
             ))}
+            <button
+              type="button"
+              onClick={() => setMessageQueue([])}
+              className="flex items-center gap-1 rounded-full border border-red-500/15 bg-red-500/[0.04] px-2 py-1 text-[10px] text-red-400/70 transition-colors hover:border-red-500/25 hover:bg-red-500/[0.08]"
+              aria-label="清空排队"
+            >
+              <X size={10} />
+              <span>清空排队</span>
+            </button>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1">
-          <MessageTextEditor
-            ref={textareaRef}
-            value={value}
-            disabled={disabled}
-            placeholder={images.length > 0 ? '给图片补充一点说明（可选）' : placeholder}
-            attachmentSummary={attachmentSummary || undefined}
-            queueCount={messageQueue.length}
-            onChange={setValue}
-            onPaste={handlePaste}
-            onSubmit={() => void submit()}
+        {(images.length > 0 || files.length > 0) && (
+          <div className="mb-2 px-1">
+            <div className="flex flex-wrap gap-2">
+              {images.map((image, index) => (
+                <div
+                  key={`img-${index}`}
+                  className="group relative flex h-[64px] items-center overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03]"
+                >
+                  <img
+                    src={image.preview}
+                    alt={`图片 ${index + 1}`}
+                    className="h-full w-[88px] object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(index)}
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-black/80"
+                    aria-label={`移除图片 ${index + 1}`}
+                  >
+                    <X size={10} className="text-white" />
+                  </button>
+                </div>
+              ))}
+              {files.map((file, index) => (
+                <div
+                  key={`file-${file.path}-${index}`}
+                  className="group relative flex h-[64px] items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3.5"
+                >
+                  {file.isDirectory ? (
+                    <FolderIcon size={22} className="shrink-0 text-amber-400/70" />
+                  ) : (
+                    <FileIcon size={22} className="shrink-0 text-sky-400/70" />
+                  )}
+                  <div className="min-w-0 pr-2">
+                    <p className="max-w-[160px] truncate text-sm text-zinc-200">{file.name}</p>
+                    <p className="text-[11px] text-zinc-500">{file.size}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(index)}
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-black/80"
+                    aria-label={`移除文件 ${file.name}`}
+                  >
+                    <X size={10} className="text-white" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Floating composer bar */}
+        <div className="flex items-end gap-2 rounded-[1.75rem] border border-white/[0.08] bg-[#12161e]/92 px-2.5 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.35),0_0_0_1px_rgba(255,255,255,0.02)] backdrop-blur-md transition-[border-color,box-shadow] focus-within:border-white/[0.12] focus-within:shadow-[0_16px_48px_rgba(0,0,0,0.4),0_0_0_1px_rgba(255,255,255,0.04)]">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileInputChange}
+            tabIndex={-1}
           />
-        </div>
 
-        {streaming && onStop ? (
-          <div className="flex items-center gap-1.5">
+          <ComposerCapabilities
+            disabled={disabled}
+            onAttachFiles={() => fileInputRef.current?.click()}
+          />
+
+          <div className="relative min-w-0 flex-1">
+            <SlashSkillSuggest
+              value={value}
+              skills={skills}
+              onPick={handleSlashPick}
+            />
+            <MessageTextEditor
+              ref={textareaRef}
+              value={value}
+              disabled={disabled}
+              placeholder={images.length > 0 ? '给图片补充一点说明（可选）' : placeholder}
+              attachmentSummary={attachmentSummary || undefined}
+              queueCount={messageQueue.length}
+              onChange={setValue}
+              onPaste={handlePaste}
+              onSubmit={() => void submit()}
+            />
+          </div>
+
+          {streaming && onStop ? (
             <button
               type="button"
               onClick={onStop}
               disabled={cancelling}
-              className="flex h-[42px] items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 text-sm text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-gray-200 disabled:cursor-wait disabled:opacity-60"
+              className="mb-0.5 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.05] px-3.5 text-zinc-300 transition-colors hover:bg-white/[0.1] hover:text-white disabled:cursor-wait disabled:opacity-60"
               aria-label={cancelling ? '正在停止响应' : '停止响应'}
             >
               {cancelling ? (
-                <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+                <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
               ) : (
-                <Square size={12} className="fill-current" aria-hidden="true" />
+                <Square size={11} className="fill-current" aria-hidden="true" />
               )}
               <span className="text-xs" aria-live="polite">{cancelling ? '正在停止' : '停止'}</span>
             </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            disabled={disabled || !hasContent}
-            onClick={() => void submit()}
-            className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-blue-500 text-white shadow-lg shadow-blue-500/20 transition-all duration-200 hover:bg-blue-400 hover:shadow-blue-500/30 disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none active:scale-95"
-            aria-label="发送消息"
-          >
-            <SendHorizonal size={16} />
-          </button>
-        )}
+          ) : (
+            <button
+              type="button"
+              disabled={disabled || !hasContent}
+              onClick={() => void submit()}
+              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow-sm transition-all hover:bg-white disabled:cursor-not-allowed disabled:bg-white/[0.08] disabled:text-zinc-600 disabled:shadow-none active:scale-95"
+              aria-label="发送消息"
+            >
+              <SendHorizonal size={16} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
+import { ChevronDown, ChevronRight, Users } from 'lucide-react'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
 import { workbenchApi } from '../../app/api/workbench'
 import MessageBubble from './MessageBubble'
@@ -212,17 +212,17 @@ const TOOL_ICONS: Record<string, string> = {
 
 /** Collapsible thinking block */
 function ThinkingBlock({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+  const seconds = Math.max(1, Math.round((content?.length || 0) / 180))
   return (
-    <div className="my-1 mx-2 rounded-xl border border-dashed border-purple-500/20 bg-purple-500/[0.03] overflow-hidden">
+    <div className="my-1 w-full max-w-[42rem]">
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-purple-400/60 hover:text-purple-300 transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-lg py-1 text-[12px] text-zinc-500 transition-colors hover:text-zinc-300"
       >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Sparkles size={11} />
-        <span>{'\u601D\u8003\u8FC7\u7A0B'}</span>
-        {content && <span className="text-gray-600">({content.length} {'\u5B57\u7B26'})</span>}
+        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        <span className="font-medium tracking-wide">{`\u601D\u8003\u5B8C\u6210 \u00B7 ${seconds}s`}</span>
       </button>
       <AnimatePresence>
         {expanded && content && (
@@ -230,8 +230,8 @@ function ThinkingBlock({ content }: { content: string }) {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="border-t border-purple-500/10 px-3 py-2 max-h-[200px] overflow-y-auto whitespace-pre-wrap font-mono text-xs text-text-muted/60"
+            transition={{ duration: 0.18, ease: 'easeInOut' }}
+            className="mt-1.5 max-h-[200px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-500"
           >
             {content}
           </motion.div>
@@ -371,29 +371,26 @@ function StreamingIndicator({ messages }: { messages: ChatMessage[] }) {
 
   return (
     <motion.div
-      className="flex gap-3"
-      initial={{ opacity: 0, y: 10 }}
+      className="flex w-full max-w-[42rem] justify-start"
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.25 }}
     >
-      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-purple-500/10 bg-gradient-to-br from-purple-500/20 to-blue-500/20 text-purple-300">
-        <Bot size={15} />
-      </div>
-      <div className="flex flex-col gap-1 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5">
-        <div className="flex items-center gap-2.5">
+      <div className="flex min-w-0 flex-col gap-1 py-1">
+        <div className="flex items-center gap-2.5 text-[11px] text-zinc-500">
           <span className="flex gap-1">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-purple-400" style={{ animationDelay: '0ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-purple-400" style={{ animationDelay: '150ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-purple-400" style={{ animationDelay: '300ms' }} />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '0ms' }} />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '150ms' }} />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '300ms' }} />
           </span>
-          <span className="text-xs text-gray-400">{statusText}</span>
+          <span>{statusText}</span>
           {toolUse && toolUse.length > 1 && (
-            <span className="text-[10px] text-gray-600">({toolUse.length} {'\u4E2A\u64CD\u4F5C'})</span>
+            <span className="text-[10px] text-zinc-600">({toolUse.length} {'\u4E2A\u64CD\u4F5C'})</span>
           )}
         </div>
         {statusDetail && (
-          <span className="text-[10px] text-gray-600 font-mono truncate max-w-[400px]">{statusDetail}</span>
+          <span className="max-w-[400px] truncate font-mono text-[10px] text-zinc-600">{statusDetail}</span>
         )}
       </div>
     </motion.div>

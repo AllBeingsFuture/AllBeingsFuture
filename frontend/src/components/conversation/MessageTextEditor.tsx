@@ -1,7 +1,7 @@
 import { forwardRef, useLayoutEffect, useRef } from 'react'
 
-const MIN_HEIGHT = 44
-const MAX_HEIGHT = 180
+const MIN_HEIGHT = 24
+const MAX_HEIGHT = 160
 
 interface Props {
   value: string
@@ -52,7 +52,7 @@ const MessageTextEditor = forwardRef<HTMLTextAreaElement, Props>(function Messag
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden rounded-[22px] border shadow-[0_18px_50px_rgba(0,0,0,0.18)] transition-colors duration-200 border-white/[0.08] bg-white/[0.025] focus-within:border-blue-500/35 focus-within:bg-white/[0.04] focus-within:shadow-[0_0_0_1px_rgba(59,130,246,0.16),0_18px_50px_rgba(0,0,0,0.24)]">
+    <div className="flex min-w-0 flex-1 flex-col justify-center">
       <textarea
         ref={setTextareaRef}
         value={value}
@@ -60,6 +60,11 @@ const MessageTextEditor = forwardRef<HTMLTextAreaElement, Props>(function Messag
         disabled={disabled}
         placeholder={placeholder}
         spellCheck={false}
+        aria-label={
+          queueCount > 0
+            ? `消息输入，${queueCount} 条待发送`
+            : '消息输入'
+        }
         onChange={(event) => onChange(event.target.value)}
         onPaste={onPaste}
         onCompositionStart={() => {
@@ -80,21 +85,22 @@ const MessageTextEditor = forwardRef<HTMLTextAreaElement, Props>(function Messag
           event.preventDefault()
           onSubmit()
         }}
-        className="block min-h-[44px] w-full resize-none border-0 bg-transparent px-4 py-3 text-sm leading-6 text-gray-100 outline-none placeholder:text-gray-600 disabled:cursor-not-allowed disabled:text-gray-500"
+        className="block max-h-[160px] min-h-[24px] w-full resize-none border-0 bg-transparent px-1 py-1.5 text-[15px] leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed disabled:text-zinc-500"
       />
-
-      <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-4 py-2 text-[11px] text-gray-500">
-        <span className="truncate">
-          {queueCount > 0
-            ? `Enter 追加排队 · ${queueCount} 条待发送 · Shift+Enter 换行`
-            : 'Enter 发送 · Shift+Enter 换行'}
-        </span>
-        {attachmentSummary && (
-          <span className="shrink-0 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300/90">
-            {attachmentSummary}
+      {(attachmentSummary || queueCount > 0) && (
+        <div className="flex items-center justify-between gap-2 px-1 pb-0.5 text-[11px] text-zinc-600">
+          <span className="truncate">
+            {queueCount > 0
+              ? `Enter 追加排队 · ${queueCount} 条待发送 · Shift+Enter 换行`
+              : 'Enter 发送 · Shift+Enter 换行'}
           </span>
-        )}
-      </div>
+          {attachmentSummary && (
+            <span className="shrink-0 rounded-full bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+              {attachmentSummary}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 })
