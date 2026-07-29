@@ -1,5 +1,5 @@
 /**
- * 应用主布局 - 三栏分栏布局（对齐 claudeops）
+ * 应用主布局 - 左侧边栏 + 主内容区
  */
 
 import { Allotment } from 'allotment'
@@ -8,7 +8,6 @@ import { ChevronLeft, ChevronRight, Users, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from './Sidebar'
 import MainPanel from './MainPanel'
-import RightPanel from './RightPanel'
 
 import StatusBar from './StatusBar'
 import SearchPanel from './SearchPanel'
@@ -19,7 +18,6 @@ import TitleBar from './TitleBar'
 import { useUIStore } from '../../stores/uiStore'
 import { usePanelStore } from '../../stores/panelStore'
 import { useLayoutStore } from '../../stores/layoutStore'
-import { useTeamStore } from '../../stores/teamStore'
 import SettingsModal from '../settings/SettingsModal'
 import SessionCreator from '../sessions/SessionCreator'
 import QuickOpenDialog from '../file-manager/QuickOpenDialog'
@@ -44,15 +42,9 @@ export default function AppLayout() {
 
   const {
     sidebarCollapsed,
-    detailPanelCollapsed,
-    toggleSidebar,
-    toggleDetailPanel,
     activePanelLeft,
   } = usePanelStore(useShallow((state) => ({
     sidebarCollapsed: state.sidebarCollapsed,
-    detailPanelCollapsed: state.detailPanelCollapsed,
-    toggleSidebar: state.toggleSidebar,
-    toggleDetailPanel: state.toggleDetailPanel,
     activePanelLeft: state.activePanelLeft,
   })))
 
@@ -99,7 +91,7 @@ export default function AppLayout() {
               )}
 
               <Allotment.Pane>
-                <div className="relative h-full pr-6">
+                <div className="relative h-full pl-6">
                   <PanelErrorBoundary title="主内容区" key={mainPanelResetKey}>
                     <MainPanel />
                   </PanelErrorBoundary>
@@ -115,30 +107,8 @@ export default function AppLayout() {
                       <ChevronLeft className="w-3.5 h-3.5" />
                     )}
                   </button>
-
-                  <button
-                    onClick={() => { void workbenchApi.panel.toggleDetail() }}
-                    className="panel-toggle-btn right-0 rounded-l-md"
-                    title={detailPanelCollapsed ? '展开活动时间线' : '收起活动时间线'}
-                  >
-                    {detailPanelCollapsed ? (
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    )}
-                  </button>
                 </div>
               </Allotment.Pane>
-
-              {!detailPanelCollapsed && (
-                <Allotment.Pane preferredSize={300} minSize={220} maxSize={480}>
-                  <div className="h-full border-l border-border bg-bg-secondary overflow-hidden">
-                    <PanelErrorBoundary title="活动时间线">
-                      <RightPanel />
-                    </PanelErrorBoundary>
-                  </div>
-                </Allotment.Pane>
-              )}
             </Allotment>
           </div>
         )}

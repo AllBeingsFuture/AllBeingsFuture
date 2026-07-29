@@ -24,9 +24,10 @@ describe('panelStore', () => {
   it('has correct initial state', () => {
     const state = usePanelStore.getState()
     expect(state.sidebarCollapsed).toBe(false)
-    expect(state.detailPanelCollapsed).toBe(false)
+    // 右侧详情面板已从布局移除，默认始终收起
+    expect(state.detailPanelCollapsed).toBe(true)
     expect(state.panelRuntime.sidebar).toBe('inactive')
-    expect(state.panelRuntime.detail).toBe('inactive')
+    expect(state.panelRuntime.detail).toBe('frozen')
     expect(state.panelRuntime).not.toHaveProperty('shell')
     expect(state).not.toHaveProperty('shellPanelVisible')
     expect(state.sidebarWidth).toBe(280)
@@ -50,13 +51,13 @@ describe('panelStore', () => {
   })
 
   it('toggleDetailPanel toggles detailPanelCollapsed', () => {
-    expect(usePanelStore.getState().detailPanelCollapsed).toBe(false)
-    usePanelStore.getState().toggleDetailPanel()
     expect(usePanelStore.getState().detailPanelCollapsed).toBe(true)
-    expect(usePanelStore.getState().panelRuntime.detail).toBe('frozen')
     usePanelStore.getState().toggleDetailPanel()
     expect(usePanelStore.getState().detailPanelCollapsed).toBe(false)
     expect(usePanelStore.getState().panelRuntime.detail).toBe('active')
+    usePanelStore.getState().toggleDetailPanel()
+    expect(usePanelStore.getState().detailPanelCollapsed).toBe(true)
+    expect(usePanelStore.getState().panelRuntime.detail).toBe('frozen')
   })
 
   it('setActivePanelLeft updates activePanelLeft', () => {

@@ -74,7 +74,8 @@ export function createDefaultPanelState(): PanelStateSnapshot {
 
   const panelSides = readPanelSides()
   const sidebarCollapsed = readStorage<boolean>(STORAGE_KEYS.sidebarCollapsed, false, isBooleanString)
-  const detailPanelCollapsed = readStorage<boolean>(STORAGE_KEYS.detailPanelCollapsed, false, isBooleanString)
+  // 右侧详情面板（活动时间线）已从布局移除，始终视为收起
+  const detailPanelCollapsed = true
 
   // Resolve via resolvePanelId so any legacy active id (e.g. tools/explorer/git) never becomes blank/invalid.
   const activePanelLeft = resolvePanelId(
