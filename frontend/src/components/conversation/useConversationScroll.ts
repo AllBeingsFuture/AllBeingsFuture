@@ -16,14 +16,16 @@ const FORCE_SCROLL_WINDOW_MS = 3000
 const NEAR_BOTTOM_THRESHOLD_PX = 150
 const USER_DETACH_THRESHOLD_PX = 32
 const FOLLOW_UP_SCROLL_FRAMES = 2
+const PROGRAMMATIC_SCROLL_GUARD_MS = 150
 
 /**
  * 统一管理会话视图的滚动行为。
  *
- * 关键点：
+ * 要点：
  * - 切换会话后短暂强制跟随到底部，确保历史记录落在最新位置
  * - 用户手动滚离底部后停止自动跟随，避免“抢滚动条”
  * - 监听已渲染内容尺寸变化，修复流式更新 / 虚拟列表重测后无法跟上最新内容的问题
+ * - 脱离跟随后，内容增高只做视口上方补偿，绝不再强制滚到底部
  */
 export function useConversationScroll({
   sessionId,
@@ -44,6 +46,13 @@ export function useConversationScroll({
   const prevMsgCountRef = useRef(0)
   const forceScrollUntilRef = useRef(0)
   const lastScrollTopRef = useRef(0)
+  const lastContentHeightRef = useRef(0)
+  const lastProgrammaticScrollAtRef = useRef(0)
+  const userInputActiveRef = useRef(false)
+
+  const markProgrammaticScroll = useCallback(() => {
+    lastProgrammaticScrollAtRef.current = Date.now()
+  }, [])
 
   const commitScrollMetrics = useCallback(() => {
     const el = scrollContainerRef.current
@@ -80,15 +89,19 @@ export function useConversationScroll({
     }
   }, [])
 
-  const shouldStickToBottom = useCallback(() => (
-    !userDetachedRef.current || Date.now() < forceScrollUntilRef.current
-  ), [])
+  const shouldStickToBottom = useCallback(() => {
+    // Detach always wins. Force window only helps initial pin while still attached;
+    // handleScroll clears force as soon as the user intentionally scrolls away.
+    if (userDetachedRef.current) return false
+    return true
+  }, [])
 
   const applyScrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
 
     const nextScrollTop = Math.max(el.scrollHeight - el.clientHeight, 0)
+    markProgrammaticScroll()
     if (Math.abs(el.scrollTop - nextScrollTop) > 1) {
       el.scrollTop = nextScrollTop
     }
@@ -96,8 +109,9 @@ export function useConversationScroll({
     lastScrollTopRef.current = nextScrollTop
     isNearBottomRef.current = true
     userDetachedRef.current = false
+    lastContentHeightRef.current = el.scrollHeight
     commitScrollMetrics()
-  }, [commitScrollMetrics])
+  }, [commitScrollMetrics, markProgrammaticScroll])
 
   const queueFollowUpAutoScroll = useCallback(() => {
     if (typeof requestAnimationFrame !== 'function') return
@@ -106,6 +120,7 @@ export function useConversationScroll({
     let remainingFrames = FOLLOW_UP_SCROLL_FRAMES
     const tick = () => {
       autoScrollFrameRef.current = null
+      if (!shouldStickToBottom()) return
       applyScrollToBottom()
       remainingFrames -= 1
       if (remainingFrames <= 0) return
@@ -113,7 +128,7 @@ export function useConversationScroll({
     }
 
     autoScrollFrameRef.current = requestAnimationFrame(tick)
-  }, [applyScrollToBottom])
+  }, [applyScrollToBottom, shouldStickToBottom])
 
   const scrollToBottom = useCallback((afterPaint = false) => {
     if (!afterPaint) {
@@ -127,26 +142,74 @@ export function useConversationScroll({
     queueFollowUpAutoScroll()
   }, [applyScrollToBottom, cancelPendingAutoScroll, queueFollowUpAutoScroll])
 
+  /**
+   * 内容尺寸变化时的滚动策略：
+   * - 贴底跟随：继续 scrollToBottom
+   * - 已脱离：绝不自动滚到底；仅在 scrollHeight 变矮导致超出可滚范围时夹紧
+   * - 视口上方条目重测的精确补偿由虚拟列表按 item start 完成（避免把底部流式增高误当成上方增长）
+   */
+  const preserveScrollAnchorOnContentResize = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+
+    const nextHeight = el.scrollHeight
+    const previousHeight = lastContentHeightRef.current
+    lastContentHeightRef.current = nextHeight
+
+    if (shouldStickToBottom()) {
+      scrollToBottom(true)
+      return
+    }
+
+    if (previousHeight > 0 && nextHeight < previousHeight) {
+      const maxScrollTop = Math.max(nextHeight - el.clientHeight, 0)
+      if (el.scrollTop > maxScrollTop) {
+        markProgrammaticScroll()
+        el.scrollTop = maxScrollTop
+        lastScrollTopRef.current = maxScrollTop
+      }
+    }
+
+    syncScrollMetrics()
+  }, [markProgrammaticScroll, scrollToBottom, shouldStickToBottom, syncScrollMetrics])
+
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
 
     const distanceFromBottom = Math.max(el.scrollHeight - el.scrollTop - el.clientHeight, 0)
     const nextIsNearBottom = distanceFromBottom < NEAR_BOTTOM_THRESHOLD_PX
-    const scrolledUp = el.scrollTop < lastScrollTopRef.current - 1
+    const delta = el.scrollTop - lastScrollTopRef.current
+    const scrolledUp = delta < -1
+    const timeSinceProgrammatic = Date.now() - lastProgrammaticScrollAtRef.current
+    const isProgrammatic = timeSinceProgrammatic < PROGRAMMATIC_SCROLL_GUARD_MS
 
+    // Scrolling up past a small threshold always detaches, even during the
+    // programmatic-scroll guard (auto-follow only increases scrollTop) and even
+    // inside the wider "near bottom" follow band.
     if (scrolledUp && distanceFromBottom > USER_DETACH_THRESHOLD_PX) {
       userDetachedRef.current = true
       forceScrollUntilRef.current = 0
       cancelPendingAutoScroll()
-    } else if (nextIsNearBottom) {
+    } else if (!isProgrammatic && distanceFromBottom <= USER_DETACH_THRESHOLD_PX) {
+      // Re-attach only when truly back at the bottom (hysteresis vs detach threshold).
       userDetachedRef.current = false
+      userInputActiveRef.current = false
     }
 
     isNearBottomRef.current = nextIsNearBottom
     lastScrollTopRef.current = el.scrollTop
+    lastContentHeightRef.current = el.scrollHeight
     syncScrollMetrics()
   }, [cancelPendingAutoScroll, syncScrollMetrics])
+
+  const handleWheel = useCallback(() => {
+    userInputActiveRef.current = true
+  }, [])
+
+  const handlePointerDown = useCallback(() => {
+    userInputActiveRef.current = true
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -165,6 +228,9 @@ export function useConversationScroll({
     didPinInitialHistoryRef.current = false
     forceScrollUntilRef.current = Date.now() + FORCE_SCROLL_WINDOW_MS
     lastScrollTopRef.current = 0
+    lastContentHeightRef.current = 0
+    lastProgrammaticScrollAtRef.current = 0
+    userInputActiveRef.current = false
   }, [sessionId])
 
   useLayoutEffect(() => {
@@ -182,27 +248,25 @@ export function useConversationScroll({
     const el = scrollContainerRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
 
+    lastContentHeightRef.current = el.scrollHeight
+
     const observer = new ResizeObserver(() => {
-      syncScrollMetrics()
-      if (!shouldStickToBottom()) return
-      scrollToBottom(true)
+      preserveScrollAnchorOnContentResize()
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [commitScrollMetrics, scrollToBottom, sessionId, shouldStickToBottom, syncScrollMetrics])
+  }, [commitScrollMetrics, preserveScrollAnchorOnContentResize, sessionId])
 
   useEffect(() => {
     const contentEl = contentRef.current
     if (!contentEl || typeof ResizeObserver === 'undefined') return
 
     const observer = new ResizeObserver(() => {
-      syncScrollMetrics()
-      if (!shouldStickToBottom()) return
-      scrollToBottom(true)
+      preserveScrollAnchorOnContentResize()
     })
     observer.observe(contentEl)
     return () => observer.disconnect()
-  }, [scrollToBottom, sessionId, shouldStickToBottom, syncScrollMetrics])
+  }, [preserveScrollAnchorOnContentResize, sessionId])
 
   useLayoutEffect(() => {
     syncScrollMetrics()
@@ -231,6 +295,8 @@ export function useConversationScroll({
     contentRef,
     scrollContainerRef,
     handleScroll,
+    handleWheel,
+    handlePointerDown,
     scrollMetrics,
     scrollToBottom,
   }

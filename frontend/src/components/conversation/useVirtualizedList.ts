@@ -36,6 +36,7 @@ interface VirtualizedLayout<T> {
   totalHeight: number
   items: Array<VirtualizedLayoutItem<T>>
   fingerprints: Map<string, string>
+  starts: Map<string, number>
 }
 
 export interface BuildVirtualLayoutOptions<T> {
@@ -50,6 +51,8 @@ export interface BuildVirtualLayoutOptions<T> {
 
 export interface VirtualizedListOptions<T> extends Omit<BuildVirtualLayoutOptions<T>, 'measuredSizes'> {
   enabled: boolean
+  /** Optional: used to preserve visual position when items above the viewport remeasure. */
+  getScrollElement?: () => HTMLElement | null
 }
 
 export interface VirtualizedListResult<T> {
@@ -127,6 +130,12 @@ function getItemFingerprint(item: unknown, index: number, estimatedSize: number)
   return `${index}:${estimatedSize}:${fingerprintValue(item, 0, new WeakSet<object>())}`
 }
 
+/**
+ * Prefer the last measured size for a key even when content fingerprint changes.
+ * Streaming tokens rewrite fingerprints constantly; discarding measurements caused
+ * estimate↔measured thrash and visible scroll jumps. ResizeObserver still pushes
+ * the true height when the DOM size actually changes.
+ */
 function resolveMeasuredSize<T>(
   entry: MeasuredSizeCacheValue | undefined,
   item: T,
@@ -138,7 +147,7 @@ function resolveMeasuredSize<T>(
     return { fingerprint, size: entry }
   }
 
-  if (entry?.fingerprint === fingerprint) {
+  if (entry && typeof entry.size === 'number' && entry.size > 0) {
     return { fingerprint, size: entry.size }
   }
 
@@ -155,6 +164,7 @@ export function buildVirtualLayout<T>({
   viewportHeight,
 }: BuildVirtualLayoutOptions<T>): VirtualizedLayout<T> {
   const fingerprints = new Map<string, string>()
+  const startsMap = new Map<string, number>()
   const resolvedSizes = items.map((item, index) => {
     const key = getItemKey(item, index)
     const estimatedSize = estimateSize(item, index)
@@ -186,9 +196,14 @@ export function buildVirtualLayout<T>({
     endIndex += 1
   }
 
+  for (let index = 0; index < items.length; index += 1) {
+    startsMap.set(getItemKey(items[index], index), starts[index])
+  }
+
   return {
     totalHeight,
     fingerprints,
+    starts: startsMap,
     items: items.slice(startIndex, endIndex).map((item, relativeIndex) => {
       const index = startIndex + relativeIndex
       return {
@@ -210,10 +225,17 @@ export function useVirtualizedList<T>({
   overscanPx,
   scrollTop,
   viewportHeight,
+  getScrollElement,
 }: VirtualizedListOptions<T>): VirtualizedListResult<T> {
   const measuredSizesRef = useRef(new Map<string, MeasuredSizeCacheValue>())
   const observersRef = useRef(new Map<string, ResizeObserver>())
+  const measureCallbacksRef = useRef(new Map<string, (node: HTMLElement | null) => void>())
+  const itemStartsRef = useRef(new Map<string, number>())
+  const fingerprintsRef = useRef(new Map<string, string>())
+  const getScrollElementRef = useRef(getScrollElement)
   const [sizeVersion, setSizeVersion] = useState(0)
+
+  getScrollElementRef.current = getScrollElement
 
   useEffect(() => {
     return () => {
@@ -221,6 +243,7 @@ export function useVirtualizedList<T>({
         observer.disconnect()
       }
       observersRef.current.clear()
+      measureCallbacksRef.current.clear()
     }
   }, [])
 
@@ -236,6 +259,10 @@ export function useVirtualizedList<T>({
       observer.disconnect()
       observersRef.current.delete(key)
     }
+
+    for (const key of [...measureCallbacksRef.current.keys()]) {
+      if (!activeKeys.has(key)) measureCallbacksRef.current.delete(key)
+    }
   }, [getItemKey, items])
 
   const layout = useMemo(() => {
@@ -244,6 +271,7 @@ export function useVirtualizedList<T>({
         enabled: false,
         totalHeight: 0,
         fingerprints: new Map<string, string>(),
+        starts: new Map<string, number>(),
         virtualItems: items.map((item, index) => ({
           index,
           item,
@@ -270,6 +298,7 @@ export function useVirtualizedList<T>({
       enabled: shouldVirtualize,
       totalHeight: nextLayout.totalHeight,
       fingerprints: nextLayout.fingerprints,
+      starts: nextLayout.starts,
       virtualItems: shouldVirtualize
         ? nextLayout.items
         : items.map((item, index) => ({
@@ -282,49 +311,92 @@ export function useVirtualizedList<T>({
     }
   }, [enabled, estimateSize, getItemKey, items, overscanPx, scrollTop, sizeVersion, viewportHeight])
 
-  const measureElement = useCallback((key: string) => {
-    const fingerprint = layout.fingerprints.get(key) ?? ''
+  fingerprintsRef.current = layout.fingerprints
+  if (layout.starts.size > 0) {
+    itemStartsRef.current = layout.starts
+  }
 
-    return (node: HTMLElement | null) => {
-      const existingObserver = observersRef.current.get(key)
-      if (!node) {
-        existingObserver?.disconnect()
-        observersRef.current.delete(key)
-        return
+  const commitSize = useCallback((key: string, height: number, fingerprint: string) => {
+    const normalized = Math.max(1, Math.round(height))
+    const existingEntry = measuredSizesRef.current.get(key)
+    const previousSize = typeof existingEntry === 'number'
+      ? existingEntry
+      : existingEntry?.size
+
+    if (
+      typeof existingEntry !== 'number'
+      && existingEntry?.fingerprint === fingerprint
+      && existingEntry.size === normalized
+    ) {
+      return
+    }
+
+    // Content fingerprint changed but DOM height did not: update cache quietly.
+    // Bumping sizeVersion here was a major source of scroll thrash during streaming.
+    if (previousSize === normalized) {
+      measuredSizesRef.current.set(key, {
+        fingerprint,
+        size: normalized,
+      })
+      return
+    }
+
+    measuredSizesRef.current.set(key, {
+      fingerprint,
+      size: normalized,
+    })
+
+    // Preserve visual position when an item above the viewport changes height.
+    if (previousSize != null && previousSize > 0) {
+      const delta = normalized - previousSize
+      const itemStart = itemStartsRef.current.get(key)
+      const scrollEl = getScrollElementRef.current?.()
+      if (
+        delta !== 0
+        && scrollEl
+        && itemStart !== undefined
+        && itemStart < scrollEl.scrollTop
+      ) {
+        scrollEl.scrollTop += delta
       }
+    }
 
-      const commitSize = (height: number) => {
-        const normalized = Math.max(1, Math.round(height))
-        const existingEntry = measuredSizesRef.current.get(key)
-        if (
-          typeof existingEntry !== 'number'
-          && existingEntry?.fingerprint === fingerprint
-          && existingEntry.size === normalized
-        ) {
+    setSizeVersion((version) => version + 1)
+  }, [])
+
+  const measureElement = useCallback((key: string) => {
+    let callback = measureCallbacksRef.current.get(key)
+    if (!callback) {
+      callback = (node: HTMLElement | null) => {
+        const existingObserver = observersRef.current.get(key)
+        if (!node) {
+          existingObserver?.disconnect()
+          observersRef.current.delete(key)
           return
         }
 
-        measuredSizesRef.current.set(key, {
-          fingerprint,
-          size: normalized,
+        const fingerprint = fingerprintsRef.current.get(key) ?? ''
+        const apply = (height: number) => {
+          commitSize(key, height, fingerprintsRef.current.get(key) ?? fingerprint)
+        }
+
+        apply(node.getBoundingClientRect().height)
+
+        if (typeof ResizeObserver === 'undefined') return
+
+        existingObserver?.disconnect()
+        const observer = new ResizeObserver((entries) => {
+          const entry = entries[0]
+          if (!entry) return
+          apply(entry.contentRect.height)
         })
-        setSizeVersion((version) => version + 1)
+        observer.observe(node)
+        observersRef.current.set(key, observer)
       }
-
-      commitSize(node.getBoundingClientRect().height)
-
-      if (typeof ResizeObserver === 'undefined') return
-
-      existingObserver?.disconnect()
-      const observer = new ResizeObserver((entries) => {
-        const entry = entries[0]
-        if (!entry) return
-        commitSize(entry.contentRect.height)
-      })
-      observer.observe(node)
-      observersRef.current.set(key, observer)
+      measureCallbacksRef.current.set(key, callback)
     }
-  }, [layout.fingerprints])
+    return callback
+  }, [commitSize])
 
   return {
     enabled: layout.enabled,

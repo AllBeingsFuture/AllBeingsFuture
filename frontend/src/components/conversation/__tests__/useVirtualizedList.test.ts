@@ -128,7 +128,9 @@ describe('buildVirtualLayout', () => {
     ])
   })
 
-  it('ignores stale measured entries when the dataset changes under the same key', () => {
+  it('keeps last measured size when the content fingerprint changes under the same key', () => {
+    // Streaming rewrites fingerprints constantly; discarding measured heights caused
+    // estimate↔measured thrash and visible jumps while reading history.
     const measured = new Map([
       ['item-2', { size: 180, fingerprint: 'stale-dataset' }],
     ])
@@ -142,12 +144,11 @@ describe('buildVirtualLayout', () => {
       viewportHeight: 220,
     })
 
-    expect(layout.totalHeight).toBe(1000)
+    expect(layout.totalHeight).toBe(1080)
     expect(layout.items.map((item) => `${item.key}:${item.start}`)).toEqual([
       'item-1:100',
       'item-2:200',
-      'item-3:300',
-      'item-4:400',
+      'item-3:380',
     ])
   })
 })
@@ -161,7 +162,7 @@ describe('useVirtualizedList', () => {
     restoreResizeObserverMock()
   })
 
-  it('does not reuse measured sizes when a new dataset reuses the same item keys', () => {
+  it('keeps measured sizes across content fingerprint changes until the DOM is remeasured', () => {
     const { result, rerender } = renderHook(({ items }) => useVirtualizedList({
       items,
       enabled: true,
@@ -184,9 +185,87 @@ describe('useVirtualizedList', () => {
 
     expect(result.current.totalHeight).toBe(400)
 
+    // Same keys, different content fingerprints — sticky measurements prevent thrash.
     rerender({ items: makeItems('session-b') })
+    expect(result.current.totalHeight).toBe(400)
 
+    // Keys leaving the list still clears the cache (session switch with new key space).
+    rerender({
+      items: Array.from({ length: 5 }, (_, index) => ({
+        id: `other-${index}`,
+        version: 'session-c',
+        label: `session-c-${index}`,
+        size: 50,
+      })),
+    })
     expect(result.current.totalHeight).toBe(250)
+  })
+
+  it('compensates scrollTop when an item above the viewport is remeasured taller', () => {
+    const scrollElement = {
+      scrollTop: 200,
+    }
+
+    const { result } = renderHook(() => useVirtualizedList({
+      items: makeItems('stream'),
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 200,
+      viewportHeight: 60,
+      getScrollElement: () => scrollElement as HTMLElement,
+    }))
+
+    const firstNode = createFakeNode(50)
+
+    act(() => {
+      result.current.measureElement('item-0')(firstNode)
+    })
+
+    // item-0 start is 0, which is above scrollTop 200; growing it should push scrollTop.
+    act(() => {
+      firstNode.__height = 120
+      resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
+    })
+
+    expect(scrollElement.scrollTop).toBe(270)
+    expect(result.current.totalHeight).toBe(320)
+  })
+
+  it('does not bump layout when only the content fingerprint changes at the same height', () => {
+    const { result, rerender } = renderHook(({ items, scrollTop }) => useVirtualizedList({
+      items,
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop,
+      viewportHeight: 60,
+    }), {
+      initialProps: { items: makeItems('token-1'), scrollTop: 0 },
+    })
+
+    const node = createFakeNode(120)
+    act(() => {
+      result.current.measureElement('item-0')(node)
+    })
+
+    const heightAfterMeasure = result.current.totalHeight
+    expect(heightAfterMeasure).toBe(320)
+
+    // Stable measure callback identity across rerenders avoids ref thrash.
+    const firstCallback = result.current.measureElement('item-0')
+    rerender({ items: makeItems('token-2'), scrollTop: 0 })
+    const secondCallback = result.current.measureElement('item-0')
+    expect(secondCallback).toBe(firstCallback)
+
+    act(() => {
+      // Re-attach with same pixel height after fingerprint change.
+      secondCallback(node)
+    })
+
+    expect(result.current.totalHeight).toBe(heightAfterMeasure)
   })
 
   it('recomputes offsets when ResizeObserver reports a height change during streaming', () => {
