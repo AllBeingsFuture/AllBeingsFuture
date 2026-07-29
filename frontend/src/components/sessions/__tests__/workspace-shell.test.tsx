@@ -160,12 +160,17 @@ describe('Session workspace', () => {
 
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
 
-    const inputs = screen.getAllByRole('textbox')
-    const nameInput = inputs[0]
-    const workDirInput = inputs[1]
-
-    fireEvent.change(nameInput, { target: { value: 'Worktree Rule Session' } })
+    const workDirInput = screen.getByPlaceholderText('选择工作区，或输入/浏览目录')
     fireEvent.change(workDirInput, { target: { value: 'C:/repo/project' } })
+
+    // 名称 / 初始指令 / worktree 说明收在高级选项中
+    fireEvent.click(screen.getByRole('button', { name: /高级选项/ }))
+
+    const nameInput = screen.getAllByRole('textbox').find(
+      (el) => el.getAttribute('placeholder') !== '选择工作区，或输入/浏览目录'
+        && el.tagName.toLowerCase() === 'input',
+    ) || screen.getAllByRole('textbox')[1]
+    fireEvent.change(nameInput, { target: { value: 'Worktree Rule Session' } })
 
     const promptInput = screen.getByPlaceholderText('创建后自动发送的指令...')
     fireEvent.change(promptInput, { target: { value: '检查仓库并按规则执行' } })
@@ -181,6 +186,8 @@ describe('Session workspace', () => {
         worktreeEnabled: false,
         gitRepoPath: 'C:/repo/project',
         gitBranch: '',
+        name: 'Worktree Rule Session',
+        initialPrompt: '检查仓库并按规则执行',
       }))
     })
   })
