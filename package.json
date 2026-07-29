@@ -12,7 +12,7 @@
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "cd frontend && npm run build",
     "build:electron": "tsc -p electron/tsconfig.json",
-    "test:backend": "tsc -p electron/tsconfig.tests.json && node --test .task/allbeingsfuture-backend-tests/tests/acp-adapter.test.js .task/allbeingsfuture-backend-tests/tests/acp-builtin-smoke.test.js .task/allbeingsfuture-backend-tests/tests/acp-package-resolve.test.js .task/allbeingsfuture-backend-tests/tests/agent-stream-normalizer.test.js .task/allbeingsfuture-backend-tests/tests/bot-removal.test.js .task/allbeingsfuture-backend-tests/tests/concurrency-guard.test.js .task/allbeingsfuture-backend-tests/tests/provider-defaults.test.js .task/allbeingsfuture-backend-tests/tests/provider-migration.test.js",
+    "test:backend": "tsc -p electron/tsconfig.tests.json && node --test .task/allbeingsfuture-backend-tests/tests/acp-adapter.test.js .task/allbeingsfuture-backend-tests/tests/acp-builtin-smoke.test.js .task/allbeingsfuture-backend-tests/tests/acp-package-resolve.test.js .task/allbeingsfuture-backend-tests/tests/agent-stream-normalizer.test.js .task/allbeingsfuture-backend-tests/tests/bot-removal.test.js .task/allbeingsfuture-backend-tests/tests/concurrency-guard.test.js .task/allbeingsfuture-backend-tests/tests/mcp-defaults.test.js .task/allbeingsfuture-backend-tests/tests/provider-defaults.test.js .task/allbeingsfuture-backend-tests/tests/provider-migration.test.js",
     "pack": "npm run build && electron-builder --win",
     "pack:mac": "npm run build && electron-builder --mac",
     "postinstall": "cd frontend && npm install"

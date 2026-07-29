@@ -7,9 +7,17 @@
 import { v4 as uuidv4 } from 'uuid'
 import path from 'node:path'
 import fs from 'node:fs'
-import { app } from 'electron'
+import { createRequire } from 'node:module'
 import type { Database } from './database.js'
 import { resolveProcessCommand } from '../bridge/runtime.js'
+
+const require = createRequire(import.meta.url)
+
+/**
+ * Default for newly inserted MCP rows (seed, sync, and install).
+ * Servers stay listed; enablement is opt-in via toggle.
+ */
+export const MCP_DEFAULT_IS_ENABLED = 0
 
 type DiscoveredServer = {
   id: string
@@ -38,9 +46,20 @@ type DiscoveredServer = {
 type McpSummary = Pick<DiscoveredServer, 'serverIdentifier' | 'name' | 'description'>
 
 export class MCPService {
-  constructor(private db: Database) {}
+  /**
+   * @param db Database handle
+   * @param options.getMcpsDir Optional override for builtin discovery root (tests)
+   */
+  constructor(
+    private db: Database,
+    private options?: { getMcpsDir?: () => string },
+  ) {}
 
   private getMcpsDir(): string {
+    if (this.options?.getMcpsDir) return this.options.getMcpsDir()
+
+    // Lazy-load Electron so unit tests can exercise install/seed without the runtime.
+    const { app } = require('electron') as typeof import('electron')
     return app.isPackaged
       ? path.join(process.resourcesPath, 'mcps')
       : path.join(app.getAppPath(), 'electron', 'embedded-assets', 'mcps')
@@ -260,12 +279,14 @@ export class MCPService {
   install(srv: any): any {
     const id = srv.id || uuidv4()
     const now = new Date().toISOString()
+    // New servers start disabled (opt-in). ON CONFLICT must not touch is_enabled so
+    // seed/sync never re-enables a user-disabled server.
     this.db.raw.prepare(`
       INSERT INTO mcp_servers (id, name, description, command, args_json, env_json, is_enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = ?, description = ?, command = ?, args_json = ?, env_json = ?, updated_at = ?
     `).run(id, srv.name || '', srv.description || '', srv.command || '',
-      JSON.stringify(srv.args || []), JSON.stringify(srv.env || {}), now, now,
+      JSON.stringify(srv.args || []), JSON.stringify(srv.env || {}), MCP_DEFAULT_IS_ENABLED, now, now,
       srv.name || '', srv.description || '', srv.command || '',
       JSON.stringify(srv.args || []), JSON.stringify(srv.env || {}), now)
     return this.getInternal(id)
