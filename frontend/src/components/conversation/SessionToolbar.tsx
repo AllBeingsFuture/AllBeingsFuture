@@ -40,41 +40,41 @@ export default function SessionToolbar({ session }: Props) {
   )
 
   return (
-    <header className="border-b border-white/[0.06] bg-white/[0.01] px-5 py-3.5">
+    <header className="border-b border-white/[0.04] bg-transparent px-6 py-3">
       {/* Parent session binding banner */}
       {parentBinding && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-purple-500/15 bg-purple-500/[0.06] px-3 py-2">
-          <ArrowUpLeft size={14} className="shrink-0 text-purple-400" />
-          <span className="text-xs text-purple-300">
+        <div className="mb-2.5 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+          <ArrowUpLeft size={13} className="shrink-0 text-zinc-400" />
+          <span className="text-xs text-zinc-400">
             子Agent · 来自主会话
           </span>
           <button
             type="button"
             onClick={() => { void workbenchApi.navigation.openSession(parentBinding.parentSessionId) }}
-            className="rounded-md border border-purple-400/20 bg-purple-400/10 px-2 py-0.5 text-xs text-purple-200 font-medium transition-all hover:bg-purple-400/20 hover:text-white"
+            className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-zinc-300 transition-all hover:bg-white/[0.08] hover:text-white"
           >
             {parentSession?.name || parentBinding.parentSessionId.slice(0, 12)}
           </button>
         </div>
       )}
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <div className="relative">
-              <span className={`inline-flex h-2.5 w-2.5 rounded-full ${meta.color}`} />
+              <span className={`inline-flex h-2 w-2 rounded-full ${meta.color}`} />
               {['starting', 'running'].includes(session.status) && (
-                <span className={`absolute inset-0 h-2.5 w-2.5 rounded-full ${meta.color} animate-ping opacity-30`} />
+                <span className={`absolute inset-0 h-2 w-2 rounded-full ${meta.color} animate-ping opacity-30`} />
               )}
             </div>
-            <h2 className="truncate text-base font-semibold text-white">{session.name}</h2>
-            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 text-[11px] uppercase tracking-[0.15em] text-gray-400 font-medium">
+            <h2 className="truncate text-[15px] font-medium text-zinc-100">{session.name}</h2>
+            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-medium text-zinc-500">
               {modeLabel[session.mode] || session.mode}
             </span>
           </div>
-          <div className="mt-2.5 flex flex-wrap items-center gap-2.5 text-xs text-gray-500">
-            <span className="rounded-full bg-blue-500/10 border border-blue-500/15 px-2.5 py-0.5 text-blue-300 font-medium">{session.providerId}</span>
-            <span className="inline-flex items-center gap-1.5 text-gray-500">
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-medium text-zinc-400">{session.providerId}</span>
+            <span className="inline-flex items-center gap-1.5 text-zinc-600">
               <FolderOpen size={12} />
               <span className="max-w-[280px] truncate">{session.workingDirectory}</span>
             </span>

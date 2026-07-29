@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, ChevronDown, ChevronRight, Sparkles, Users } from 'lucide-react'
+import { ChevronDown, ChevronRight, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
@@ -527,19 +527,19 @@ const TOOL_ICONS: Record<string, string> = {
   Agent: '🤖', WebSearch: '🌐', WebFetch: '🌐', ToolSearch: '🔍',
 }
 
-/** Collapsible thinking block — defaults to expanded */
+/** Collapsible thinking block — calm compact row */
 const ThinkingBlock = memo(function ThinkingBlock({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+  const seconds = Math.max(1, Math.round((content?.length || 0) / 180))
   return (
-    <div className="my-1 mx-2 rounded-xl border border-dashed border-purple-500/20 bg-purple-500/[0.03] overflow-hidden">
+    <div className="my-1 w-full max-w-[42rem]">
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-purple-400/60 hover:text-purple-300 transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-lg py-1 text-[12px] text-zinc-500 transition-colors hover:text-zinc-300"
       >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Sparkles size={11} />
-        <span>思考过程</span>
-        {content && <span className="text-gray-600">({content.length} 字符)</span>}
+        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        <span className="font-medium tracking-wide">思考完成 · {seconds}s</span>
       </button>
       <AnimatePresence>
         {expanded && content && (
@@ -547,8 +547,8 @@ const ThinkingBlock = memo(function ThinkingBlock({ content }: { content: string
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="border-t border-purple-500/10 px-3 py-2 max-h-[200px] overflow-y-auto whitespace-pre-wrap font-mono text-xs text-text-muted/60"
+            transition={{ duration: 0.18, ease: 'easeInOut' }}
+            className="mt-1.5 max-h-[200px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-500"
           >
             {content}
           </motion.div>
@@ -696,32 +696,29 @@ function StreamingIndicator({ messages, providerId }: { messages: ChatMessage[];
 
   return (
     <motion.div
-      className="flex gap-3"
-      initial={{ opacity: 0, y: 10 }}
+      className="flex w-full max-w-[42rem] justify-start"
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.25 }}
     >
-      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(30,41,59,0.72),rgba(15,23,42,0.96))] text-slate-100 shadow-[0_10px_28px_rgba(2,6,23,0.22)]">
-        <Bot size={15} />
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1 py-1">
-        <div className="flex items-center gap-2 text-[11px] text-slate-400/88">
-          <span className="font-medium tracking-[0.01em] text-slate-100/92">{providerLabel}</span>
-          <span className="h-1 w-1 rounded-full bg-slate-300/70" />
+      <div className="flex min-w-0 flex-col gap-1 py-1">
+        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+          <span className="font-medium tracking-[0.01em] text-zinc-400/90">{providerLabel}</span>
+          <span className="h-1 w-1 rounded-full bg-zinc-600" />
           <span>{statusText}</span>
           {toolUse && toolUse.length > 1 && (
-            <span className="text-[10px] text-slate-500">({toolUse.length} 个操作)</span>
+            <span className="text-[10px] text-zinc-600">({toolUse.length} 个操作)</span>
           )}
         </div>
-        <div className="border-l border-white/[0.08] pl-4">
+        <div className="pl-0.5">
           {statusDetail ? (
-            <span className="block max-w-[540px] truncate font-mono text-[12px] text-slate-400/78">{statusDetail}</span>
+            <span className="block max-w-[540px] truncate font-mono text-[12px] text-zinc-500">{statusDetail}</span>
           ) : (
             <span className="flex gap-1.5 py-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300/75" style={{ animationDelay: '0ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300/75" style={{ animationDelay: '150ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300/75" style={{ animationDelay: '300ms' }} />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '0ms' }} />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '150ms' }} />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '300ms' }} />
             </span>
           )}
         </div>
@@ -998,28 +995,28 @@ export default function ConversationView({ session }: Props) {
         ref={scrollContainerRef}
         onScroll={handleScroll}
         data-scroll-container
-        className="flex-1 overflow-y-auto px-5 py-5"
+        className="flex-1 overflow-y-auto px-6 py-6"
         style={{ overflowAnchor: 'none', scrollPaddingBottom: `${composerClearance}px` }}
       >
         <div
           ref={contentRef}
-          className="mx-auto flex max-w-4xl flex-col gap-3"
+          className="mx-auto flex w-full max-w-[42rem] flex-col gap-5"
           style={{ paddingBottom: composerClearance > 0 ? `${composerClearance}px` : undefined }}
         >
           {!ready && messages.length === 0 ? (
             /* Shimmer skeleton while session is initializing */
             <div className="animate-fade-in space-y-4">
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-8">
+              <div className="rounded-2xl border border-white/[0.05] bg-white/[0.015] px-6 py-10">
                 <div className="shimmer h-3 w-24 rounded-md" />
                 <div className="shimmer mt-4 h-5 w-48 rounded-md" />
                 <div className="shimmer mt-3 h-3 w-64 rounded-md" />
               </div>
             </div>
           ) : messages.length === 0 && !streaming ? (
-            <div className="animate-scale-in rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-8 text-sm text-gray-300">
-              <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-gray-600">{isChildSession ? 'Sub-Agent' : 'Conversation'}</p>
-              <h3 className="mt-3 text-lg font-semibold text-white">{session.name}</h3>
-              <p className="mt-2 leading-7 text-gray-500">
+            <div className="animate-scale-in rounded-2xl border border-white/[0.05] bg-white/[0.015] px-6 py-10 text-sm text-zinc-300">
+              <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-zinc-600">{isChildSession ? 'Sub-Agent' : 'Conversation'}</p>
+              <h3 className="mt-3 text-lg font-semibold text-zinc-50">{session.name}</h3>
+              <p className="mt-2 leading-7 text-zinc-500">
                 {isChildSession ? '子Agent执行记录将显示在这里。' : '会话已经就绪，输入消息开始对话。'}
               </p>
             </div>

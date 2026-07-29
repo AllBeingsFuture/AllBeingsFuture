@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bot, ChevronDown, ChevronRight, Sparkles, User } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
@@ -60,7 +60,7 @@ export default function MessageBubble({ message, providerId }: Props) {
   const extendedMessage = message as ExtendedMessage
   const isUser = message.role === 'user'
   const isPartial = message.partial
-  const [thinkingExpanded, setThinkingExpanded] = useState(true)
+  const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const [plainExpanded, setPlainExpanded] = useState(true)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const providerInfo = useMemo(() => resolveProviderDisplayInfo(providerId), [providerId])
@@ -79,23 +79,19 @@ export default function MessageBubble({ message, providerId }: Props) {
     && !thinkingText
     && extendedMessage.presentation === 'commentary'
 
-  const assistantAvatarClass = isCommentary
-    ? 'border border-white/[0.06] bg-white/[0.035] text-sky-100'
-    : 'border border-white/[0.08] bg-[linear-gradient(180deg,rgba(30,41,59,0.72),rgba(15,23,42,0.96))] text-slate-100 shadow-[0_10px_28px_rgba(2,6,23,0.22)]'
-
   const assistantHeaderClass = isCommentary
-    ? 'text-sky-200/80'
-    : 'text-slate-400/88'
+    ? 'text-zinc-400/80'
+    : 'text-zinc-500'
 
   const assistantBodyClass = isCommentary
-    ? 'relative border-l border-white/[0.08] pl-4 pr-1 py-0.5'
-    : 'relative py-0.5'
+    ? 'relative w-full border-l border-white/[0.06] pl-4 pr-1 py-0.5'
+    : 'relative w-full py-0.5'
 
   const assistantStateLabel = isPartial
     ? (isCommentary ? '处理中' : '正在回复')
     : undefined
-  const commentaryTextClass = 'whitespace-pre-wrap break-words text-[14px] leading-[1.85] tracking-[0.01em] text-slate-200/88'
-  const assistantTextClass = 'whitespace-pre-wrap break-words text-[15px] leading-8 tracking-[0.01em] text-slate-100/94'
+  const commentaryTextClass = 'whitespace-pre-wrap break-words text-[15px] leading-[1.8] tracking-[0.005em] text-zinc-200/90'
+  const assistantTextClass = 'whitespace-pre-wrap break-words text-[15px] leading-[1.8] tracking-[0.005em] text-zinc-100/94'
   const plainCollapseThreshold = isCommentary ? COMMENTARY_COLLAPSE_THRESHOLD : ASSISTANT_COLLAPSE_THRESHOLD
   const collapsedPreviewHeight = isCommentary ? COMMENTARY_PREVIEW_HEIGHT : ASSISTANT_PREVIEW_HEIGHT
 
@@ -115,7 +111,7 @@ export default function MessageBubble({ message, providerId }: Props) {
   }, [displayContent, shouldCollapsePlainAssistant])
 
   const renderPlainAssistant = (paragraphClass: string) => (
-    <div className="space-y-2.5">
+    <div className="space-y-3">
       {(plainParagraphs.length > 0 ? plainParagraphs : [displayContent]).map((paragraph, index) => (
         <p key={index} className={paragraphClass}>
           {paragraph}
@@ -149,66 +145,72 @@ export default function MessageBubble({ message, providerId }: Props) {
     </div>
   )
 
+  const thinkingSeconds = Math.max(1, Math.round((thinkingText?.length || 0) / 180))
+
   return (
     <>
       <motion.div
-        className={`flex gap-3 ${isUser ? 'justify-end' : ''}`}
-        initial={{ opacity: 0, y: 8 }}
+        className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}
+        initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25, ease: 'easeOut' }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
       >
-        {!isUser && (
-          <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl ${assistantAvatarClass}`}>
-            <Bot size={15} />
-          </div>
-        )}
-
-        <div className={`flex min-w-0 flex-col gap-1.5 ${isUser ? 'max-w-[80%]' : 'flex-1 max-w-none'}`}>
+        <div
+          className={[
+            'flex min-w-0 flex-col gap-2',
+            isUser ? 'max-w-[min(85%,28rem)] items-end' : 'w-full max-w-[42rem] items-start',
+          ].join(' ')}
+        >
           {thinkingText && (
-            <button
-              onClick={() => setThinkingExpanded(!thinkingExpanded)}
-              className="group flex items-center gap-1.5 self-start py-0.5 text-xs text-sky-300/60 transition-colors hover:text-sky-200"
-            >
-              {thinkingExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <Sparkles size={11} className="opacity-70 group-hover:opacity-100" />
-              <span className="font-medium">思考过程</span>
-              <span className="text-[10px] text-slate-500">({formatNumber(thinkingText.length)} 字符)</span>
-            </button>
+            <div className="w-full">
+              <button
+                type="button"
+                onClick={() => setThinkingExpanded(!thinkingExpanded)}
+                className="group inline-flex items-center gap-1.5 rounded-lg py-1 text-[12px] text-zinc-500 transition-colors hover:text-zinc-300"
+              >
+                {thinkingExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                <span className="font-medium tracking-wide">
+                  {isPartial ? `思考中 · ${thinkingSeconds}s` : `思考完成 · ${thinkingSeconds}s`}
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {thinkingExpanded && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.18, ease: 'easeInOut' }}
+                    className="mt-1.5 max-h-[220px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 text-[12px] leading-relaxed text-zinc-500 scrollbar-thin"
+                  >
+                    <div className="prose prose-invert prose-xs max-w-none
+                      prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-zinc-500
+                      prose-headings:mb-0.5 prose-headings:mt-2 prose-headings:text-xs prose-headings:text-zinc-400
+                      prose-strong:text-zinc-300
+                      prose-em:text-zinc-500
+                      prose-code:rounded prose-code:bg-white/[0.04] prose-code:px-1 prose-code:py-0.5 prose-code:text-[10px] prose-code:text-zinc-400 prose-code:before:content-none prose-code:after:content-none
+                      prose-li:my-0 prose-li:text-zinc-500
+                      prose-ol:my-0.5 prose-ul:my-0.5
+                      prose-a:text-zinc-400 prose-a:no-underline
+                    ">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(value) => value}>
+                        {thinkingText}
+                      </ReactMarkdown>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           )}
 
-          <AnimatePresence>
-            {thinkingText && thinkingExpanded && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2, ease: 'easeInOut' }}
-                className="max-h-[220px] overflow-y-auto rounded-2xl border border-sky-400/10 bg-[linear-gradient(180deg,rgba(18,24,38,0.8),rgba(10,15,25,0.9))] px-3.5 py-2.5 text-xs text-text-muted/70 scrollbar-thin scrollbar-thumb-sky-400/10"
-              >
-                <div className="prose prose-invert prose-xs max-w-none
-                  prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-text-muted/70
-                  prose-headings:mb-0.5 prose-headings:mt-2 prose-headings:text-xs prose-headings:text-sky-200/80
-                  prose-strong:text-sky-100/80
-                  prose-em:text-slate-400
-                  prose-code:rounded prose-code:bg-sky-400/10 prose-code:px-1 prose-code:py-0.5 prose-code:text-[10px] prose-code:text-sky-200/70 prose-code:before:content-none prose-code:after:content-none
-                  prose-li:my-0 prose-li:text-text-muted/70
-                  prose-ol:my-0.5 prose-ul:my-0.5
-                  prose-a:text-sky-200/60 prose-a:no-underline
-                ">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(value) => value}>
-                    {thinkingText}
-                  </ReactMarkdown>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {!isUser && (
+          {!isUser && (assistantStateLabel || !isPartial) && (
             <div className={`flex items-center gap-2 px-0.5 text-[11px] ${assistantHeaderClass}`}>
-              <span className="font-medium tracking-[0.01em] text-slate-100/92">{providerInfo.label}</span>
+              {!isPartial && (
+                <span className="font-medium tracking-[0.01em] text-zinc-400/90">{providerInfo.label}</span>
+              )}
               {assistantStateLabel && (
                 <>
-                  <span className="h-1 w-1 rounded-full bg-current opacity-70" />
+                  {!isPartial && <span className="h-1 w-1 rounded-full bg-zinc-600" />}
                   <span>{assistantStateLabel}</span>
                 </>
               )}
@@ -218,7 +220,7 @@ export default function MessageBubble({ message, providerId }: Props) {
           <div
             className={[
               isUser
-                ? 'rounded-2xl border border-blue-500/10 bg-blue-500/14 px-4 py-3 text-sm leading-relaxed text-text-primary'
+                ? 'rounded-[1.25rem] rounded-br-md bg-white/[0.08] px-4 py-2.5 text-[14px] leading-relaxed text-zinc-100'
                 : assistantBodyClass,
             ].join(' ')}
             data-message-presentation={extendedMessage.presentation || 'message'}
@@ -241,9 +243,9 @@ export default function MessageBubble({ message, providerId }: Props) {
                 <p className="whitespace-pre-wrap break-words">{message.content}</p>
               </div>
             ) : isPartial ? (
-              <div className="whitespace-pre-wrap break-words text-[14px] leading-7 text-slate-200/86">
+              <div className="whitespace-pre-wrap break-words text-[15px] leading-[1.8] text-zinc-200/88">
                 {displayContent || (
-                  <span className="italic text-slate-500">等待响应...</span>
+                  <span className="italic text-zinc-600">等待响应...</span>
                 )}
               </div>
             ) : displayContent ? (
@@ -252,58 +254,46 @@ export default function MessageBubble({ message, providerId }: Props) {
                   renderMarkdownAssistant(
                     isCommentary
                       ? `prose prose-invert prose-sm max-w-none
-                        prose-p:my-2 prose-p:leading-7 prose-p:text-slate-200/88
-                        prose-headings:mb-1.5 prose-headings:mt-4 prose-headings:text-slate-100
-                        prose-code:rounded-md prose-code:bg-sky-400/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[11px] prose-code:text-sky-200 prose-code:before:content-none prose-code:after:content-none
-                        prose-pre:my-2 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0d1117]
-                        prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline
-                        prose-li:my-0.5 prose-li:text-slate-200/86
+                        prose-p:my-2.5 prose-p:leading-[1.8] prose-p:text-zinc-200/90
+                        prose-headings:mb-2 prose-headings:mt-5 prose-headings:text-zinc-100
+                        prose-code:rounded-md prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[12px] prose-code:text-zinc-200 prose-code:before:content-none prose-code:after:content-none
+                        prose-pre:my-3 prose-pre:rounded-xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0c0f14]
+                        prose-a:text-sky-300/90 prose-a:no-underline hover:prose-a:underline
+                        prose-li:my-0.5 prose-li:text-zinc-200/88
                         prose-table:text-xs
                         prose-th:border prose-th:border-white/[0.06] prose-th:px-2 prose-th:py-1
                         prose-td:border prose-td:border-white/[0.06] prose-td:px-2 prose-td:py-1
-                        prose-strong:text-slate-50
-                        prose-em:text-slate-300
-                        prose-blockquote:rounded-r-xl prose-blockquote:border-sky-300/20 prose-blockquote:bg-sky-400/[0.03] prose-blockquote:py-1 prose-blockquote:text-slate-300`
+                        prose-strong:text-zinc-50
+                        prose-em:text-zinc-300
+                        prose-blockquote:rounded-r-lg prose-blockquote:border-white/10 prose-blockquote:bg-white/[0.02] prose-blockquote:py-1 prose-blockquote:text-zinc-400`
                       : `prose prose-invert prose-sm max-w-none
-                        prose-p:my-3 prose-p:leading-8 prose-p:text-slate-100/92
-                        prose-headings:mb-2 prose-headings:mt-6 prose-headings:text-slate-50
-                        prose-code:rounded-md prose-code:bg-sky-400/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:text-sky-200 prose-code:before:content-none prose-code:after:content-none
-                        prose-pre:my-2 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0d1117]
-                        prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline
-                        prose-li:my-0.5 prose-li:text-slate-100/90
+                        prose-p:my-3 prose-p:leading-[1.8] prose-p:text-zinc-100/92
+                        prose-headings:mb-2.5 prose-headings:mt-6 prose-headings:text-zinc-50
+                        prose-code:rounded-md prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[13px] prose-code:text-zinc-200 prose-code:before:content-none prose-code:after:content-none
+                        prose-pre:my-3 prose-pre:rounded-xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0c0f14]
+                        prose-a:text-sky-300/90 prose-a:no-underline hover:prose-a:underline
+                        prose-li:my-0.5 prose-li:text-zinc-100/90
                         prose-table:text-xs
                         prose-th:border prose-th:border-white/[0.06] prose-th:px-2 prose-th:py-1
                         prose-td:border prose-td:border-white/[0.06] prose-td:px-2 prose-td:py-1
                         prose-strong:text-white
-                        prose-em:text-slate-300
-                        prose-blockquote:rounded-r-xl prose-blockquote:border-sky-300/20 prose-blockquote:bg-sky-400/[0.03] prose-blockquote:py-1 prose-blockquote:text-slate-300`,
+                        prose-em:text-zinc-300
+                        prose-blockquote:rounded-r-lg prose-blockquote:border-white/10 prose-blockquote:bg-white/[0.02] prose-blockquote:py-1 prose-blockquote:text-zinc-400`,
                   )
                 ) : (
                   <>
                     {shouldCollapsePlainAssistant && !plainExpanded ? (
-                      <div
-                        className={`relative overflow-hidden rounded-2xl border px-4 py-3.5 shadow-[0_12px_32px_rgba(2,6,23,0.14)] ${
-                          isCommentary
-                            ? 'border-sky-400/10 bg-[linear-gradient(180deg,rgba(20,28,42,0.82),rgba(10,15,25,0.94))]'
-                            : 'border-white/[0.06] bg-[linear-gradient(180deg,rgba(17,24,39,0.72),rgba(8,12,20,0.96))]'
-                        }`}
-                      >
+                      <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3.5">
                         <div className="mb-2 flex items-center gap-2 text-[10px]">
-                          <span
-                            className={`rounded-full border px-2 py-0.5 font-medium tracking-[0.12em] ${
-                              isCommentary
-                                ? 'border-sky-400/12 bg-sky-400/[0.08] text-sky-100/80'
-                                : 'border-white/[0.08] bg-white/[0.04] text-slate-300/72'
-                            }`}
-                          >
+                          <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-medium tracking-[0.08em] text-zinc-400/80">
                             {collapsedCardLabel}
                           </span>
-                          <span className="text-slate-500/78">{formatNumber((displayContent || '').length)} 字符</span>
-                          <span className="text-slate-500/64">滚动查看</span>
+                          <span className="text-zinc-600">{formatNumber((displayContent || '').length)} 字符</span>
+                          <span className="text-zinc-600">滚动查看</span>
                         </div>
                         <div
                           data-testid="message-scroll-preview"
-                          className="overflow-y-auto overscroll-contain pr-2 scrollbar-thin scrollbar-thumb-slate-500/20"
+                          className="overflow-y-auto overscroll-contain pr-2 scrollbar-thin"
                           style={{ maxHeight: collapsedPreviewHeight }}
                         >
                           {isCommentary ? (
@@ -323,11 +313,7 @@ export default function MessageBubble({ message, providerId }: Props) {
                       <button
                         type="button"
                         onClick={() => setPlainExpanded(value => !value)}
-                        className={`mt-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-all ${
-                          isCommentary
-                            ? 'border-sky-400/12 bg-sky-400/[0.06] text-sky-100/82 hover:bg-sky-400/[0.12] hover:text-sky-50'
-                            : 'border-white/[0.08] bg-white/[0.03] text-slate-200/76 hover:bg-white/[0.06] hover:text-slate-100'
-                        }`}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] font-medium text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
                       >
                         <span>{plainToggleLabel}</span>
                         {plainExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -337,31 +323,25 @@ export default function MessageBubble({ message, providerId }: Props) {
                 )}
               </>
             ) : (
-              <span className="text-xs italic text-slate-500">空回复</span>
+              <span className="text-xs italic text-zinc-600">空回复</span>
             )}
           </div>
 
           {!isUser && !isPartial && ((message as any).usage || (message as any).timestamp) && (
             <div className="mt-0.5 flex items-center gap-2 px-0.5">
               {(message as any).usage?.cacheReadTokens > 0 && (
-                <span className="font-mono text-[10px] text-slate-500">
+                <span className="font-mono text-[10px] text-zinc-600">
                   cache hit {formatNumber((message as any).usage.cacheReadTokens)}
                 </span>
               )}
               {(message as any).timestamp && (
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] text-zinc-600">
                   {formatRelativeTime((message as any).timestamp)}
                 </span>
               )}
             </div>
           )}
         </div>
-
-        {isUser && (
-          <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-blue-500/10 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 text-blue-300 shadow-sm">
-            <User size={15} />
-          </div>
-        )}
       </motion.div>
 
       {previewIndex !== null && userImages && (
