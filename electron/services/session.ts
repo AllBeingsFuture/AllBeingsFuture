@@ -72,6 +72,9 @@ function rowToSession(row: any): Session {
   }
 }
 
+/** Live statuses that cannot survive an app restart (no agent process remains). */
+const ORPHAN_LIVE_STATUSES = ['running', 'starting', 'waiting_input'] as const
+
 export class SessionService {
   constructor(private db: Database) {}
 
@@ -80,6 +83,23 @@ export class SessionService {
       'SELECT * FROM sessions ORDER BY started_at DESC'
     ).all()
     return rows.map(rowToSession)
+  }
+
+  /**
+   * After app cold start / reinstall, any session still marked as live in SQLite
+   * is orphaned: the agent process is gone. Rewrite those rows to a non-live
+   * status so the UI restores history only and nothing re-dispatches prompts.
+   *
+   * Does not launch agents or touch messages / conversation ids.
+   *
+   * @returns number of sessions rewritten
+   */
+  reconcileOrphanedLiveSessions(targetStatus = 'interrupted'): number {
+    const placeholders = ORPHAN_LIVE_STATUSES.map(() => '?').join(', ')
+    const result = this.db.raw.prepare(
+      `UPDATE sessions SET status = ? WHERE status IN (${placeholders})`
+    ).run(targetStatus, ...ORPHAN_LIVE_STATUSES) as { changes?: number }
+    return Number(result?.changes ?? 0)
   }
 
   getById(id: string): Session | null {
