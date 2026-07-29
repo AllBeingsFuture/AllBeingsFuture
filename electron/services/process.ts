@@ -22,7 +22,13 @@ import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
 import { MessageScheduler } from './message-scheduler.js'
 import { appLog } from './log.js'
-import { injectSupervisorPrompt, injectProviderRules, cleanupSupervisorPrompt, buildAllRulesContent } from './supervisor-prompt.js'
+import {
+  injectSupervisorPrompt,
+  injectProviderRules,
+  cleanupSupervisorPrompt,
+  buildAllRulesContent,
+  buildWorkerRulesContent,
+} from './supervisor-prompt.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
@@ -562,11 +568,25 @@ export class ProcessService {
       }
     }
 
-    // Inject ABF rules for non-child sessions (file discovery only for CLI agents).
-    // - Claude: .claude/rules/abf-*.md
-    // - ACP CLI agents: AGENTS.md (+ GEMINI.md / QWEN.md when that is their native file)
-    // - HTTP openai-api: no project file discovery → appendSystemPrompt only
-    if (!session.parentSessionId) {
+    // Inject ABF rules by session role.
+    // - Top-level (Supervisor): file discovery (+ agent-control MCP)
+    // - Child (Worker): appendSystemPrompt only — children share the parent workDir,
+    //   so we must NOT rewrite AGENTS.md / .claude/rules (would pollute the parent).
+    //   Worker rules explicitly override any Supervisor scheduling text found on disk.
+    if (session.parentSessionId) {
+      try {
+        const workerRules = buildWorkerRulesContent()
+        const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
+        // Worker role first so it outranks later session-level custom text if any.
+        config.appendSystemPrompt = existingPrompt
+          ? `${workerRules}\n\n${existingPrompt}`
+          : workerRules
+        appLog('info', `Injected worker role prompt for child session ${sessionId}`, 'process')
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to inject worker rules for child session: ${errMsg}`, 'process')
+      }
+    } else {
       try {
         const providerNames = this.providerService.getRunnable().map(p => p.name)
         const workDir = config.workDir as string
