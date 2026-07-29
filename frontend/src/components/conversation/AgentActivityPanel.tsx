@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Circle, LoaderCircle, ShieldAlert, XCircle } from 'lucide-react'
+import { isAgentStreamActive } from '../../core/chat/agentStreamCore'
 import type {
   AgentPermissionOption,
   AgentSessionStreamState,
@@ -49,8 +50,12 @@ export default function AgentActivityPanel({ stream, onPermissionResponse }: Pro
     }
   }
 
-  const showStatus = Boolean(stream?.statusMessage)
-  const showPlan = Boolean(stream?.plan?.entries.length)
+  const planEntries = stream?.plan?.entries ?? []
+  const planAllDone = planEntries.length > 0 && planEntries.every(entry => entry.status === 'completed')
+  // Keep plan only while the turn is live and still has unfinished work.
+  // Once every entry is completed (or the stream ends), close the bottom panel.
+  const showStatus = Boolean(stream?.statusMessage) && isAgentStreamActive(stream)
+  const showPlan = planEntries.length > 0 && isAgentStreamActive(stream) && !planAllDone
   if (!permission && !showStatus && !showPlan) return null
 
   return (

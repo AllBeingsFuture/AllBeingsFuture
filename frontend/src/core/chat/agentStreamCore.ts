@@ -67,50 +67,79 @@ function patchMessage(
   return { messages: next, found: true }
 }
 
+/**
+ * Close open narrative bubbles (assistant / thinking) before a tool or a new
+ * reply segment starts. Providers often reuse one default text itemId for the
+ * whole turn; without sealing, later text would keep growing the first bubble.
+ */
+function sealOpenNarrativeMessages(messages: ChatMessage[]): ChatMessage[] {
+  let changed = false
+  const next = messages.map(message => {
+    const streamMessage = message as StreamChatMessage
+    const isNarrative = streamMessage.role === 'assistant'
+      || streamMessage.role === 'thinking'
+      || Boolean(streamMessage.isThinking)
+    if (!isNarrative || !streamMessage.partial) return message
+    changed = true
+    return { ...streamMessage, partial: false } as ChatMessage
+  })
+  return changed ? next : messages
+}
+
 function appendTextDelta(messages: ChatMessage[], event: Extract<AgentStreamEvent, { type: 'text_delta' }>) {
-  // Only extend an open (partial) assistant bubble with the same stream item.
-  // Finalized replies must not be reopened when a later turn streams again.
-  const patched = patchMessage(
-    messages,
-    message => (
-      message.role === 'assistant'
-      && message.partial === true
-      && message.streamItemId === event.itemId
-    ),
-    message => ({ ...message, content: `${message.content || ''}${event.delta}`, partial: true }),
-  )
-  if (patched.found) return patched.messages
+  // Only extend the *trailing* open assistant bubble with the same stream item.
+  // Never reopen an earlier partial bubble after tools / other messages have
+  // been appended — that is what forces multi-round replies into one box.
+  const last = messages[messages.length - 1] as StreamChatMessage | undefined
+  if (
+    last?.role === 'assistant'
+    && last.partial === true
+    && last.streamItemId === event.itemId
+  ) {
+    const next = messages.slice()
+    next[next.length - 1] = {
+      ...last,
+      content: `${last.content || ''}${event.delta}`,
+      partial: true,
+    } as ChatMessage
+    return next
+  }
+
   return [...messages, {
     role: 'assistant',
     content: event.delta,
     partial: true,
-    id: event.itemId,
+    id: `${event.itemId}-${event.sequence}`,
     streamItemId: event.itemId,
     timestamp: timestampOf(event),
   } as unknown as ChatMessage]
 }
 
 function updateThinking(messages: ChatMessage[], event: Extract<AgentStreamEvent, { type: 'thinking_update' }>) {
-  const patched = patchMessage(
-    messages,
-    message => (
-      Boolean(message.isThinking)
-      && message.partial === true
-      && message.streamItemId === event.itemId
-    ),
-    message => ({
-      ...message,
-      content: event.mode === 'replace' ? event.text : `${message.content || ''}${event.text}`,
+  // Same trailing-only rule as text: a thinking block closed by tools must not
+  // absorb later thought chunks into the earlier bubble.
+  const last = messages[messages.length - 1] as StreamChatMessage | undefined
+  if (
+    last
+    && Boolean(last.isThinking)
+    && last.partial === true
+    && last.streamItemId === event.itemId
+  ) {
+    const next = messages.slice()
+    next[next.length - 1] = {
+      ...last,
+      content: event.mode === 'replace' ? event.text : `${last.content || ''}${event.text}`,
       partial: true,
-    }),
-  )
-  if (patched.found) return patched.messages
+    } as ChatMessage
+    return next
+  }
+
   return [...messages, {
     role: 'thinking',
     content: event.text,
     partial: true,
     isThinking: true,
-    id: event.itemId,
+    id: `${event.itemId}-${event.sequence}`,
     streamItemId: event.itemId,
     timestamp: timestampOf(event),
   } as unknown as ChatMessage]
@@ -129,7 +158,9 @@ function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     }),
   )
   if (patched.found) return patched.messages
-  return [...messages, {
+  // New tool boundary: seal any live narrative so the next text_delta opens a new bubble.
+  const sealed = sealOpenNarrativeMessages(messages)
+  return [...sealed, {
     role: 'tool_use',
     content: event.title || '',
     partial: true,
@@ -147,7 +178,8 @@ function ensureToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     && (message as StreamChatMessage).toolUseId === event.toolCallId
   ))
   if (exists) return messages
-  return [...messages, {
+  const sealed = sealOpenNarrativeMessages(messages)
+  return [...sealed, {
     role: 'tool_use',
     content: event.title || '',
     partial: true,
@@ -293,7 +325,11 @@ export function reduceAgentStreamEvent(
         statusMessage: event.message,
         terminalReason: undefined,
       }
-      if (event.status === 'idle') nextMessages = finalizeMessages(messages)
+      if (event.status === 'idle') {
+        // Idle ends the turn — drop live progress UI (plan/status) so the bottom panel closes.
+        nextMessages = finalizeMessages(messages)
+        stream = { ...stream, plan: undefined, statusMessage: undefined }
+      }
       break
     case 'permission_request':
       stream = {
@@ -311,6 +347,7 @@ export function reduceAgentStreamEvent(
         phase: 'done',
         permission: undefined,
         statusMessage: undefined,
+        plan: undefined,
         terminalReason: event.stopReason,
       }
       break
@@ -321,6 +358,7 @@ export function reduceAgentStreamEvent(
         phase: 'error',
         permission: undefined,
         statusMessage: undefined,
+        plan: undefined,
         terminalReason: event.message,
       }
       error = event.message
@@ -332,6 +370,7 @@ export function reduceAgentStreamEvent(
         phase: 'cancelled',
         permission: undefined,
         statusMessage: undefined,
+        plan: undefined,
         terminalReason: event.reason,
       }
       break

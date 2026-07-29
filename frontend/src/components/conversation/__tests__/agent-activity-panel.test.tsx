@@ -17,13 +17,13 @@ const permissionStream = {
 }
 
 describe('AgentActivityPanel', () => {
-  it('renders plan progress and submits the exact permission option id', async () => {
+  it('renders unfinished plan progress and submits the exact permission option id', async () => {
     const onPermissionResponse = vi.fn().mockResolvedValue(undefined)
     renderWithProviders(
       <AgentActivityPanel
         stream={{
           ...permissionStream,
-          plan: { entries: [{ id: 'step-1', title: 'Inspect files', status: 'completed' }] },
+          plan: { entries: [{ id: 'step-1', title: 'Inspect files', status: 'in_progress' }] },
         }}
         onPermissionResponse={onPermissionResponse}
       />,
@@ -36,6 +36,43 @@ describe('AgentActivityPanel', () => {
     await waitFor(() => {
       expect(onPermissionResponse).toHaveBeenCalledWith('permission-1', 'yes-once')
     })
+  })
+
+  it('hides plan when every entry is completed', () => {
+    renderWithProviders(
+      <AgentActivityPanel
+        stream={{
+          phase: 'running',
+          lastSequence: 4,
+          plan: {
+            entries: [
+              { id: 'step-1', title: 'Inspect files', status: 'completed' },
+              { id: 'step-2', title: 'Update README', status: 'completed' },
+            ],
+          },
+        }}
+        onPermissionResponse={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByTestId('agent-activity-panel')).not.toBeInTheDocument()
+    expect(screen.queryByText('Inspect files')).not.toBeInTheDocument()
+  })
+
+  it('hides plan and status after the stream is no longer active', () => {
+    renderWithProviders(
+      <AgentActivityPanel
+        stream={{
+          phase: 'done',
+          lastSequence: 8,
+          statusMessage: 'Working…',
+          plan: { entries: [{ id: 'step-1', title: 'Inspect files', status: 'in_progress' }] },
+        }}
+        onPermissionResponse={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByTestId('agent-activity-panel')).not.toBeInTheDocument()
   })
 
   it('keeps the prompt actionable and announces response failures', async () => {

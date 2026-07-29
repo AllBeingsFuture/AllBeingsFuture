@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { ConversationMessage } from '../../types/conversationTypes'
 import ToolUseCard, { type ToolOperationCardData } from './ToolUseCard'
@@ -132,7 +132,19 @@ function getText(value: unknown): string {
 }
 
 const ToolOperationGroup: React.FC<ToolOperationGroupProps> = ({ messages, isActive }) => {
-  const [expanded, setExpanded] = useState(false)
+  // null = follow default: expanded while the group is live, collapsed when done.
+  // User toggle sets an explicit override until the active turn starts/ends.
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
+  const expanded = manualExpanded ?? isActive
+
+  useEffect(() => {
+    // New live turn / settled history should start from the default again.
+    setManualExpanded(null)
+  }, [isActive])
+
+  const toggleExpanded = useCallback(() => {
+    setManualExpanded(current => !(current ?? isActive))
+  }, [isActive])
 
   const operations = useMemo(() => aggregateOperations(messages), [messages])
   const toolCounts = useMemo(() => {
@@ -200,8 +212,9 @@ const ToolOperationGroup: React.FC<ToolOperationGroupProps> = ({ messages, isAct
       }`}
     >
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={toggleExpanded}
         aria-expanded={expanded}
+        data-testid="tool-operation-group-toggle"
         className="w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-white/[0.03] transition-colors"
       >
         <span className="text-[10px] text-gray-500 flex-shrink-0">

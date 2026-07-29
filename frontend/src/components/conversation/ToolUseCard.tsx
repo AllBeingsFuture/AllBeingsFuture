@@ -93,6 +93,11 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
 
   const isStreamingResult = Boolean(resolvedOperation.liveResult && !resolvedOperation.result)
   const isPending = Boolean(resolvedOperation.toolUse && !resolvedOperation.liveResult && !resolvedOperation.result)
+
+  // Live output should open itself as chunks arrive (initial state alone misses late liveResult).
+  useEffect(() => {
+    if (isStreamingResult) setExpanded(true)
+  }, [isStreamingResult])
   const isResult = Boolean(resolvedOperation.result) || primaryMessage?.role === 'tool_result'
   const isError = resolvedOperation.result?.isError ?? primaryMessage?.isError
   const style = TOOL_STYLES[effectiveToolName] || DEFAULT_STYLE

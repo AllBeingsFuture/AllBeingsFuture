@@ -999,6 +999,16 @@ export class ProcessService {
           }
         }
 
+        // Seal open assistant bubbles before the tool boundary so post-tool
+        // text opens a new reply box instead of growing the previous one.
+        for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+          const candidate = state.messages[index]
+          if (candidate.role === 'user') break
+          if (candidate.role === 'assistant' && candidate.partial) {
+            candidate.partial = false
+          }
+        }
+
         // Create a separate tool_use message for each tool invocation
         const toolMsg: ChatMessage = {
           role: 'tool_use',

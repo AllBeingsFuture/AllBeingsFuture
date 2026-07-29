@@ -61,6 +61,65 @@ describe('agentStreamCore', () => {
     expect(again.messages[1].content).toBe('第二段')
   })
 
+  it('opens a new assistant bubble after tools even when itemId is reused', () => {
+    // Providers often keep one default text itemId for the whole turn.
+    const first = reduceAgentStreamEvent([], undefined, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 1, itemId: 'assistant-text',
+      delta: '先查工具组折叠逻辑。',
+    })
+    const tool = reduceAgentStreamEvent(first.messages, first.stream, {
+      type: 'tool_call', sessionId: 'session-1', sequence: 2,
+      toolCallId: 'tool-1', title: 'grep', name: 'Grep',
+    })
+    const second = reduceAgentStreamEvent(tool.messages, tool.stream, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 3, itemId: 'assistant-text',
+      delta: '根因是默认折叠，正在改为自动展开。',
+    })
+
+    const assistants = second.messages.filter(message => message.role === 'assistant')
+    expect(assistants).toHaveLength(2)
+    expect(assistants[0]).toEqual(expect.objectContaining({
+      content: '先查工具组折叠逻辑。',
+      partial: false,
+    }))
+    expect(assistants[1]).toEqual(expect.objectContaining({
+      content: '根因是默认折叠，正在改为自动展开。',
+      partial: true,
+    }))
+    // Tool sits between the two reply bubbles.
+    expect(second.messages.map(message => message.role)).toEqual([
+      'assistant', 'tool_use', 'assistant',
+    ])
+  })
+
+  it('does not grow an earlier partial bubble when tools sit after it', () => {
+    const first = reduceAgentStreamEvent([], undefined, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 1, itemId: 'assistant-text', delta: '回复A',
+    })
+    // Simulate a tool message already after the open bubble without sealing
+    // via tool_call (defensive: trailing-only merge must still hold).
+    const withTool = {
+      messages: [
+        ...first.messages,
+        {
+          role: 'tool_use',
+          content: 'shell',
+          partial: false,
+          toolUseId: 'tool-x',
+          toolName: 'Bash',
+        } as ChatMessage,
+      ],
+      stream: first.stream,
+    }
+    const second = reduceAgentStreamEvent(withTool.messages, withTool.stream, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 2, itemId: 'assistant-text', delta: '回复B',
+    })
+
+    expect(second.messages.filter(message => message.role === 'assistant')).toHaveLength(2)
+    expect(second.messages[0].content).toBe('回复A')
+    expect(second.messages[2].content).toBe('回复B')
+  })
+
   it('supports replace-style thinking updates without duplicating text', () => {
     const first = reduceAgentStreamEvent([], undefined, {
       type: 'thinking_update', sessionId: 'session-1', sequence: 1, itemId: 'thought-1', text: 'Checking', mode: 'replace',
@@ -140,8 +199,36 @@ describe('agentStreamCore', () => {
     expect(status.stream.statusMessage).toBe('Inspecting files')
     expect(permission.stream.phase).toBe('waiting_permission')
     expect(done.stream).toEqual(expect.objectContaining({
-      phase: 'done', permission: undefined, statusMessage: undefined, terminalReason: 'end_turn',
+      phase: 'done',
+      permission: undefined,
+      statusMessage: undefined,
+      plan: undefined,
+      terminalReason: 'end_turn',
     }))
     expect(done.streaming).toBe(false)
+  })
+
+  it('clears plan on error, cancelled, and status idle so the activity panel closes', () => {
+    const withPlan = reduceAgentStreamEvent([], undefined, {
+      type: 'plan', sessionId: 'session-1', sequence: 1,
+      entries: [{ id: 'step-1', title: 'Inspect files', status: 'completed' }],
+    })
+
+    const errored = reduceAgentStreamEvent(withPlan.messages, withPlan.stream, {
+      type: 'error', sessionId: 'session-1', sequence: 2, message: 'boom',
+    })
+    expect(errored.stream.plan).toBeUndefined()
+
+    const cancelled = reduceAgentStreamEvent(withPlan.messages, withPlan.stream, {
+      type: 'cancelled', sessionId: 'session-1', sequence: 2, reason: 'user',
+    })
+    expect(cancelled.stream.plan).toBeUndefined()
+
+    const idle = reduceAgentStreamEvent(withPlan.messages, withPlan.stream, {
+      type: 'status', sessionId: 'session-1', sequence: 2, status: 'idle',
+    })
+    expect(idle.stream.plan).toBeUndefined()
+    expect(idle.stream.statusMessage).toBeUndefined()
+    expect(idle.stream.phase).toBe('idle')
   })
 })
