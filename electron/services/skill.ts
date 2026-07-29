@@ -11,6 +11,13 @@ import type { Database } from './database.js'
 import { SkillEngine } from './skill-engine.js'
 import { BUILTIN_SKILLS } from './builtin-skills.js'
 import type { SkillDef } from './builtin-skills.js'
+import {
+  applyCuratedSkillEnablement,
+  DEFAULT_ENABLED_SKILL_IDS,
+  upsertSkillRow,
+} from './skill-enablement.js'
+
+export { DEFAULT_ENABLED_SKILL_IDS }
 
 type FrontMatterRecord = Record<string, string | boolean | Record<string, string>>
 
@@ -314,6 +321,16 @@ export class SkillService {
     return discovered
   }
 
+  /**
+   * Default enablement policy for seed/sync:
+   * disable every non-custom skill, then enable only the curated allowlist.
+   * Custom user skill rows are left untouched (row + is_enabled preserved).
+   * ON CONFLICT install paths never re-enable a skill the user disabled.
+   */
+  private applyCuratedEnablement(): void {
+    applyCuratedSkillEnablement(this.db.raw, DEFAULT_ENABLED_SKILL_IDS)
+  }
+
   private mergeRow(row: any, discovered?: SkillDef): SkillRow {
     const base: SkillDef = {
       id: row.id,
@@ -379,46 +396,30 @@ export class SkillService {
 
   install(sk: any): SkillRow | null {
     const id = sk.id || uuidv4()
-    const now = new Date().toISOString()
-    const isBuiltin = sk.source === 'builtin' ? 1 : 0
     const compatProviders = sk.compatibleProviders === 'all'
       ? 'all'
       : JSON.stringify(sk.compatibleProviders || [])
-    const inputVarsJson = JSON.stringify(sk.inputVariables || [])
-    const tagsJson = JSON.stringify(sk.tags || [])
 
-    this.db.raw.prepare(`
-      INSERT INTO skills (
-        id, name, description, category, content,
-        is_builtin, is_enabled, config_json,
-        slash_command, type, source, prompt_template, system_prompt_addition,
-        input_variables_json, compatible_providers, version, author, tags_json,
-        created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, 1, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        name = ?, description = ?, category = ?, content = ?,
-        slash_command = ?, type = ?, source = ?,
-        prompt_template = ?, system_prompt_addition = ?,
-        input_variables_json = ?, compatible_providers = ?,
-        version = ?, author = ?, tags_json = ?,
-        updated_at = ?
-    `).run(
+    // New/synced skills start disabled. Seed applies the curated allowlist.
+    // ON CONFLICT intentionally omits is_enabled so re-sync never re-enables a disabled skill.
+    upsertSkillRow(this.db.raw, {
       id,
-      sk.name || '', sk.description || '', sk.category || '', sk.promptTemplate || sk.content || '',
-      isBuiltin,
-      sk.slashCommand || '', sk.type || 'prompt', sk.source || 'custom',
-      sk.promptTemplate || '', sk.systemPromptAddition || '',
-      inputVarsJson, compatProviders,
-      sk.version || '', sk.author || '', tagsJson,
-      now, now,
-      sk.name || '', sk.description || '', sk.category || '', sk.promptTemplate || sk.content || '',
-      sk.slashCommand || '', sk.type || 'prompt', sk.source || 'custom',
-      sk.promptTemplate || '', sk.systemPromptAddition || '',
-      inputVarsJson, compatProviders,
-      sk.version || '', sk.author || '', tagsJson,
-      now,
-    )
+      name: sk.name,
+      description: sk.description,
+      category: sk.category,
+      content: sk.content,
+      promptTemplate: sk.promptTemplate,
+      systemPromptAddition: sk.systemPromptAddition,
+      slashCommand: sk.slashCommand,
+      type: sk.type,
+      source: sk.source,
+      isBuiltin: sk.source === 'builtin' ? 1 : 0,
+      inputVariablesJson: JSON.stringify(sk.inputVariables || []),
+      compatibleProviders: compatProviders,
+      version: sk.version,
+      author: sk.author,
+      tagsJson: JSON.stringify(sk.tags || []),
+    })
 
     return this.getByIdInternal(id)
   }
@@ -454,6 +455,7 @@ export class SkillService {
 
   seedBuiltins(): void {
     this.syncSkillRegistry()
+    this.applyCuratedEnablement()
   }
 
   execute(skillId: string, userInput: string): any {

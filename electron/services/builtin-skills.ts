@@ -1,6 +1,9 @@
 /**
  * Built-in Skill Definitions
  * Auto-seeded into DB on startup (idempotent).
+ *
+ * New/synced skills default to disabled. After seed, only
+ * DEFAULT_ENABLED_SKILL_IDS are turned on (small curated set).
  */
 
 export interface SkillVariable {
@@ -38,6 +41,20 @@ export interface SkillDef {
   instructions?: string
   config?: Record<string, unknown>
 }
+
+/**
+ * Curated skills enabled after seed/sync.
+ * Keep this list small (3–8) so ~150 local/discovered skills stay off by default.
+ * Every id must exist in BUILTIN_SKILLS.
+ */
+export const DEFAULT_ENABLED_SKILL_IDS: readonly string[] = [
+  'builtin-code-review',
+  'builtin-explain',
+  'builtin-debug',
+  'builtin-commit-msg',
+  'builtin-translate',
+  'builtin-write-test',
+] as const
 
 export const BUILTIN_SKILLS: SkillDef[] = [
   {

@@ -265,7 +265,7 @@ export class Database {
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
-      -- Skills
+      -- Skills (is_enabled defaults off; seed enables a small curated allowlist)
       CREATE TABLE IF NOT EXISTS skills (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL DEFAULT '',
@@ -273,7 +273,7 @@ export class Database {
         category TEXT NOT NULL DEFAULT '',
         content TEXT NOT NULL DEFAULT '',
         is_builtin INTEGER NOT NULL DEFAULT 0,
-        is_enabled INTEGER NOT NULL DEFAULT 1,
+        is_enabled INTEGER NOT NULL DEFAULT 0,
         config_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
