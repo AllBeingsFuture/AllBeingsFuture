@@ -141,6 +141,7 @@ async function run(): Promise<void> {
           entries: [{ content: 'Ship runtime', priority: 'medium', status: 'in_progress' }],
         },
       })
+      // Optional ACP updates the adapter accepts but does not surface:
       await sendUpdate(client, {
         sessionUpdate: 'current_mode_update',
         currentModeId: 'code',

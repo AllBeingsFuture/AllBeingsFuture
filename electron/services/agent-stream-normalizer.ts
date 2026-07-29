@@ -252,7 +252,7 @@ export class AgentStreamNormalizer {
           streamEvent = { ...base, type: 'status', status: 'starting', message: event.detail }
           break
         }
-        // ready / usage / mode / config / session_info / commands are not UI stream events
+        // ready and other non-UI phases are ignored (adapter no longer forwards mode/usage/etc.)
         return null
       }
       case 'done': {

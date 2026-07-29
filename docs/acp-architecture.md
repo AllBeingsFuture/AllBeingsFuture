@@ -535,8 +535,8 @@ These mismatches are observed by comparing `19f91b8` (runtime) with `91263ef` (s
 | --- | --- | --- | --- |
 | M21 | Non-schema prompt `usage` | Adapter reads `response.usage` from `session/prompt`, but stable v1 `PromptResponse` only requires `stopReason` | Prefer `usage_update` notifications; treat prompt `usage` as optional if an agent sends extension data |
 | M22 | `plan_update` / `plan_removed` handling | Runtime switch includes these update kinds | **Not** present as stable v1 `SessionUpdate` discriminators in public `schema/v1/schema.json`. Ignore or gate behind explicit experimental support; do not require them for v1 agents |
-| M23 | `clientCapabilities: { plan: {} }` | Runtime initialize payload uses a non-schema capability object | Send schema-valid `ClientCapabilities` only |
-| M24 | MCP `acp` transport assert | Runtime checks `mcpCapabilities.acp` | Public v1 `McpCapabilities` documents `http` / `sse`. Do not require `acp` unless negotiating a documented extension |
+| M23 | `clientCapabilities: { plan: {} }` | Advertises experimental plan update support (SDK schema allows `plan?: PlanCapabilities`) | Keep while plan_update / plan_removed are mapped into the stream |
+| M24 | MCP transport assert | Only `http` / `sse` are validated; experimental MCP-over-ACP transport is not constructed or required | Do not reintroduce `mcpCapabilities.acp` gates unless ABF can actually open ACP-tunneled MCP |
 | M25 | Dual chat paths | Legacy patches still emit during tool/text | When normalized stream active, either suppress legacy patches for that session or accept renderer ignore rules; still persist history server-side |
 
 ### 10.4 Lifecycle / UX mismatches
