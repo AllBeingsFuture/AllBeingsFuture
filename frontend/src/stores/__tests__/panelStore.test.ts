@@ -36,6 +36,7 @@ describe('panelStore', () => {
     expect(state.activePanelRight).toBe('timeline')
     expect(state.panelSides).not.toHaveProperty('tools')
     expect(state.panelSides).not.toHaveProperty('explorer')
+    expect(state.panelSides).not.toHaveProperty('git')
   })
 
   it('toggleSidebar toggles sidebarCollapsed', () => {
@@ -59,8 +60,8 @@ describe('panelStore', () => {
   })
 
   it('setActivePanelLeft updates activePanelLeft', () => {
-    usePanelStore.getState().setActivePanelLeft('git')
-    expect(usePanelStore.getState().activePanelLeft).toBe('git')
+    usePanelStore.getState().setActivePanelLeft('dashboard')
+    expect(usePanelStore.getState().activePanelLeft).toBe('dashboard')
     expect(usePanelStore.getState().panelRuntime.sidebar).toBe('active')
   })
 
@@ -106,30 +107,33 @@ describe('panelStore', () => {
     expect(usePanelStore.getState().floatingPanels['test-panel']).toBe(false)
   })
 
-  it('maps legacy tools and explorer panel ids to safe active-panel defaults', () => {
+  it('maps legacy tools, explorer, and git panel ids to safe active-panel defaults', () => {
     expect(resolvePanelId('tools', 'sessions')).toBe('sessions')
     expect(resolvePanelId('tools', 'timeline')).toBe('timeline')
     expect(resolvePanelId('explorer', 'sessions')).toBe('sessions')
     expect(resolvePanelId('explorer', 'timeline')).toBe('timeline')
-    expect(resolvePanelId('git', 'sessions')).toBe('git')
+    expect(resolvePanelId('git', 'sessions')).toBe('sessions')
+    expect(resolvePanelId('git', 'timeline')).toBe('timeline')
     expect(resolvePanelId(undefined, 'sessions')).toBe('sessions')
   })
 
-  it('sanitizes legacy tools and explorer keys out of panelSides snapshots', () => {
+  it('sanitizes legacy tools, explorer, and git keys out of panelSides snapshots', () => {
     const legacy = {
       ...DEFAULT_PANEL_SIDES,
       tools: 'left',
       explorer: 'left',
+      git: 'left',
     }
     const { panelSides, migrated } = sanitizePanelSides(legacy)
     expect(migrated).toBe(true)
     expect(panelSides).not.toHaveProperty('tools')
     expect(panelSides).not.toHaveProperty('explorer')
+    expect(panelSides).not.toHaveProperty('git')
     expect(panelSides.sessions).toBe('left')
     expect(panelSides.timeline).toBe('right')
   })
 
-  it('migrates localStorage panelSides with tools/explorer and never activates them', () => {
+  it('migrates localStorage panelSides with tools/explorer/git and never activates them', () => {
     window.localStorage.clear()
     window.localStorage.setItem(
       STORAGE_KEYS.panelSides,
@@ -137,6 +141,7 @@ describe('panelStore', () => {
         ...DEFAULT_PANEL_SIDES,
         tools: 'left',
         explorer: 'left',
+        git: 'left',
         sessions: 'left',
         timeline: 'right',
       }),
@@ -145,29 +150,33 @@ describe('panelStore', () => {
     const state = createDefaultPanelState()
     expect(state.panelSides).not.toHaveProperty('tools')
     expect(state.panelSides).not.toHaveProperty('explorer')
+    expect(state.panelSides).not.toHaveProperty('git')
     expect(state.activePanelLeft).toBe('sessions')
     expect(state.activePanelRight).toBe('timeline')
     expect(state.activePanelLeft).not.toBe('tools')
     expect(state.activePanelLeft).not.toBe('explorer')
+    expect(state.activePanelLeft).not.toBe('git')
     expect(state.activePanelRight).not.toBe('tools')
     expect(state.activePanelRight).not.toBe('explorer')
+    expect(state.activePanelRight).not.toBe('git')
 
     const persisted = JSON.parse(
       window.localStorage.getItem(STORAGE_KEYS.panelSides) ?? '{}',
     ) as Record<string, unknown>
     expect(persisted).not.toHaveProperty('tools')
     expect(persisted).not.toHaveProperty('explorer')
+    expect(persisted).not.toHaveProperty('git')
     expect(persisted.sessions).toBe('left')
   })
 
-  it('falls back to sessions when left side only had explorer in legacy snapshot', () => {
+  it('falls back to sessions when left side only had explorer/git in legacy snapshot', () => {
     window.localStorage.clear()
     window.localStorage.setItem(
       STORAGE_KEYS.panelSides,
       JSON.stringify({
         sessions: 'right',
         explorer: 'left',
-        git: 'right',
+        git: 'left',
         dashboard: 'right',
         files: 'right',
         worktree: 'right',
@@ -185,17 +194,21 @@ describe('panelStore', () => {
 
     const state = createDefaultPanelState()
     expect(state.panelSides).not.toHaveProperty('explorer')
-    // After explorer is dropped, no panel is left-side in the legacy snapshot;
+    expect(state.panelSides).not.toHaveProperty('git')
+    // After explorer/git are dropped, no panel is left-side in the legacy snapshot;
     // firstPanelForSide falls back to sessions (safe default).
     expect(state.activePanelLeft).toBe('sessions')
     expect(state.activePanelRight).toBe('sessions')
   })
 
-  it('normalizes setActivePanelLeft/Right when given legacy tools/explorer ids', () => {
+  it('normalizes setActivePanelLeft/Right when given legacy tools/explorer/git ids', () => {
     usePanelStore.getState().setActivePanelLeft('tools' as never)
     expect(usePanelStore.getState().activePanelLeft).toBe('sessions')
 
     usePanelStore.getState().setActivePanelLeft('explorer' as never)
+    expect(usePanelStore.getState().activePanelLeft).toBe('sessions')
+
+    usePanelStore.getState().setActivePanelLeft('git' as never)
     expect(usePanelStore.getState().activePanelLeft).toBe('sessions')
 
     usePanelStore.getState().setActivePanelRight('tools' as never)
@@ -203,5 +216,9 @@ describe('panelStore', () => {
 
     usePanelStore.getState().setActivePanelRight('explorer' as never)
     expect(usePanelStore.getState().activePanelRight).toBe('timeline')
+
+    usePanelStore.getState().setActivePanelRight('git' as never)
+    expect(usePanelStore.getState().activePanelRight).toBe('timeline')
   })
 })
+

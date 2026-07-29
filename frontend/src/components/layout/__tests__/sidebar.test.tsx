@@ -11,9 +11,6 @@ vi.mock('../../../stores/panelStore', () => ({
     typeof selector === 'function' ? selector(uiState) : uiState,
 }))
 
-vi.mock('../../git/WorktreePanel', () => ({
-  default: () => <div data-testid="worktree-panel" />,
-}))
 vi.mock('../SessionsContent', () => ({
   default: () => <div data-testid="sessions-content" />,
 }))
@@ -29,10 +26,10 @@ describe('Sidebar', () => {
     expect(screen.getByTestId('sessions-content')).toBeInTheDocument()
   })
 
-  it('renders worktree panel when activePanelLeft is git', () => {
+  it('renders coming soon for removed git panel', () => {
     uiState.activePanelLeft = 'git'
     renderWithProviders(<Sidebar />)
-    expect(screen.getByTestId('worktree-panel')).toBeInTheDocument()
+    expect(screen.getByText('即将推出')).toBeInTheDocument()
   })
 
   it('renders coming soon for unknown panels', () => {

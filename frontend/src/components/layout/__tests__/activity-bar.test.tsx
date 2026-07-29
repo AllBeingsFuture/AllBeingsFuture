@@ -6,7 +6,7 @@ import { workbenchApi } from '../../../app/api/workbench'
 
 const panelState = {
   panelSides: {
-    sessions: 'left', git: 'left', dashboard: 'left',
+    sessions: 'left', dashboard: 'left',
     files: 'left', worktree: 'left', kanban: 'left', workflows: 'left',
     missions: 'left', mcp: 'left', skills: 'left', team: 'left',
     tutorial: 'left', timeline: 'right', stats: 'right',
@@ -56,14 +56,14 @@ describe('ActivityBar', () => {
   it('switches panel when buttons are clicked', () => {
     renderWithProviders(<ActivityBar />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Git 分支' }))
-    expect(workbenchApi.panel.show).toHaveBeenCalledWith('git', 'left')
+    fireEvent.click(screen.getByRole('button', { name: '会话管理' }))
+    expect(workbenchApi.panel.show).toHaveBeenCalledWith('sessions', 'left')
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(workbenchApi.ui.setSettingsVisible).toHaveBeenCalledWith(true)
   })
 
-  it('renders panel buttons without explorer or terminal entry', () => {
+  it('renders panel buttons without explorer, terminal, or git entry', () => {
     renderWithProviders(<ActivityBar />)
 
     expect(screen.getByRole('button', { name: '会话管理' })).toBeInTheDocument()
@@ -71,6 +71,6 @@ describe('ActivityBar', () => {
     expect(screen.queryByRole('button', { name: '文件资源管理器' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '终端 (Ctrl+`)' })).not.toBeInTheDocument()
     expect(screen.queryByTitle('终端 (Ctrl+`)')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Git 分支' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Git 分支' })).not.toBeInTheDocument()
   })
 })

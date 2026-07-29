@@ -7,7 +7,6 @@ import { usePanelStore } from '../../stores/panelStore'
 import TimelinePanel from '../panels/TimelinePanel'
 import StatsPanel from '../panels/StatsPanel'
 import SessionsContent from './SessionsContent'
-import WorktreePanel from '../git/WorktreePanel'
 
 export default function RightPanel() {
   const activePanelRight = usePanelStore(s => s.activePanelRight)
@@ -19,8 +18,6 @@ export default function RightPanel() {
       return <StatsPanel />
     case 'sessions':
       return <SessionsContent />
-    case 'git':
-      return <WorktreePanel />
     default:
       return <TimelinePanel />
   }

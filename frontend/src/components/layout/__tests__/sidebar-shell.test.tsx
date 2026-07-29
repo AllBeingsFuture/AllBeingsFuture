@@ -17,9 +17,6 @@ vi.mock('../../sidebar/DashboardSidebarView', () => ({
 vi.mock('../../sidebar/TutorialSidebarView', () => ({
   default: () => <div data-testid="tutorial-view" />,
 }))
-vi.mock('../../git/WorktreePanel', () => ({
-  default: () => <div data-testid="worktree-panel" />,
-}))
 vi.mock('../../panels/TimelinePanel', () => ({
   default: () => <div data-testid="timeline-panel" />,
 }))
@@ -51,15 +48,16 @@ describe('Sidebar shell', () => {
     const { unmount: u2 } = renderWithProviders(<Sidebar />)
     expect(screen.getByTestId('dashboard-view')).toBeInTheDocument()
     u2()
-
-    uiState.activePanelLeft = 'git'
-    const { unmount: u3 } = renderWithProviders(<Sidebar />)
-    expect(screen.getByTestId('worktree-panel')).toBeInTheDocument()
-    u3()
   })
 
   it('shows coming-soon placeholder for unimplemented panels', () => {
     uiState.activePanelLeft = 'team'
+    renderWithProviders(<Sidebar />)
+    expect(screen.getByText('即将推出')).toBeInTheDocument()
+  })
+
+  it('shows coming-soon for removed git panel id', () => {
+    uiState.activePanelLeft = 'git'
     renderWithProviders(<Sidebar />)
     expect(screen.getByText('即将推出')).toBeInTheDocument()
   })

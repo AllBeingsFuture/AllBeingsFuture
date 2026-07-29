@@ -1,6 +1,5 @@
 import SessionPanel from '../sessions/SessionPanel'
 import DashboardSidebarView from '../sidebar/DashboardSidebarView'
-import WorktreePanel from '../git/WorktreePanel'
 import KanbanBoard from '../kanban/KanbanBoard'
 import WorkflowPanel from '../workflow/WorkflowPanel'
 import MissionPanel from '../mission/MissionPanel'
@@ -11,8 +10,6 @@ function renderContent(primaryPane: ReturnType<typeof useLayoutStore.getState>['
   switch (primaryPane) {
     case 'dashboard':
       return <DashboardSidebarView />
-    case 'worktree':
-      return <WorktreePanel />
     case 'kanban':
       return <KanbanBoard />
     case 'workflows':
@@ -22,10 +19,11 @@ function renderContent(primaryPane: ReturnType<typeof useLayoutStore.getState>['
     case 'teams':
       return <TeamPanel />
     case 'files':
+    case 'worktree':
     case 'sessions':
     default:
-      // `files` remains a valid workspace pane for editor.openFile compatibility;
-      // dedicated explorer/file-browser UI was removed.
+      // `files` / `worktree` remain valid workspace panes for storage/editor compatibility;
+      // dedicated explorer and Git Worktree management UIs were removed.
       return <SessionPanel />
   }
 }

@@ -313,9 +313,9 @@ describe('workbench runtime', () => {
   })
 
   it('dispatches panel side changes through the runtime', async () => {
-    await workbenchApi.panel.setSide('git', 'right')
+    await workbenchApi.panel.setSide('sessions', 'right')
 
-    expect(panelState.setPanelSide).toHaveBeenCalledWith('git', 'right')
+    expect(panelState.setPanelSide).toHaveBeenCalledWith('sessions', 'right')
   })
 
   it('hides panels deterministically instead of toggling them back open', async () => {
