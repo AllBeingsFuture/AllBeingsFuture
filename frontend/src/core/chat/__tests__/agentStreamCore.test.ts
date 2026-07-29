@@ -20,6 +20,47 @@ describe('agentStreamCore', () => {
     expect(replay.messages).toBe(second.messages)
   })
 
+  it('opens a new assistant bubble after a turn is finalized (multi-turn)', () => {
+    const first = reduceAgentStreamEvent([], undefined, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 1, itemId: 'reply-1', delta: '回复1',
+    })
+    const done = reduceAgentStreamEvent(first.messages, first.stream, {
+      type: 'done', sessionId: 'session-1', sequence: 2, stopReason: 'end_turn',
+    })
+    expect(done.messages).toHaveLength(1)
+    expect(done.messages[0]).toEqual(expect.objectContaining({
+      role: 'assistant', content: '回复1', partial: false,
+    }))
+
+    // Later work in the same session must not reopen the finalized bubble.
+    const third = reduceAgentStreamEvent(done.messages, done.stream, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 3, itemId: 'reply-3', delta: '回复3',
+    })
+    expect(third.messages).toHaveLength(2)
+    expect(third.messages[0]).toEqual(expect.objectContaining({
+      role: 'assistant', content: '回复1', partial: false,
+    }))
+    expect(third.messages[1]).toEqual(expect.objectContaining({
+      role: 'assistant', content: '回复3', partial: true,
+    }))
+  })
+
+  it('does not reopen a finalized assistant bubble even when itemId matches', () => {
+    const first = reduceAgentStreamEvent([], undefined, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 1, itemId: 'same-item', delta: '第一段',
+    })
+    const done = reduceAgentStreamEvent(first.messages, first.stream, {
+      type: 'done', sessionId: 'session-1', sequence: 2, stopReason: 'end_turn',
+    })
+    const again = reduceAgentStreamEvent(done.messages, done.stream, {
+      type: 'text_delta', sessionId: 'session-1', sequence: 3, itemId: 'same-item', delta: '第二段',
+    })
+
+    expect(again.messages).toHaveLength(2)
+    expect(again.messages[0].content).toBe('第一段')
+    expect(again.messages[1].content).toBe('第二段')
+  })
+
   it('supports replace-style thinking updates without duplicating text', () => {
     const first = reduceAgentStreamEvent([], undefined, {
       type: 'thinking_update', sessionId: 'session-1', sequence: 1, itemId: 'thought-1', text: 'Checking', mode: 'replace',

@@ -68,9 +68,15 @@ function patchMessage(
 }
 
 function appendTextDelta(messages: ChatMessage[], event: Extract<AgentStreamEvent, { type: 'text_delta' }>) {
+  // Only extend an open (partial) assistant bubble with the same stream item.
+  // Finalized replies must not be reopened when a later turn streams again.
   const patched = patchMessage(
     messages,
-    message => message.role === 'assistant' && message.streamItemId === event.itemId,
+    message => (
+      message.role === 'assistant'
+      && message.partial === true
+      && message.streamItemId === event.itemId
+    ),
     message => ({ ...message, content: `${message.content || ''}${event.delta}`, partial: true }),
   )
   if (patched.found) return patched.messages
@@ -87,7 +93,11 @@ function appendTextDelta(messages: ChatMessage[], event: Extract<AgentStreamEven
 function updateThinking(messages: ChatMessage[], event: Extract<AgentStreamEvent, { type: 'thinking_update' }>) {
   const patched = patchMessage(
     messages,
-    message => Boolean(message.isThinking) && message.streamItemId === event.itemId,
+    message => (
+      Boolean(message.isThinking)
+      && message.partial === true
+      && message.streamItemId === event.itemId
+    ),
     message => ({
       ...message,
       content: event.mode === 'replace' ? event.text : `${message.content || ''}${event.text}`,

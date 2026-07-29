@@ -708,8 +708,12 @@ export class ProcessService {
       ? lastMsg.sourceItemId === options.sourceItemId
       : !options.sourceItemId
 
+    // Only merge into an *open* streaming assistant bubble.
+    // After a turn `done` finalizes messages (partial=false), later multi-turn
+    // deltas must open a new box instead of reopening the previous reply.
     if (
       lastMsg?.role === 'assistant'
+      && lastMsg.partial === true
       && !lastMsg.toolName
       && !lastMsg.toolUse
       && lastMsg.childSessionId === options.childSessionId

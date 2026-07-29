@@ -140,7 +140,7 @@ function MessageInput({
     })
   }, [addFileByPath, focusEditor])
 
-  const buildMessage = useCallback((): QueuedMessage | null => {
+  const buildMessage = useCallback((): PendingMessage | null => {
     const text = value.trim()
     if (!text && images.length === 0 && files.length === 0) return null
 

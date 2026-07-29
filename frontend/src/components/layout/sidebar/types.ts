@@ -1,4 +1,4 @@
-import type { Session, TeamInstance } from '../../../../bindings/allbeingsfuture/internal/models/models'
+import type { Session } from '../../../../bindings/allbeingsfuture/internal/models/models'
 
 export type SidebarGroupMode = 'time' | 'directory'
 
@@ -53,11 +53,6 @@ export interface DirectoryGroupCardProps {
   onRename?: (id: string, name: string) => void | Promise<void>
   onSmartRename?: (id: string) => void | Promise<void>
   agents?: Record<string, any[]>
-}
-
-export interface AgentTeamsSectionProps {
-  instances: TeamInstance[]
-  onOpenTeams: () => void
 }
 
 export const STATUS_LABELS: Record<string, string> = {

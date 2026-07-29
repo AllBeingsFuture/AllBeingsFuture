@@ -34,7 +34,7 @@ export interface FileTab {
   isLoading: boolean
   /** 加载/保存错误信息 */
   error?: string
-  /** 待跳转位置（由 openFileAtLine 设置，CodeViewer 消费后清除） */
+  /** 待跳转位置（由 openFileAtLine 设置，编辑器消费后清除） */
   pendingReveal?: PendingReveal
 }
 
@@ -120,7 +120,7 @@ interface FileTabState {
   openFile: (path: string) => Promise<void>
   /** 打开文件并跳转到指定行列（1-based） */
   openFileAtLine: (path: string, lineNumber: number, column?: number) => Promise<void>
-  /** 清除指定 Tab 的 pendingReveal（CodeViewer 消费后调用） */
+  /** 清除指定 Tab 的 pendingReveal（编辑器消费后调用） */
   clearPendingReveal: (id: string) => void
   /** 关闭指定 Tab */
   closeTab: (id: string) => void
@@ -215,7 +215,7 @@ export const useFileTabStore = create<FileTabState>((set, get) => ({
       return
     }
 
-    // 新建 Tab（先设置 pendingReveal，加载完成后 CodeViewer 会消费它）
+    // 新建 Tab（先设置 pendingReveal，加载完成后由编辑器消费）
     const name = path.split(/[\\/]/).pop() ?? path
     const newTab: FileTab = {
       id,

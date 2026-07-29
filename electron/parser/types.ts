@@ -12,7 +12,7 @@ export interface AIProvider {
 }
 
 // ---- 会话状态 ----
-// Keep in sync with frontend/src/types/activityTypes.ts
+// Canonical activity event types for the output parser.
 
 export type SessionStatus =
   | 'starting'
@@ -26,7 +26,6 @@ export type SessionStatus =
   | 'interrupted'
 
 // ---- 活动事件 ----
-// Canonical backend definition — keep in sync with frontend/src/types/activityTypes.ts
 
 export type ActivityEventType =
   | 'session_start'

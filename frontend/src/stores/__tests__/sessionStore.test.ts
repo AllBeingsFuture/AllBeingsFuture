@@ -513,6 +513,36 @@ describe('sessionStore runtime status sync', () => {
     expect(state.sessions[0]?.status).toBe('running')
   })
 
+  it('opens a new assistant bubble when a later turn streams after the previous one is finalized', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'running' })],
+      messages: [
+        { role: 'user', content: 'hello', timestamp: 'user-ts' } as never,
+        { role: 'assistant', content: '回复1', timestamp: 'assistant-1', partial: false } as never,
+      ],
+      streaming: false,
+    })
+
+    // Backend creates a new message (new timestamp) for multi-turn reply 3
+    // and emits upsert_last; frontend must append instead of overwriting reply 1.
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-1',
+      type: 'upsert_last',
+      message: { role: 'assistant', content: '回复3', timestamp: 'assistant-3', partial: true } as never,
+      streaming: true,
+      error: '',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.messages).toEqual([
+      { role: 'user', content: 'hello', timestamp: 'user-ts' },
+      { role: 'assistant', content: '回复1', timestamp: 'assistant-1', partial: false },
+      { role: 'assistant', content: '回复3', timestamp: 'assistant-3', partial: true },
+    ])
+    expect(state.streaming).toBe(true)
+  })
+
   it('keeps the current conversation intact when a background session receives a streaming patch', () => {
     useSessionStore.setState({
       selectedId: 'session-1',

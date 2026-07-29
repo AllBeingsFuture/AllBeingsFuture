@@ -3,6 +3,7 @@ import {
   Settings2,
   Palette,
   Bot,
+  FolderKanban,
   MessageSquareHeart,
   ScrollText,
 } from 'lucide-react'
@@ -10,6 +11,7 @@ import GeneralSettings from './GeneralSettings'
 import ProviderManager from './ProviderManager'
 import ThemeTab from './ThemeTab'
 import AppearanceTab from './AppearanceTab'
+import WorkspaceTab from './WorkspaceTab'
 import FeedbackTab from './FeedbackTab'
 import LogsTab from './LogsTab'
 import DraggableDialog from '../common/DraggableDialog'
@@ -18,6 +20,7 @@ type TabId =
   | 'general'
   | 'theme'
   | 'providers'
+  | 'workspace'
   | 'feedback'
   | 'logs'
 
@@ -27,12 +30,15 @@ const REMOVED_TAB_IDS = new Set([
   'skills',
   'policy',
   'system',
+  'account',
+  'queue',
 ])
 
 const VALID_TAB_IDS = new Set<TabId>([
   'general',
   'theme',
   'providers',
+  'workspace',
   'feedback',
   'logs',
 ])
@@ -78,6 +84,13 @@ const TABS: TabDefinition[] = [
     description: '管理 CLI 和 API 适配器',
     group: 'integrations',
     icon: <Bot size={15} />,
+  },
+  {
+    id: 'workspace',
+    label: '工作区',
+    description: '多仓库工作区与路径管理',
+    group: 'integrations',
+    icon: <FolderKanban size={15} />,
   },
   {
     id: 'feedback',
@@ -233,6 +246,8 @@ function renderTab(activeTab: TabId, isActive: boolean) {
       )
     case 'providers':
       return <ProviderManager />
+    case 'workspace':
+      return <WorkspaceTab />
     case 'feedback':
       return <FeedbackTab />
     case 'logs':

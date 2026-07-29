@@ -167,7 +167,7 @@ MCP 加载优先级：
 
 ### Skill 系统
 
-`skills/` 目录内包含大量内置 Skill 模板，应用会把这些内容打包为额外资源。Skill 体系主要用于：
+应用**不**自带内置 Skill 目录；用户可在应用内安装或自定义添加 Skill。Skill 体系主要用于：
 
 - 统一可复用的 Prompt 模板
 - 输入变量展开
@@ -240,12 +240,13 @@ frontend/
 │   └── test/
 └── package.json
 
-mcps/                          # MCP 配置
-resources/
-├── mcp-server/                # Agent MCP Server
-└── prompts/                   # ABF 规则与 Prompt 模板
+electron/embedded-assets/
+├── mcps/agent-control/        # 子 Agent 控制用内部 MCP（打包注入）
+└── skills/                    # 空目录占位（不自动播种 Skill）
 
-skills/                        # 内置 Skill 集合
+resources/
+└── prompts/                   # ABF Supervisor / Worker 规则
+
 release/                       # 打包产物输出目录
 ```
 
@@ -262,7 +263,7 @@ release/                       # 打包产物输出目录
 
 - 数据库启用 SQLite WAL 模式
 - `@anthropic-ai/claude-agent-sdk` 等 native/vendor 资源打包时通过 `asarUnpack` 处理
-- `mcps/`、`skills/`、`resources/` 会作为 `extraResources` 一起打包
+- `agent-control` MCP、`resources/prompts` 与图标会作为 `extraResources` 打包
 
 ## 开发说明
 
