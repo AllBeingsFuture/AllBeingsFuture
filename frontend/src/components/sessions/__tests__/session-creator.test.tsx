@@ -11,6 +11,7 @@ const openSessionMock = vi.fn()
 const getProvidersMock = vi.fn()
 const testExecutableMock = vi.fn()
 const getRepoRootMock = vi.fn()
+const workspaceListMock = vi.fn()
 let settingsState = { autoWorktree: true }
 
 vi.mock('../../../app/api/workbench', () => ({
@@ -46,6 +47,13 @@ vi.mock('../../../../bindings/allbeingsfuture/internal/services', () => ({
   },
 }))
 
+vi.mock('../../../../bindings/electron-api', () => ({
+  ipc: (channel: string, ...args: unknown[]) => {
+    if (channel === 'WorkspaceService.List') return workspaceListMock(...args)
+    return Promise.resolve(null)
+  },
+}))
+
 vi.mock('../../common/DraggableDialog', () => ({
   default: ({ children, title, onClose, testId }: { children: ReactNode; title: string; onClose: () => void; testId?: string }) => (
     <div data-testid={testId || 'dialog'}>
@@ -65,8 +73,11 @@ describe('SessionCreator', () => {
     getProvidersMock.mockReset()
     testExecutableMock.mockReset()
     getRepoRootMock.mockReset()
+    workspaceListMock.mockReset()
+    localStorage.clear()
 
     settingsState = { autoWorktree: true }
+    workspaceListMock.mockResolvedValue([])
     getProvidersMock.mockResolvedValue([
       { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'acp' },
       { id: 'qwen', name: 'qwen', isEnabled: true, adapterType: 'openai-api' },
@@ -83,11 +94,11 @@ describe('SessionCreator', () => {
 
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
 
-    fireEvent.change(screen.getByPlaceholderText('C:\\Users\\project'), {
+    fireEvent.change(screen.getByPlaceholderText('选择工作区，或输入/浏览目录'), {
       target: { value: 'C:/repo' },
     })
 
-    await screen.findByText('当前目录属于 Git 仓库。会话会先在当前目录启动；如果后续要修改代码，Agent 必须先进入独立 worktree，再进行写入、提交和合并。')
+    await screen.findByText(/当前目录属于 Git 仓库/)
 
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
@@ -105,11 +116,11 @@ describe('SessionCreator', () => {
 
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
 
-    fireEvent.change(screen.getByPlaceholderText('C:\\Users\\project'), {
+    fireEvent.change(screen.getByPlaceholderText('选择工作区，或输入/浏览目录'), {
       target: { value: 'C:/plain-dir' },
     })
 
-    await screen.findByText('当前目录不是 Git 仓库。会话将直接在该目录启动；如果后续需要改代码，建议改用 Git 仓库目录。')
+    await screen.findByText(/当前目录不是 Git 仓库/)
 
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
@@ -118,6 +129,36 @@ describe('SessionCreator', () => {
         workingDirectory: 'C:/plain-dir',
         worktreeEnabled: false,
         gitRepoPath: '',
+      }))
+    })
+  })
+
+  it('fills workdir from workspace primary repo and can isolate on create', async () => {
+    workspaceListMock.mockResolvedValue([
+      {
+        id: 'ws-1',
+        name: 'Demo Workspace',
+        repos: [{ id: 'r1', workspaceId: 'ws-1', repoPath: 'C:/repo/demo', name: 'demo', isPrimary: true, sortOrder: 0 }],
+        createdAt: '',
+        updatedAt: '',
+      },
+    ])
+    getRepoRootMock.mockResolvedValue('C:/repo/demo')
+
+    renderWithProviders(<SessionCreator onClose={vi.fn()} />)
+
+    await screen.findByText('Demo Workspace')
+    fireEvent.click(screen.getByRole('button', { name: /Demo Workspace/ }))
+
+    await screen.findByText('创建时立即隔离')
+    fireEvent.click(screen.getByRole('button', { name: /创建时立即隔离/ }))
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+
+    await waitFor(() => {
+      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+        workingDirectory: 'C:/repo/demo',
+        worktreeEnabled: true,
+        gitRepoPath: 'C:/repo/demo',
       }))
     })
   })

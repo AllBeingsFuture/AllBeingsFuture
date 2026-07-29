@@ -299,6 +299,58 @@ async function cleanupSessionWorktree(session: Session) {
   if (worktreePath && repoPath) await GitService.RemoveWorktree(repoPath, worktreePath, true).catch(() => {})
 }
 
+function sessionHasActiveWorktree(session: Session) {
+  const path = ((session as Session & { worktreePath?: string }).worktreePath || '').trim()
+  return Boolean(path) && !session.worktreeMerged
+}
+
+async function enterSessionWorktree(session: Session): Promise<Session> {
+  if (sessionHasActiveWorktree(session)) return session
+
+  const repoCandidate = (
+    ((session as Session & { worktreeSourceRepo?: string }).worktreeSourceRepo || '')
+    || session.workingDirectory
+    || ''
+  ).trim()
+  if (!repoCandidate) throw new Error('当前会话没有可用的 Git 仓库目录')
+
+  const repoPath = await GitService.GetRepoRoot(repoCandidate).catch(() => '')
+  if (!repoPath) throw new Error(`目录不是 Git 仓库，无法进入 Worktree: ${repoCandidate}`)
+
+  const { branchName, taskId } = buildWorktreeIdentifiers({
+    name: session.name || 'session',
+    gitBranch: '',
+  } as SessionConfig)
+
+  const worktree = await GitService.CreateWorktree(repoPath, branchName, taskId) as WorktreeCreateResult | null
+  const worktreePath = resolveWorktreePath(worktree)
+  if (!worktreePath || !worktree?.branch) throw new Error('创建 Worktree 失败')
+
+  try {
+    await SessionService.SetWorktreeInfo(
+      session.id,
+      worktreePath,
+      worktree.branch,
+      worktree.baseCommit || '',
+      worktree.baseBranch || '',
+      repoPath,
+    )
+    return await SessionService.GetByID(session.id) || {
+      ...session,
+      workingDirectory: worktreePath,
+      worktreePath,
+      worktreeBranch: worktree.branch,
+      worktreeBaseCommit: worktree.baseCommit || '',
+      worktreeBaseBranch: worktree.baseBranch || '',
+      worktreeSourceRepo: repoPath,
+      worktreeMerged: false,
+    } as Session
+  } catch (err) {
+    await GitService.RemoveWorktree(repoPath, worktreePath, true).catch(() => {})
+    throw err
+  }
+}
+
 function buildChatStatePatch(snapshot: ChatSnapshot, sessionId: string, messages: ChatMessage[], streaming: boolean, error: string) {
   const nextSessions = chatCore.syncRuntimeStatus(snapshot.sessions, sessionId, streaming)
   const isSelected = snapshot.selectedId === sessionId
@@ -504,4 +556,20 @@ export const chatCore = {
   },
 
   markWorktreeMerged: (id: string) => SessionService.MarkWorktreeMerged(id),
+
+  /**
+   * 为已有会话创建并绑定独立 worktree（改代码前隔离）。
+   * 若会话已在活跃 worktree 中则直接返回。
+   */
+  async enterWorktree(snapshot: ChatSnapshot, sessionId: string) {
+    const session = snapshot.sessions.find(item => item.id === sessionId)
+    if (!session) throw new Error(`Session not found: ${sessionId}`)
+
+    const updated = await enterSessionWorktree(session)
+    const sessions = snapshot.sessions.map(item => (item.id === sessionId ? updated : item))
+    return { session: updated, patch: { sessions } }
+  },
+
+  sessionHasActiveWorktree,
+  resolveSessionRepoPath,
 }

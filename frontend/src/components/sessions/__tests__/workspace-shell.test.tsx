@@ -95,6 +95,17 @@ vi.mock('../../../stores/settingsStore', () => ({
     selector({ settings: settingsState }),
 }))
 
+vi.mock('../../../../bindings/electron-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../bindings/electron-api')>()
+  return {
+    ...actual,
+    ipc: (channel: string, ...args: unknown[]) => {
+      if (channel === 'WorkspaceService.List') return Promise.resolve([])
+      return actual.ipc(channel, ...args)
+    },
+  }
+})
+
 vi.mock('../../../hooks/useIpcEvent', () => ({
   useIpcEvent: vi.fn(),
 }))
@@ -132,6 +143,7 @@ describe('Session workspace', () => {
       { id: 'claude-code', name: 'Claude Code', isEnabled: true, adapterType: 'acp' },
     ])
     testExecutableMock.mockResolvedValue(true)
+    getRepoRootMock.mockResolvedValue('C:/repo/project')
   })
 
   it('renders conversation view for selected session', async () => {
@@ -158,7 +170,7 @@ describe('Session workspace', () => {
     const promptInput = screen.getByPlaceholderText('创建后自动发送的指令...')
     fireEvent.change(promptInput, { target: { value: '检查仓库并按规则执行' } })
 
-    await screen.findByText('当前目录属于 Git 仓库。会话会先在当前目录启动；如果后续要修改代码，Agent 必须先进入独立 worktree，再进行写入、提交和合并。')
+    await screen.findByText(/当前目录属于 Git 仓库/)
 
     const createButton = screen.getByRole('button', { name: '创建' })
     fireEvent.click(createButton)

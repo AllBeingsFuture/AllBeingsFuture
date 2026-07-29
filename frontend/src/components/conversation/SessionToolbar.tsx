@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderOpen, GitBranch, GitMerge, FileText, FilePlus, FileEdit, FileX, ChevronDown, ChevronRight, RefreshCw, ArrowUpLeft } from 'lucide-react'
+import { FolderOpen, GitBranch, GitMerge, FileText, FilePlus, FileEdit, FileX, ChevronDown, ChevronRight, RefreshCw, ArrowUpLeft, LoaderCircle } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
+import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
 import { workbenchApi } from '../../app/api/workbench'
 import { useGitStore } from '../../stores/gitStore'
 import { useTrackerStore } from '../../stores/trackerStore'
 import { useSessionStore } from '../../stores/sessionStore'
+import { chatCore } from '../../core/chat/chatCore'
 
 interface Props {
   session: Session
@@ -79,11 +81,9 @@ export default function SessionToolbar({ session }: Props) {
               <span className="max-w-[280px] truncate">{session.workingDirectory}</span>
             </span>
           </div>
-          {session.worktreePath && !session.worktreeMerged && (
-            <div className="mt-2.5">
-              <WorktreeActions session={session} />
-            </div>
-          )}
+          <div className="mt-2.5">
+            <WorktreeActions session={session} />
+          </div>
         </div>
       </div>
 
@@ -179,13 +179,60 @@ function WorktreeActions({ session }: { session: Session }) {
     checkMerge: state.checkMerge,
     mergeWorktree: state.mergeWorktree,
   })))
+  const enterWorktree = useSessionStore(state => state.enterWorktree)
   const [mergeResult, setMergeResult] = useState<{ success: boolean; hasConflicts?: boolean } | null>(null)
   const [merging, setMerging] = useState(false)
+  const [entering, setEntering] = useState(false)
+  const [enterError, setEnterError] = useState('')
+  const [repoReady, setRepoReady] = useState(false)
+
+  const hasActiveWorktree = chatCore.sessionHasActiveWorktree(session)
+  const knownRepo = (session.worktreeSourceRepo || '').trim()
+    || (hasActiveWorktree ? chatCore.resolveSessionRepoPath(session) : '')
+
+  // 若创建时未写入 sourceRepo，根据 workingDirectory 探测是否为 git 仓
+  useEffect(() => {
+    let cancelled = false
+    if (hasActiveWorktree || knownRepo) {
+      setRepoReady(true)
+      return () => { cancelled = true }
+    }
+    const candidate = (session.workingDirectory || '').trim()
+    if (!candidate) {
+      setRepoReady(false)
+      return () => { cancelled = true }
+    }
+    setRepoReady(false)
+    void Promise.resolve()
+      .then(() => GitService.GetRepoRoot(candidate))
+      .then((root) => {
+        if (!cancelled) setRepoReady(Boolean(root))
+      })
+      .catch(() => {
+        if (!cancelled) setRepoReady(false)
+      })
+    return () => { cancelled = true }
+  }, [hasActiveWorktree, knownRepo, session.workingDirectory, session.id])
+
+  const canEnter = !hasActiveWorktree && (Boolean(knownRepo) || repoReady)
+
+  const handleEnter = async () => {
+    setEntering(true)
+    setEnterError('')
+    try {
+      await enterWorktree(session.id)
+    } catch (err: unknown) {
+      setEnterError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEntering(false)
+    }
+  }
 
   const handleCheckMerge = async () => {
-    if (!session.worktreeSourceRepo) return
+    const repo = session.worktreeSourceRepo || knownRepo
+    if (!repo || !session.worktreeBranch) return
     const result = await checkMerge(
-      session.worktreeSourceRepo,
+      repo,
       session.worktreeBranch,
       session.worktreeBaseBranch || 'main',
     )
@@ -193,10 +240,11 @@ function WorktreeActions({ session }: { session: Session }) {
   }
 
   const handleMerge = async () => {
-    if (!session.worktreeSourceRepo) return
+    const repo = session.worktreeSourceRepo || knownRepo
+    if (!repo || !session.worktreeBranch) return
     setMerging(true)
     const result = await mergeWorktree(
-      session.worktreeSourceRepo,
+      repo,
       session.worktreeBranch,
       session.worktreeBaseBranch || 'main',
     )
@@ -204,32 +252,57 @@ function WorktreeActions({ session }: { session: Session }) {
     setMerging(false)
   }
 
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-2 py-0.5 text-[11px] text-emerald-400 font-medium">
-        <GitBranch size={11} />
-        <span className="max-w-[100px] truncate">{session.worktreeBranch}</span>
+  if (hasActiveWorktree) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-2 py-0.5 text-[11px] text-emerald-400 font-medium">
+          <GitBranch size={11} />
+          <span className="max-w-[140px] truncate">{session.worktreeBranch || 'worktree'}</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleCheckMerge}
+          className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-gray-400 transition-all hover:bg-white/[0.06] hover:text-white"
+          title="检查冲突"
+        >
+          检查
+        </button>
+        <button
+          type="button"
+          onClick={handleMerge}
+          disabled={merging}
+          className="flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] text-white transition-all hover:bg-emerald-500 disabled:opacity-40 shadow-sm shadow-emerald-600/20"
+          title="合并回主分支"
+        >
+          <GitMerge size={11} /> 合并
+        </button>
+        {mergeResult && (
+          <span className={`text-[10px] font-medium ${mergeResult.success ? 'text-green-400' : 'text-red-400'}`}>
+            {mergeResult.success ? '✓ 已合并' : mergeResult.hasConflicts ? '⚠ 冲突' : '✗ 失败'}
+          </span>
+        )}
       </div>
+    )
+  }
+
+  if (!canEnter) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
       <button
         type="button"
-        onClick={handleCheckMerge}
-        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-gray-400 transition-all hover:bg-white/[0.06] hover:text-white"
-        title="检查冲突"
+        onClick={handleEnter}
+        disabled={entering}
+        className="flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/[0.08] px-2.5 py-0.5 text-[11px] text-emerald-300 transition-all hover:bg-emerald-500/15 hover:text-emerald-200 disabled:opacity-50"
+        title="创建独立 worktree 并将会话工作目录切换过去"
       >
-        检查
+        {entering ? <LoaderCircle size={11} className="animate-spin" /> : <GitBranch size={11} />}
+        {entering ? '进入中…' : '进入 Worktree'}
       </button>
-      <button
-        type="button"
-        onClick={handleMerge}
-        disabled={merging}
-        className="flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] text-white transition-all hover:bg-emerald-500 disabled:opacity-40 shadow-sm shadow-emerald-600/20"
-        title="合并回主分支"
-      >
-        <GitMerge size={11} /> 合并
-      </button>
-      {mergeResult && (
-        <span className={`text-[10px] font-medium ${mergeResult.success ? 'text-green-400' : 'text-red-400'}`}>
-          {mergeResult.success ? '✓ 已合并' : mergeResult.hasConflicts ? '⚠ 冲突' : '✗ 失败'}
+      <span className="text-[10px] text-gray-600">改代码前隔离，避免污染主分支</span>
+      {enterError && (
+        <span className="text-[10px] text-red-400 max-w-[280px] truncate" title={enterError}>
+          {enterError}
         </span>
       )}
     </div>

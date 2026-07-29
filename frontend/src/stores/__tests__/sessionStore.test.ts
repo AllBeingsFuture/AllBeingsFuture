@@ -273,6 +273,58 @@ describe('sessionStore runtime status sync', () => {
     expect(session).toEqual(hydratedSession)
   })
 
+  it('enters a worktree for an existing session and re-inits the process cwd', async () => {
+    const worktreePath = 'C:/repo/.allbeingsfuture-worktrees/enter-later'
+    const baseSession = makeSession({
+      id: 'session-enter',
+      name: 'Enter Later',
+      workingDirectory: 'C:/repo',
+      worktreeSourceRepo: 'C:/repo',
+    })
+    const updatedSession = makeSession({
+      id: 'session-enter',
+      name: 'Enter Later',
+      workingDirectory: worktreePath,
+      worktreePath,
+      worktreeBranch: 'worktree-enter-later',
+      worktreeBaseCommit: 'aaa111',
+      worktreeBaseBranch: 'main',
+      worktreeSourceRepo: 'C:/repo',
+      worktreeMerged: false,
+    })
+
+    useSessionStore.setState({
+      sessions: [baseSession],
+      selectedId: 'session-enter',
+    })
+
+    serviceMocks.gitService.GetRepoRoot.mockResolvedValue('C:/repo')
+    serviceMocks.gitService.CreateWorktree.mockResolvedValue({
+      worktreePath,
+      branch: 'worktree-enter-later',
+      baseCommit: 'aaa111',
+      baseBranch: 'main',
+    })
+    serviceMocks.sessionService.SetWorktreeInfo.mockResolvedValue(undefined)
+    serviceMocks.sessionService.GetByID.mockResolvedValue(updatedSession)
+    serviceMocks.processService.InitSession.mockResolvedValue(undefined)
+
+    const session = await useSessionStore.getState().enterWorktree('session-enter')
+
+    expect(serviceMocks.gitService.CreateWorktree).toHaveBeenCalled()
+    expect(serviceMocks.sessionService.SetWorktreeInfo).toHaveBeenCalledWith(
+      'session-enter',
+      worktreePath,
+      'worktree-enter-later',
+      'aaa111',
+      'main',
+      'C:/repo',
+    )
+    expect(serviceMocks.processService.InitSession).toHaveBeenCalledWith('session-enter')
+    expect(session).toEqual(updatedSession)
+    expect(useSessionStore.getState().sessions[0]).toEqual(updatedSession)
+  })
+
   it('marks a selected running session idle once polling reports streaming has stopped', async () => {
     serviceMocks.processService.GetChatState.mockResolvedValue({
       messages: [{ role: 'assistant', content: '[Error] timeout' }],

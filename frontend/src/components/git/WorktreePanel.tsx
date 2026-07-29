@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { GitBranch, FolderOpen, Trash2, GitMerge, Check, AlertTriangle, RefreshCw, Plus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { GitService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useGitStore } from '../../stores/gitStore'
+import { useSessionStore } from '../../stores/sessionStore'
+import { chatCore } from '../../core/chat/chatCore'
 import type { WorktreeInfo, MergeResult } from '../../../bindings/allbeingsfuture/internal/models/models'
 
 export default function WorktreePanel() {
@@ -32,30 +34,68 @@ export default function WorktreePanel() {
     checkMerge: state.checkMerge,
   })))
 
+  const selectedSession = useSessionStore(useShallow((state) => {
+    const id = state.selectedId
+    return id ? state.sessions.find(s => s.id === id) || null : null
+  }))
+
   const [repoInput, setRepoInput] = useState(currentRepo)
   const [isValid, setIsValid] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [mergeResult, setMergeResult] = useState<MergeResult | null>(null)
+  const [boundFromSession, setBoundFromSession] = useState(false)
+  const lastAutoRepoRef = useRef('')
 
   // Validate repo and load data
-  const handleSetRepo = async () => {
-    if (!repoInput) return
-    const valid = await isGitRepo(repoInput)
+  const applyRepo = useCallback(async (path: string, fromSession = false) => {
+    if (!path) return
+    const valid = await isGitRepo(path)
     setIsValid(valid)
-    if (valid) {
-      const resolvedWorktrees = await GitService.ListWorktrees(repoInput).catch(() => [])
-      const primaryRepo = resolvedWorktrees.find((worktree) => worktree.isMain)?.path || repoInput
-      setRepo(primaryRepo)
-      setRepoInput(primaryRepo)
-      loadStatus(primaryRepo)
-      loadWorktrees(primaryRepo)
-    }
+    if (!valid) return
+
+    const resolvedWorktrees = await GitService.ListWorktrees(path).catch(() => [])
+    const primaryRepo = resolvedWorktrees.find((worktree) => worktree.isMain)?.path || path
+    setRepo(primaryRepo)
+    setRepoInput(primaryRepo)
+    setBoundFromSession(fromSession)
+    loadStatus(primaryRepo)
+    loadWorktrees(primaryRepo)
+  }, [isGitRepo, setRepo, loadStatus, loadWorktrees])
+
+  const handleSetRepo = async () => {
+    await applyRepo(repoInput, false)
   }
 
+  // 优先绑定当前会话的仓库，避免手输路径
   useEffect(() => {
-    if (currentRepo) {
+    let cancelled = false
+
+    const bindFromSession = async () => {
+      if (!selectedSession) return
+
+      let repo = (
+        selectedSession.worktreeSourceRepo
+        || chatCore.resolveSessionRepoPath(selectedSession)
+        || ''
+      ).trim()
+
+      if (!repo && selectedSession.workingDirectory) {
+        repo = (await GitService.GetRepoRoot(selectedSession.workingDirectory).catch(() => '')) || ''
+      }
+
+      if (cancelled || !repo || repo === lastAutoRepoRef.current) return
+      lastAutoRepoRef.current = repo
+      await applyRepo(repo, true)
+    }
+
+    void bindFromSession()
+    return () => { cancelled = true }
+  }, [selectedSession?.id, selectedSession?.worktreeSourceRepo, selectedSession?.workingDirectory, applyRepo])
+
+  useEffect(() => {
+    if (currentRepo && !selectedSession) {
       setRepoInput(currentRepo)
-      handleSetRepo()
+      void applyRepo(currentRepo, false)
     }
   }, [])
 
@@ -96,12 +136,20 @@ export default function WorktreePanel() {
         {/* Repo selector */}
         <div className="p-4 border-b border-dark-border">
           <h2 className="text-sm font-semibold text-gray-200 mb-3">Git Worktree 管理</h2>
+          {boundFromSession && selectedSession && (
+            <p className="mb-2 text-[11px] text-emerald-400/90">
+              已绑定当前会话：{selectedSession.name}
+            </p>
+          )}
           <div className="flex gap-2">
             <input
               value={repoInput}
-              onChange={e => setRepoInput(e.target.value)}
+              onChange={e => {
+                setRepoInput(e.target.value)
+                setBoundFromSession(false)
+              }}
               onKeyDown={e => e.key === 'Enter' && handleSetRepo()}
-              placeholder="输入 Git 仓库路径..."
+              placeholder={selectedSession ? '已从会话自动填充，可手动改路径' : '输入 Git 仓库路径...'}
               className="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded-lg text-sm outline-none focus:border-dark-accent"
             />
             <button
@@ -138,8 +186,8 @@ export default function WorktreePanel() {
             <GitBranch size={40} className="mx-auto mb-3 opacity-20" />
             <p className="text-base">Git Worktree 隔离管理</p>
             <p className="text-sm mt-2 text-gray-600">
-              每个任务在独立的分支目录中工作，彻底隔离代码修改。
-              适合并行开发场景，避免多会话互相干扰。
+              打开一个绑定了 Git 仓库的会话后，这里会自动填入仓库路径。
+              也可手动输入路径。每个任务在独立 worktree 中修改，避免互相干扰。
             </p>
           </div>
         ) : loading ? (

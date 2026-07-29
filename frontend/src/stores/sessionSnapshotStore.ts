@@ -44,6 +44,7 @@ interface SessionState extends ChatSnapshot {
   sendToChild: (parentSessionId: string, childSessionId: string, message: string) => Promise<void>
   fetchAllAgents: () => Promise<void>
   markWorktreeMerged: (id: string) => Promise<void>
+  enterWorktree: (id: string) => Promise<Session | null>
 }
 
 function snapshotOf(state: SessionState): ChatSnapshot {
@@ -301,6 +302,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   markWorktreeMerged: async (id) => {
     await chatCore.markWorktreeMerged(id)
     await get().load()
+  },
+
+  enterWorktree: async (id) => {
+    try {
+      const result = await chatCore.enterWorktree(snapshotOf(get()), id)
+      if (result.patch) set(result.patch)
+      // 工作目录变更后重新初始化，使 Agent 进程切到 worktree
+      try {
+        await get().initProcess(id)
+      } catch (err) {
+        console.warn('enterWorktree: re-init after workdir change failed:', err)
+      }
+      return result.session
+    } catch (err) {
+      console.error('enterWorktree failed:', err)
+      throw err
+    }
   },
 }))
 
