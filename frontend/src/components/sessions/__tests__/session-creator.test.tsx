@@ -89,10 +89,6 @@ describe('SessionCreator', () => {
     openSessionMock.mockResolvedValue(undefined)
   })
 
-  async function expandAdvanced() {
-    fireEvent.click(screen.getByRole('button', { name: /高级选项/ }))
-  }
-
   it('isolates into a worktree by default when the selected directory is a git repo', async () => {
     getRepoRootMock.mockResolvedValue('C:/repo')
 
@@ -102,9 +98,6 @@ describe('SessionCreator', () => {
       target: { value: 'C:/repo' },
     })
 
-    await expandAdvanced()
-    await screen.findByText(/将创建独立 worktree/)
-
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
     await waitFor(() => {
@@ -112,11 +105,14 @@ describe('SessionCreator', () => {
         workingDirectory: 'C:/repo',
         worktreeEnabled: true,
         gitRepoPath: 'C:/repo',
+        mode: 'supervisor',
+        initialPrompt: '',
       }))
     })
+    expect(sendMessageMock).not.toHaveBeenCalled()
   })
 
-  it('can opt out of isolation and stay on the main working directory', async () => {
+  it('always isolates when auto-worktree is on (no UI opt-out)', async () => {
     getRepoRootMock.mockResolvedValue('C:/repo')
 
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
@@ -125,18 +121,22 @@ describe('SessionCreator', () => {
       target: { value: 'C:/repo' },
     })
 
-    await expandAdvanced()
-    await screen.findByText('改代码时再隔离')
-    fireEvent.click(screen.getByRole('button', { name: /改代码时再隔离/ }))
-    await screen.findByText(/当前目录属于 Git 仓库/)
+    // Simplified dialog has no worktree / mode / name / prompt controls
+    expect(screen.queryByText('会话模式')).not.toBeInTheDocument()
+    expect(screen.queryByText('Git Worktree 隔离')).not.toBeInTheDocument()
+    expect(screen.queryByText('改代码时再隔离')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /高级选项/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('会话名称')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('创建后自动发送的指令...')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
     await waitFor(() => {
       expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
         workingDirectory: 'C:/repo',
-        worktreeEnabled: false,
+        worktreeEnabled: true,
         gitRepoPath: 'C:/repo',
+        mode: 'supervisor',
       }))
     })
   })
@@ -150,9 +150,6 @@ describe('SessionCreator', () => {
       target: { value: 'C:/plain-dir' },
     })
 
-    await expandAdvanced()
-    await screen.findByText(/将自动 git init/)
-
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
     await waitFor(() => {
@@ -160,6 +157,8 @@ describe('SessionCreator', () => {
         workingDirectory: 'C:/plain-dir',
         worktreeEnabled: true,
         gitRepoPath: 'C:/plain-dir',
+        mode: 'supervisor',
+        initialPrompt: '',
       }))
     })
   })
@@ -181,9 +180,6 @@ describe('SessionCreator', () => {
     await screen.findByText('Demo Workspace')
     fireEvent.click(screen.getByRole('button', { name: /Demo Workspace/ }))
 
-    await expandAdvanced()
-    await screen.findByText('创建时立即隔离')
-    // 默认已选中「创建时立即隔离」，无需再点
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
 
     await waitFor(() => {
@@ -191,16 +187,20 @@ describe('SessionCreator', () => {
         workingDirectory: 'C:/repo/demo',
         worktreeEnabled: true,
         gitRepoPath: 'C:/repo/demo',
+        mode: 'supervisor',
       }))
     })
   })
 
-  it('keeps advanced options collapsed by default to reduce dialog clutter', () => {
+  it('shows only workdir and provider controls (no mode / advanced / name / prompt)', () => {
     renderWithProviders(<SessionCreator onClose={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: /高级选项/ })).toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('创建后自动发送的指令...')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('选择工作区，或输入/浏览目录')).toBeInTheDocument()
+    expect(screen.getByText('AI 提供者')).toBeInTheDocument()
+    expect(screen.queryByText('会话模式')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /高级选项/ })).not.toBeInTheDocument()
     expect(screen.queryByText('会话名称')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('创建后自动发送的指令...')).not.toBeInTheDocument()
   })
 
   it('does not re-run executable detection when only switching the selected provider', async () => {
@@ -220,6 +220,26 @@ describe('SessionCreator', () => {
 
     await waitFor(() => {
       expect(testExecutableMock).toHaveBeenCalledTimes(initialExecutableChecks)
+    })
+  })
+
+  it('respects autoWorktree=false and does not force isolation', async () => {
+    settingsState = { autoWorktree: false }
+    getRepoRootMock.mockResolvedValue('C:/repo')
+
+    renderWithProviders(<SessionCreator onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByPlaceholderText('选择工作区，或输入/浏览目录'), {
+      target: { value: 'C:/repo' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+
+    await waitFor(() => {
+      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+        workingDirectory: 'C:/repo',
+        worktreeEnabled: false,
+        mode: 'supervisor',
+      }))
     })
   })
 })
