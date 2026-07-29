@@ -41,14 +41,14 @@ const liveTools: ConversationMessage[] = [
 ]
 
 describe('ToolOperationGroup', () => {
-  it('auto-expands while active so each tool streams into the list', () => {
+  it('stays collapsed while active by default (shows latest summary only)', () => {
     renderWithProviders(<ToolOperationGroup messages={liveTools} isActive />)
 
     const toggle = screen.getByTestId('tool-operation-group-toggle')
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Bash')).toBeInTheDocument()
-    expect(screen.getByText('Grep')).toBeInTheDocument()
-    expect(screen.queryByText(/最近：/)).not.toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText(/最近：/)).toBeInTheDocument()
+    expect(screen.queryByText('Bash')).not.toBeInTheDocument()
+    expect(screen.queryByText('Grep')).not.toBeInTheDocument()
   })
 
   it('stays collapsed for finished history groups by default', () => {
@@ -66,20 +66,21 @@ describe('ToolOperationGroup', () => {
     expect(screen.queryByText('Grep')).not.toBeInTheDocument()
   })
 
-  it('lets the user collapse a live group and re-expand it', () => {
+  it('lets the user expand a live group and collapse it again', () => {
     renderWithProviders(<ToolOperationGroup messages={liveTools} isActive />)
 
     const toggle = screen.getByTestId('tool-operation-group-toggle')
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.queryByText(/最近：/)).not.toBeInTheDocument()
-
-    fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    // Collapsed header falls back to the latest one-line summary.
     expect(screen.getByText(/最近：/)).toBeInTheDocument()
 
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Bash')).toBeInTheDocument()
+    expect(screen.getByText('Grep')).toBeInTheDocument()
     expect(screen.queryByText(/最近：/)).not.toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText(/最近：/)).toBeInTheDocument()
   })
 })

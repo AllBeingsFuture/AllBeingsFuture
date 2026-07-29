@@ -132,19 +132,19 @@ function getText(value: unknown): string {
 }
 
 const ToolOperationGroup: React.FC<ToolOperationGroupProps> = ({ messages, isActive }) => {
-  // null = follow default: expanded while the group is live, collapsed when done.
-  // User toggle sets an explicit override until the active turn starts/ends.
+  // Default closed for both live and finished groups. User toggle is sticky
+  // within the current active/settled phase; phase change resets to closed.
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
-  const expanded = manualExpanded ?? isActive
+  const expanded = manualExpanded ?? false
 
   useEffect(() => {
-    // New live turn / settled history should start from the default again.
+    // New live turn / settled history should start collapsed again.
     setManualExpanded(null)
   }, [isActive])
 
   const toggleExpanded = useCallback(() => {
-    setManualExpanded(current => !(current ?? isActive))
-  }, [isActive])
+    setManualExpanded(current => !(current ?? false))
+  }, [])
 
   const operations = useMemo(() => aggregateOperations(messages), [messages])
   const toolCounts = useMemo(() => {
