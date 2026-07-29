@@ -201,9 +201,17 @@ export class AcpAdapter implements ProviderAdapter {
     this.exitDescription = ''
     this.initialInstructionsSent = false
 
+    // buildChildProcessEnv clears ELECTRON_RUN_AS_NODE; re-apply runner env after.
+    const env = buildChildProcessEnv(this.config.envOverrides)
+    if (resolved.env) {
+      for (const [key, value] of Object.entries(resolved.env)) {
+        env[key] = value
+      }
+    }
+
     const child = spawn(resolved.command, args, {
       cwd: workDir,
-      env: buildChildProcessEnv(this.config.envOverrides),
+      env,
       shell: resolved.shell,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],

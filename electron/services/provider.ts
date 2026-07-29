@@ -8,6 +8,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { v4 as uuidv4 } from 'uuid'
 import type { Database } from './database.js'
+import {
+  isBundledAcpWrapperCommand,
+  resolveBundledAcpWrapperEntry,
+} from '../bridge/acp-package-resolve.js'
 
 export interface AIProvider {
   id: string
@@ -116,6 +120,11 @@ export function resolveExecutable(target: string): boolean {
   const executable = extractExecutableTarget(target)
   if (!executable) return false
 
+  // Bundled ACP wrappers are resolved to real asar.unpacked paths.
+  if (isBundledAcpWrapperCommand(executable)) {
+    return Boolean(resolveBundledAcpWrapperEntry(executable))
+  }
+
   const tryCandidate = (basePath: string) => executableExtensions(basePath).some((ext) => {
     const candidate = ext ? `${basePath}${ext}` : basePath
     return pathExists(candidate)
@@ -137,6 +146,13 @@ export function resolveExecutable(target: string): boolean {
     path.join(path.dirname(process.execPath), 'node_modules', '.bin'),
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../node_modules/.bin'),
   ]
+
+  // Packaged: app.asar.unpacked/node_modules/.bin is not always present; package
+  // resolve covers that case. Still search unpacked roots for plain binaries.
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  if (resourcesPath) {
+    localBins.unshift(path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', '.bin'))
+  }
 
   for (const entry of [...localBins, ...pathEntries]) {
     if (tryCandidate(path.join(entry, executable))) {

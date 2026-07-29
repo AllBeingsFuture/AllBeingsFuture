@@ -2,6 +2,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  assertSpawnableEntrypoint,
+  isBundledAcpWrapperCommand,
+  resolveBundledAcpWrapperEntry,
+  resolveJsRunner,
+  toSpawnableFilesystemPath,
+} from './acp-package-resolve.js'
 
 export interface ParsedCommand {
   command: string
@@ -13,6 +20,8 @@ export interface ResolvedProcessCommand {
   args: string[]
   shell: boolean
   shimEntrypoint?: string
+  /** Extra env applied after buildChildProcessEnv (e.g. ELECTRON_RUN_AS_NODE). */
+  env?: Record<string, string>
 }
 
 const WINDOWS_COMMAND_EXTENSION_PRIORITY = ['.cmd', '.exe', '.bat', '.ps1']
@@ -169,25 +178,112 @@ export function buildChildProcessEnv(envOverrides?: Record<string, string>): Nod
 
 export function resolveProcessCommand(command: string | undefined, fallback: string): ResolvedProcessCommand {
   const resolved = resolveCommand(command, fallback)
+
+  // 1) Bundled ACP wrappers (claude-agent-acp / codex-acp): always run the
+  //    real on-disk package entry via Node — never spawn a path inside app.asar.
+  if (isBundledAcpWrapperCommand(resolved.command)) {
+    const entry = resolveBundledAcpWrapperEntry(resolved.command)
+    if (!entry) {
+      throw new Error(
+        `Bundled ACP wrapper '${resolved.command}' was not found on a spawnable filesystem path. `
+        + 'Ensure the package is listed in build.asarUnpack and installed as a dependency.',
+      )
+    }
+    assertSpawnableEntrypoint(entry, resolved.command)
+    const runner = resolveJsRunner()
+    return {
+      command: runner.command,
+      args: [entry, ...resolved.args],
+      shell: false,
+      shimEntrypoint: entry,
+      env: {
+        ...runner.env,
+        // Ensure system Node can resolve asarUnpacked peer deps (sdk/zod/…).
+        ...buildUnpackedNodePathEnv(entry),
+      },
+    }
+  }
+
+  // 2) Absolute / relative path that points at a JS entry (possibly under asar)
+  const directSpawnable = toSpawnableFilesystemPath(resolved.command)
+  if (directSpawnable && /\.[cm]?js$/i.test(directSpawnable)) {
+    assertSpawnableEntrypoint(directSpawnable, 'ACP script')
+    const runner = resolveJsRunner()
+    return {
+      command: runner.command,
+      args: [directSpawnable, ...resolved.args],
+      shell: false,
+      shimEntrypoint: directSpawnable,
+      env: runner.env,
+    }
+  }
+
+  // 3) Windows npm .cmd shims → node + entrypoint
   const shell = shouldUseShell(resolved.command)
   const shimEntrypoint = resolveNpmShimEntrypoint(resolved.command)
   const nodePath = detectNodeExecutablePath()
 
   if (shimEntrypoint && nodePath) {
+    const spawnableShim = toSpawnableFilesystemPath(shimEntrypoint) || shimEntrypoint
+    if (isInsideAsarPath(spawnableShim)) {
+      throw new Error(`npm shim entrypoint is inside app.asar and cannot be spawned: ${spawnableShim}`)
+    }
     return {
       command: nodePath,
-      args: [shimEntrypoint, ...resolved.args],
+      args: [spawnableShim, ...resolved.args],
       shell: false,
-      shimEntrypoint,
+      shimEntrypoint: spawnableShim,
     }
   }
 
+  // 4) Plain binary name / path — rewrite asar → unpacked when applicable
+  const commandPath = toSpawnableFilesystemPath(resolved.command) || resolved.command
+  if (isInsideAsarPath(commandPath)) {
+    throw new Error(
+      `Command path is inside app.asar and cannot be spawned: ${commandPath}. `
+      + 'Unpack the binary via asarUnpack or install it outside the asar archive.',
+    )
+  }
+
   return {
-    command: resolved.command,
+    command: commandPath,
     args: resolved.args,
     shell,
     shimEntrypoint,
   }
+}
+
+function isInsideAsarPath(filePath: string): boolean {
+  const normalized = path.normalize(filePath)
+  return normalized.includes(`${path.sep}app.asar${path.sep}`)
+    && !normalized.includes(`${path.sep}app.asar.unpacked${path.sep}`)
+}
+
+/** NODE_PATH roots so unpacked wrappers can import asarUnpacked peer packages. */
+function buildUnpackedNodePathEnv(entryPath: string): Record<string, string> {
+  const roots: string[] = []
+  const add = (dir: string) => {
+    if (dir && existsSync(dir) && !roots.includes(dir)) roots.push(dir)
+  }
+
+  // Walk up from the entry looking for node_modules directories on real FS.
+  let dir = path.dirname(entryPath)
+  for (let i = 0; i < 8; i++) {
+    add(path.join(dir, 'node_modules'))
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  if (resourcesPath) {
+    add(path.join(resourcesPath, 'app.asar.unpacked', 'node_modules'))
+  }
+
+  if (roots.length === 0) return {}
+  const existing = process.env.NODE_PATH || ''
+  const merged = [...roots, ...existing.split(path.delimiter).filter(Boolean)]
+  return { NODE_PATH: merged.join(path.delimiter) }
 }
 
 function resolveWindowsCommand(command: string): string {
