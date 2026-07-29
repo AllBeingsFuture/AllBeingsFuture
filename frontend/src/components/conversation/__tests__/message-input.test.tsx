@@ -5,7 +5,6 @@ import { useDraftStore } from '../../../stores/draftStore'
 
 const mocks = vi.hoisted(() => ({
   prepareFile: vi.fn(),
-  downloadAndCache: vi.fn().mockResolvedValue('cached-sticker'),
   ipcEventHandlers: new Map<string, (...args: any[]) => void>(),
 }))
 
@@ -28,12 +27,6 @@ vi.mock('../../../../bindings/allbeingsfuture/internal/services', () => ({
   FileTransferService: {
     PrepareFile: mocks.prepareFile,
   },
-}))
-
-vi.mock('../../../stores/stickerStore', () => ({
-  useStickerStore: () => ({
-    downloadAndCache: mocks.downloadAndCache,
-  }),
 }))
 
 describe('MessageInput', () => {

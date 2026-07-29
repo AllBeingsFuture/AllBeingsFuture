@@ -1,9 +1,6 @@
-import { SendHorizonal, Square, X, Upload, Paperclip, Smile, FileIcon, FolderIcon, LoaderCircle } from 'lucide-react'
+import { SendHorizonal, Square, X, Upload, FileIcon, FolderIcon, LoaderCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import StickerPicker from '../sticker/StickerPicker'
 import MessageTextEditor from './MessageTextEditor'
-import type { StickerResult } from '../../stores/stickerStore'
-import { useStickerStore } from '../../stores/stickerStore'
 import { FileTransferService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useDraftStore } from '../../stores/draftStore'
 import type { ImageAttachment, FileAttachment } from '../../stores/draftStore'
@@ -39,13 +36,9 @@ function MessageInput({
   const [images, setImages] = useState<ImageAttachment[]>(initialDraft.current?.images ?? [])
   const [files, setFiles] = useState<FileAttachment[]>(initialDraft.current?.files ?? [])
   const [dragging, setDragging] = useState(false)
-  const [stickerOpen, setStickerOpen] = useState(false)
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const stickerRef = useRef<HTMLDivElement>(null)
-  const stickerBtnRef = useRef<HTMLButtonElement>(null)
   const dragCounterRef = useRef(0)
 
   const valueRef = useRef(value)
@@ -65,61 +58,9 @@ function MessageInput({
     }
   }, [saveDraft, sessionId])
 
-  const { downloadAndCache } = useStickerStore()
-
   const focusEditor = useCallback(() => {
     requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
   }, [])
-
-  useEffect(() => {
-    if (!stickerOpen) return
-
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (
-        stickerRef.current &&
-        !stickerRef.current.contains(event.target as Node) &&
-        stickerBtnRef.current &&
-        !stickerBtnRef.current.contains(event.target as Node)
-      ) {
-        setStickerOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleOutsideClick)
-    return () => document.removeEventListener('mousedown', handleOutsideClick)
-  }, [stickerOpen])
-
-  const handleStickerSelect = useCallback(async (sticker: StickerResult) => {
-    setStickerOpen(false)
-
-    try {
-      await downloadAndCache(sticker.url)
-      const response = await fetch(sticker.url)
-      const blob = await response.blob()
-      const reader = new FileReader()
-
-      reader.onload = () => {
-        const dataUrl = reader.result as string
-        const commaIndex = dataUrl.indexOf(',')
-        const base64Data = dataUrl.substring(commaIndex + 1)
-
-        setImages((current) => [
-          ...current,
-          {
-            data: base64Data,
-            mimeType: blob.type || 'image/png',
-            preview: dataUrl,
-          },
-        ])
-        focusEditor()
-      }
-
-      reader.readAsDataURL(blob)
-    } catch {
-      setValue((current) => current + `[${sticker.name}]`)
-      focusEditor()
-    }
-  }, [downloadAndCache, focusEditor])
 
   const addFileByPath = useCallback(async (filePath: string) => {
     try {
@@ -451,76 +392,6 @@ function MessageInput({
       )}
 
       <div className="flex items-end gap-2">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(event) => {
-            const selectedFiles = event.target.files
-            if (!selectedFiles) return
-
-            for (let index = 0; index < selectedFiles.length; index += 1) {
-              const file = selectedFiles[index]
-              if (file.type.startsWith('image/')) {
-                addImageFile(file)
-              } else {
-                const path = window.electronAPI?.getPathForFile?.(file) || (file as any).path || file.name
-                if (path) void addFileByPath(path)
-              }
-            }
-
-            event.target.value = ''
-          }}
-        />
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="flex h-[42px] w-10 shrink-0 items-center justify-center rounded-xl text-gray-500 transition-all duration-200 hover:bg-white/[0.05] hover:text-gray-300"
-          title="添加文件"
-          aria-label="添加文件"
-        >
-          <Paperclip size={16} />
-        </button>
-
-        <div className="relative">
-          <button
-            ref={stickerBtnRef}
-            type="button"
-            onClick={() => setStickerOpen((current) => !current)}
-            className={`flex h-[42px] w-10 shrink-0 items-center justify-center rounded-xl transition-all duration-200 hover:bg-white/[0.05] ${
-              stickerOpen ? 'bg-white/[0.05] text-yellow-400' : 'text-gray-500 hover:text-gray-300'
-            }`}
-            title="表情包"
-            aria-label="表情包"
-          >
-            <Smile size={16} />
-          </button>
-
-          {stickerOpen && (
-            <div
-              ref={stickerRef}
-              className="absolute bottom-full left-0 z-50 mb-2 max-h-[440px] w-[380px] overflow-hidden rounded-2xl border border-white/[0.08] bg-gray-900/95 shadow-2xl shadow-black/40 backdrop-blur-xl"
-            >
-              <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2">
-                <span className="text-xs font-medium text-gray-400">表情包</span>
-                <button
-                  type="button"
-                  onClick={() => setStickerOpen(false)}
-                  className="text-gray-500 transition-colors hover:text-gray-300"
-                  aria-label="关闭表情包面板"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="max-h-[390px] overflow-y-auto">
-                <StickerPicker compact onSelect={handleStickerSelect} />
-              </div>
-            </div>
-          )}
-        </div>
-
         <div className="min-w-0 flex-1">
           <MessageTextEditor
             ref={textareaRef}
