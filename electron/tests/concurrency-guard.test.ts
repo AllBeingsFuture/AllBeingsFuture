@@ -1,6 +1,7 @@
 /**
- * ConcurrencyGuard: session limits stay hard blocks; freemem % is warning-only.
- * Absolute free MB below the floor still hard-blocks (true critical memory).
+ * ConcurrencyGuard: only maxSessions hard-blocks.
+ * Memory pressure (freemem % or absolute free MB) is warning-only —
+ * Node os.freemem() undercounts reclaimable memory on macOS.
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -15,18 +16,31 @@ function memoryAt(totalMB: number, freeMB: number): MemoryReader {
   })
 }
 
-test('allows session when freemem % is high but absolute free is still ample (macOS false positive)', () => {
-  // 16 GB machine, ~322 MB free → ~98% "used" by os.freemem() — previously hard-blocked
+test('allows session when freemem reports ~99% used (macOS false positive)', () => {
+  // 16 GB machine, 195 MB free → ~99% "used" by os.freemem() — must not hard-block
   const guard = new ConcurrencyGuard(
-    { memoryBlockFreeMB: 256, memoryWarningPercent: 85 },
-    memoryAt(16384, 322),
+    { memoryWarningPercent: 85 },
+    memoryAt(16384, 195),
   )
 
   const result = guard.checkCanCreateSession()
   assert.equal(result.allowed, true)
   assert.equal(result.reason, undefined)
   assert.ok(result.warning, 'expected high-usage warning')
-  assert.match(result.warning!, /High memory usage/)
+  assert.match(result.warning!, /195MB free|High memory usage/i)
+})
+
+test('allows session with only 50MB free (warn only, never hard-block on freemem)', () => {
+  const guard = new ConcurrencyGuard(
+    { memoryWarningPercent: 85 },
+    memoryAt(16384, 50),
+  )
+
+  const result = guard.checkCanCreateSession()
+  assert.equal(result.allowed, true)
+  assert.equal(result.reason, undefined)
+  assert.ok(result.warning, 'expected memory warning')
+  assert.match(result.warning!, /50MB free/i)
 })
 
 test('allows session near 94–98% freemem usage with a few hundred MB free', () => {
@@ -34,35 +48,32 @@ test('allows session near 94–98% freemem usage with a few hundred MB free', ()
     { freeMB: 1024, label: '~1GB free (~94%)' },
     { freeMB: 512, label: '~512MB free (~97%)' },
     { freeMB: 300, label: '~300MB free (~98%)' },
+    { freeMB: 195, label: '~195MB free (~99%)' },
   ] as const
 
   for (const { freeMB, label } of cases) {
-    const guard = new ConcurrencyGuard(
-      { memoryBlockFreeMB: 256 },
-      memoryAt(16384, freeMB),
-    )
+    const guard = new ConcurrencyGuard({}, memoryAt(16384, freeMB))
     const result = guard.checkCanCreateSession()
     assert.equal(result.allowed, true, `should allow at ${label}`)
     assert.equal(result.reason, undefined, `no hard block reason at ${label}`)
   }
 })
 
-test('hard-blocks only when absolute free memory is below the floor', () => {
+test('deprecated memoryBlockFreeMB is ignored and does not hard-block', () => {
   const guard = new ConcurrencyGuard(
     { memoryBlockFreeMB: 256 },
     memoryAt(16384, 100),
   )
 
   const result = guard.checkCanCreateSession()
-  assert.equal(result.allowed, false)
-  assert.ok(result.reason)
-  assert.match(result.reason!, /critically low/i)
-  assert.match(result.reason!, /100MB free/)
+  assert.equal(result.allowed, true)
+  assert.equal(result.reason, undefined)
+  assert.ok(result.warning)
 })
 
 test('maxSessions remains a hard block regardless of free memory', () => {
   const guard = new ConcurrencyGuard(
-    { maxSessions: 2, memoryBlockFreeMB: 256 },
+    { maxSessions: 2 },
     memoryAt(16384, 8000),
   )
 
@@ -98,7 +109,7 @@ test('register/unregister tracking is idempotent and accurate', () => {
 
 test('getResourceStatus reflects canCreate and warning for high freemem %', () => {
   const guard = new ConcurrencyGuard(
-    { memoryBlockFreeMB: 256, memoryWarningPercent: 85, maxSessions: 9 },
+    { memoryWarningPercent: 85, maxSessions: 9 },
     memoryAt(16384, 400),
   )
 
@@ -113,14 +124,15 @@ test('getResourceStatus reflects canCreate and warning for high freemem %', () =
   assert.equal(status.reason, undefined)
 })
 
-test('getResourceStatus reports reason when free MB is critically low', () => {
+test('getResourceStatus allows create with warning when free MB is very low', () => {
   const guard = new ConcurrencyGuard(
-    { memoryBlockFreeMB: 256 },
+    {},
     memoryAt(8192, 50),
   )
 
   const status = guard.getResourceStatus()
-  assert.equal(status.canCreate, false)
-  assert.ok(status.reason)
-  assert.match(status.reason!, /critically low/i)
+  assert.equal(status.canCreate, true)
+  assert.equal(status.reason, undefined)
+  assert.ok(status.warning)
+  assert.match(status.warning!, /50MB free/i)
 })

@@ -7,9 +7,10 @@
  * Uses Set-based tracking (by sessionId) so that unregister is idempotent
  * and double-unregister cannot drift the counter.
  *
- * Memory hard-block uses absolute free MB only. Node's os.freemem() on macOS
- * counts only fully free pages (file cache / inactive memory look "used"), so
- * freemem-based usage % is warning-only and must not block session creation.
+ * Memory pressure is warning-only. Node's os.freemem() on macOS counts only
+ * fully free pages (file cache / inactive memory look "used"), so freemem-based
+ * absolute MB and usage % must not hard-block session creation. Only maxSessions
+ * is a hard block.
  */
 
 import os from 'os'
@@ -22,10 +23,11 @@ export interface ConcurrencyConfig {
   /** Soft warning when freemem-based usage % exceeds this (not a hard block). */
   memoryWarningPercent: number
   /**
-   * Hard-block session creation only when absolute free memory is below this (MB).
-   * Defaults to 256 MB — true pressure, not macOS freemem false positives.
+   * @deprecated No longer used as a hard block. Kept for config compatibility;
+   * memory pressure is always warning-only because os.freemem() undercounts
+   * reclaimable memory on macOS.
    */
-  memoryBlockFreeMB: number
+  memoryBlockFreeMB?: number
 }
 
 export interface CanCreateResult {
@@ -59,7 +61,8 @@ export class ConcurrencyGuard {
     this.config = {
       maxSessions: config?.maxSessions ?? 9,
       memoryWarningPercent: config?.memoryWarningPercent ?? 85,
-      memoryBlockFreeMB: config?.memoryBlockFreeMB ?? 256,
+      // Deprecated: accepted but ignored for hard-blocking
+      memoryBlockFreeMB: config?.memoryBlockFreeMB,
     }
     this.readMemory = readMemory
   }
@@ -68,11 +71,11 @@ export class ConcurrencyGuard {
    * Check whether a new session can be created.
    * Returns { allowed, reason?, warning? } based on session count and memory.
    *
-   * Hard blocks: maxSessions, or free memory below memoryBlockFreeMB.
-   * High freemem % alone only yields a warning (macOS freemem is unreliable).
+   * Hard blocks: maxSessions only.
+   * Low free memory / high freemem % yields a warning only (macOS freemem is unreliable).
    */
   checkCanCreateSession(): CanCreateResult {
-    // Check session count limit
+    // Check session count limit — only hard block
     if (this.activeSessionIds.size >= this.config.maxSessions) {
       return {
         allowed: false,
@@ -80,20 +83,26 @@ export class ConcurrencyGuard {
       }
     }
 
-    // Check system memory — absolute free floor only (not freemem %)
     const memSnapshot = this.getMemorySnapshot()
+    const freeMB = Math.round(memSnapshot.availableMB)
+    const totalMB = Math.round(memSnapshot.totalMB)
+    const usedPct = Math.round(memSnapshot.usagePercent)
 
-    if (memSnapshot.availableMB < this.config.memoryBlockFreeMB) {
-      return {
-        allowed: false,
-        reason: `System memory critically low (${Math.round(memSnapshot.availableMB)}MB free of ${Math.round(memSnapshot.totalMB)}MB, ${Math.round(memSnapshot.usagePercent)}% used). Cannot create new session.`,
-      }
-    }
-
+    // Memory pressure is always warning-only (never hard-block on freemem).
+    // High freemem-based usage % or very low absolute free → warn for UI only.
     if (memSnapshot.usagePercent >= this.config.memoryWarningPercent) {
       return {
         allowed: true,
-        warning: `High memory usage: ${Math.round(memSnapshot.usagePercent)}% used (${Math.round(memSnapshot.availableMB)}MB free)`,
+        warning: `High memory usage: ${usedPct}% used (${freeMB}MB free of ${totalMB}MB)`,
+      }
+    }
+
+    // Soft absolute floor for warning when % is still below the threshold
+    // (e.g. small total RAM). Does not block session creation.
+    if (memSnapshot.availableMB < 256) {
+      return {
+        allowed: true,
+        warning: `System memory low: ${freeMB}MB free of ${totalMB}MB (${usedPct}% used)`,
       }
     }
 
