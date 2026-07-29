@@ -46,6 +46,7 @@ vi.mock('../../../bindings/allbeingsfuture/internal/services/processservice', ()
 
 import { useSessionStore } from '../sessionStore'
 import { useGitStore } from '../gitStore'
+import { useDraftStore } from '../draftStore'
 
 function makeSession(overrides: Partial<Session> & { messagesJson?: string; parentSessionId?: string } = {}): Session {
   return {
@@ -88,7 +89,9 @@ function resetStore() {
     childToParent: {},
     agentStreams: {},
     agentStreamMessages: {},
+    pendingFlushInFlight: {},
   })
+  useDraftStore.setState({ drafts: {}, pendingBySession: {} })
 }
 
 function resetGitStore() {
@@ -532,6 +535,97 @@ describe('sessionStore runtime status sync', () => {
     expect(state.messages).toEqual([{ role: 'assistant', content: 'foreground', timestamp: 'fg-ts' }])
     expect(state.streaming).toBe(false)
     expect(state.sessions.find((session) => session.id === 'session-2')?.status).toBe('running')
+    // Background patches must still be buffered so switching back does not lose them.
+    expect(state.agentStreamMessages['session-2']).toEqual([
+      { role: 'assistant', content: 'background', timestamp: 'bg-ts' },
+    ])
+  })
+
+  it('buffers a parent user message while the child session is selected', () => {
+    useSessionStore.setState({
+      selectedId: 'child-1',
+      sessions: [
+        makeSession({ id: 'parent-1', status: 'running', name: 'Parent' }),
+        makeSession({ id: 'child-1', status: 'idle', name: 'Child', parentSessionId: 'parent-1' }),
+      ],
+      messages: [{ role: 'assistant', content: 'child view', timestamp: 'child-ts' } as never],
+      agentStreamMessages: {
+        'parent-1': [{ role: 'assistant', content: 'old parent', timestamp: 'old-ts' } as never],
+      },
+      agentStreams: {
+        'parent-1': { phase: 'running', lastSequence: 3 },
+      },
+    })
+
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'parent-1',
+      type: 'append',
+      message: { role: 'user', content: 'follow up for parent', timestamp: 'user-ts' } as never,
+      streaming: true,
+      error: '',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.selectedId).toBe('child-1')
+    expect(state.messages).toEqual([{ role: 'assistant', content: 'child view', timestamp: 'child-ts' }])
+    expect(state.agentStreamMessages['parent-1']).toEqual([
+      { role: 'assistant', content: 'old parent', timestamp: 'old-ts' },
+      { role: 'user', content: 'follow up for parent', timestamp: 'user-ts' },
+    ])
+  })
+
+  it('snapshots the live transcript when switching sessions so parent messages survive child navigation', () => {
+    useSessionStore.setState({
+      selectedId: 'parent-1',
+      sessions: [
+        makeSession({ id: 'parent-1', status: 'running', name: 'Parent' }),
+        makeSession({ id: 'child-1', status: 'idle', name: 'Child', parentSessionId: 'parent-1' }),
+      ],
+      messages: [
+        { role: 'user', content: 'just sent', timestamp: 'u1' } as never,
+        { role: 'assistant', content: 'working…', timestamp: 'a1' } as never,
+      ],
+      agentStreamMessages: {},
+      agentStreams: {
+        'parent-1': { phase: 'running', lastSequence: 1 },
+      },
+    })
+
+    serviceMocks.processService.GetChatState.mockResolvedValue({
+      messages: [{ role: 'assistant', content: 'child history' }],
+      streaming: false,
+      error: '',
+    })
+
+    useSessionStore.getState().select('child-1')
+
+    const state = useSessionStore.getState()
+    expect(state.selectedId).toBe('child-1')
+    expect(state.agentStreamMessages['parent-1']).toEqual([
+      { role: 'user', content: 'just sent', timestamp: 'u1' },
+      { role: 'assistant', content: 'working…', timestamp: 'a1' },
+    ])
+  })
+
+  it('flushes session-scoped pending composer messages after the parent turn becomes idle', async () => {
+    serviceMocks.processService.SendMessage.mockResolvedValue(undefined)
+    useDraftStore.getState().enqueuePending('parent-1', { text: 'queued while streaming' })
+    useSessionStore.setState({
+      selectedId: 'child-1',
+      sessions: [
+        makeSession({ id: 'parent-1', status: 'idle', name: 'Parent' }),
+        makeSession({ id: 'child-1', status: 'idle', name: 'Child', parentSessionId: 'parent-1' }),
+      ],
+      streaming: false,
+      agentStreams: {
+        'parent-1': { phase: 'done', lastSequence: 4 },
+      },
+    })
+
+    await useSessionStore.getState().flushPendingMessages('parent-1')
+
+    expect(serviceMocks.processService.SendMessage).toHaveBeenCalledWith('parent-1', 'queued while streaming')
+    expect(useDraftStore.getState().pendingBySession['parent-1']).toBeUndefined()
   })
 
   it('applies normalized deltas once and shields the active turn from legacy patches', () => {

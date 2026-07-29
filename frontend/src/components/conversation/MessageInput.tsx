@@ -5,13 +5,11 @@ import ComposerCapabilities from './ComposerCapabilities'
 import SlashSkillSuggest from './SlashSkillSuggest'
 import { FileTransferService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useDraftStore } from '../../stores/draftStore'
-import type { ImageAttachment, FileAttachment } from '../../stores/draftStore'
+import type { ImageAttachment, FileAttachment, PendingMessage } from '../../stores/draftStore'
 import { useSkillStore } from '../../stores/skillStore'
+import { useSessionStore } from '../../stores/sessionStore'
 
-interface QueuedMessage {
-  text: string
-  images?: Array<{ data: string; mimeType: string }>
-}
+const EMPTY_PENDING: PendingMessage[] = []
 
 interface Props {
   disabled?: boolean
@@ -32,7 +30,10 @@ function MessageInput({
   onSend,
   onStop,
 }: Props) {
-  const { saveDraft, getDraft, clearDraft } = useDraftStore()
+  const { saveDraft, getDraft, clearDraft, enqueuePending, removePendingAt, clearPending } = useDraftStore()
+  // Use a stable empty array — `|| []` would allocate every snapshot and infinite-loop useSyncExternalStore.
+  const messageQueue = useDraftStore((s) => s.pendingBySession[sessionId] ?? EMPTY_PENDING)
+  const flushPendingMessages = useSessionStore((s) => s.flushPendingMessages)
   const skills = useSkillStore((s) => s.skills)
   const loadSkills = useSkillStore((s) => s.load)
   const initialDraft = useRef(getDraft(sessionId))
@@ -41,7 +42,6 @@ function MessageInput({
   const [images, setImages] = useState<ImageAttachment[]>(initialDraft.current?.images ?? [])
   const [files, setFiles] = useState<FileAttachment[]>(initialDraft.current?.files ?? [])
   const [dragging, setDragging] = useState(false)
-  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -165,7 +165,7 @@ function MessageInput({
     clearDraft(sessionId)
   }, [clearDraft, sessionId])
 
-  const doSendMessage = useCallback(async (msg: QueuedMessage) => {
+  const doSendMessage = useCallback(async (msg: PendingMessage) => {
     await onSend(msg.text, msg.images)
   }, [onSend])
 
@@ -175,33 +175,27 @@ function MessageInput({
 
     clearInput()
 
+    // Queue in a session-scoped store (not component state) so switching to a
+    // child agent while the parent is still streaming does not swallow the turn.
     if (streaming) {
-      setMessageQueue((q) => [...q, msg])
+      enqueuePending(sessionId, msg)
       return
     }
 
     await doSendMessage(msg)
-  }, [buildMessage, clearInput, disabled, doSendMessage, streaming])
+  }, [buildMessage, clearInput, disabled, doSendMessage, enqueuePending, sessionId, streaming])
 
   const prevStreamingRef = useRef(streaming)
-  const sendingRef = useRef(false)
   useEffect(() => {
-    if (prevStreamingRef.current && !streaming && messageQueue.length > 0 && !sendingRef.current) {
-      const [next, ...rest] = messageQueue
-      sendingRef.current = true
-      setMessageQueue(rest)
-      doSendMessage(next)
-        .catch(() => {
-          setMessageQueue((q) => [next, ...q])
-        })
-        .finally(() => { sendingRef.current = false })
+    if (prevStreamingRef.current && !streaming) {
+      void flushPendingMessages(sessionId)
     }
     prevStreamingRef.current = streaming
-  }, [streaming, messageQueue, doSendMessage])
+  }, [streaming, sessionId, flushPendingMessages])
 
   const removeQueuedMessage = useCallback((index: number) => {
-    setMessageQueue((q) => q.filter((_, i) => i !== index))
-  }, [])
+    removePendingAt(sessionId, index)
+  }, [removePendingAt, sessionId])
 
   const removeImage = useCallback((index: number) => {
     setImages((current) => current.filter((_, currentIndex) => currentIndex !== index))
@@ -364,7 +358,7 @@ function MessageInput({
             ))}
             <button
               type="button"
-              onClick={() => setMessageQueue([])}
+              onClick={() => clearPending(sessionId)}
               className="flex items-center gap-1 rounded-full border border-red-500/15 bg-red-500/[0.04] px-2 py-1 text-[10px] text-red-400/70 transition-colors hover:border-red-500/25 hover:bg-red-500/[0.08]"
               aria-label="清空排队"
             >
