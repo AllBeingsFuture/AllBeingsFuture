@@ -1,9 +1,12 @@
-import { Plus, SendHorizonal, Square, X, Upload, FileIcon, FolderIcon, LoaderCircle } from 'lucide-react'
+import { SendHorizonal, Square, X, Upload, FileIcon, FolderIcon, LoaderCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MessageTextEditor from './MessageTextEditor'
+import ComposerCapabilities from './ComposerCapabilities'
+import SlashSkillSuggest from './SlashSkillSuggest'
 import { FileTransferService } from '../../../bindings/allbeingsfuture/internal/services'
 import { useDraftStore } from '../../stores/draftStore'
 import type { ImageAttachment, FileAttachment } from '../../stores/draftStore'
+import { useSkillStore } from '../../stores/skillStore'
 
 interface QueuedMessage {
   text: string
@@ -30,6 +33,8 @@ function MessageInput({
   onStop,
 }: Props) {
   const { saveDraft, getDraft, clearDraft } = useDraftStore()
+  const skills = useSkillStore((s) => s.skills)
+  const loadSkills = useSkillStore((s) => s.load)
   const initialDraft = useRef(getDraft(sessionId))
 
   const [value, setValue] = useState(initialDraft.current?.text ?? '')
@@ -41,6 +46,10 @@ function MessageInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCounterRef = useRef(0)
+
+  useEffect(() => {
+    void loadSkills()
+  }, [loadSkills])
 
   const valueRef = useRef(value)
   const imagesRef = useRef(images)
@@ -305,6 +314,11 @@ function MessageInput({
 
   const hasContent = Boolean(value.trim() || images.length > 0 || files.length > 0)
 
+  const handleSlashPick = useCallback((slashCommand: string) => {
+    setValue(`/${slashCommand} `)
+    focusEditor()
+  }, [focusEditor])
+
   return (
     <div
       className="relative shrink-0 px-4 pb-4 pt-1"
@@ -422,28 +436,29 @@ function MessageInput({
             tabIndex={-1}
           />
 
-          <button
-            type="button"
+          <ComposerCapabilities
             disabled={disabled}
-            onClick={() => fileInputRef.current?.click()}
-            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="添加附件"
-            title="添加附件"
-          >
-            <Plus size={18} strokeWidth={2} />
-          </button>
-
-          <MessageTextEditor
-            ref={textareaRef}
-            value={value}
-            disabled={disabled}
-            placeholder={images.length > 0 ? '给图片补充一点说明（可选）' : placeholder}
-            attachmentSummary={attachmentSummary || undefined}
-            queueCount={messageQueue.length}
-            onChange={setValue}
-            onPaste={handlePaste}
-            onSubmit={() => void submit()}
+            onAttachFiles={() => fileInputRef.current?.click()}
           />
+
+          <div className="relative min-w-0 flex-1">
+            <SlashSkillSuggest
+              value={value}
+              skills={skills}
+              onPick={handleSlashPick}
+            />
+            <MessageTextEditor
+              ref={textareaRef}
+              value={value}
+              disabled={disabled}
+              placeholder={images.length > 0 ? '给图片补充一点说明（可选）' : placeholder}
+              attachmentSummary={attachmentSummary || undefined}
+              queueCount={messageQueue.length}
+              onChange={setValue}
+              onPaste={handlePaste}
+              onSubmit={() => void submit()}
+            />
+          </div>
 
           {streaming && onStop ? (
             <button

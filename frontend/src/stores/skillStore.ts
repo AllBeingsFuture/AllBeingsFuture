@@ -24,7 +24,8 @@ interface SkillState {
   loading: boolean
   loaded: boolean
   load: (force?: boolean) => Promise<void>
-  install: (skill: Skill) => Promise<void>
+  /** Install accepts Skill fields plus backend-only fields like promptTemplate. */
+  install: (skill: Skill | Record<string, unknown>) => Promise<void>
   remove: (id: string) => Promise<void>
   toggleEnabled: (id: string, enabled: boolean) => Promise<void>
 }
