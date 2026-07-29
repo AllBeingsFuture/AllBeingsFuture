@@ -602,10 +602,12 @@ export class ProcessService {
           }
         } else {
           // File-only path for CLI agents (Codex / Gemini / OpenCode / Grok / …).
+          // Always inject into the agent runtime cwd (config.workDir / session worktree).
+          // Do NOT prefer worktreeSourceRepo — isolated sessions run in the worktree, so
+          // rules must live there or the agent never discovers them.
           try {
-            const promptWorkDir = session.worktreeSourceRepo || workDir
-            injectProviderRules(promptWorkDir, provider.id, providerNames)
-            this.supervisorPromptSessions.set(sessionId, promptWorkDir)
+            injectProviderRules(workDir, provider.id, providerNames)
+            this.supervisorPromptSessions.set(sessionId, workDir)
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err)
             appLog('warn', `Failed to inject provider rule files: ${errMsg}`, 'process')
