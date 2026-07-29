@@ -60,7 +60,6 @@ function stubComponent(testId: string) {
 
 vi.mock('../Sidebar', () => ({ default: stubComponent('sidebar') }))
 vi.mock('../MainPanel', () => ({ default: stubComponent('main-panel') }))
-vi.mock('../RightPanel', () => ({ default: stubComponent('right-panel') }))
 vi.mock('../StatusBar', () => ({ default: stubComponent('status-bar') }))
 vi.mock('../ActivityBar', () => ({ default: stubComponent('activity-bar') }))
 vi.mock('../TitleBar', () => ({ default: stubComponent('title-bar') }))
@@ -83,9 +82,10 @@ describe('App shell', () => {
     expect(screen.getByTestId('status-bar')).toBeInTheDocument()
   })
 
-  it('reserves a right gutter for the detail toggle so it does not cover the main panel scrollbar', () => {
+  it('reserves a left gutter for the sidebar toggle and does not render the right detail panel', () => {
     renderWithProviders(<App />)
 
-    expect(screen.getByTestId('main-panel').parentElement).toHaveClass('pr-6')
+    expect(screen.getByTestId('main-panel').parentElement).toHaveClass('pl-6')
+    expect(screen.queryByTestId('right-panel')).not.toBeInTheDocument()
   })
 })
