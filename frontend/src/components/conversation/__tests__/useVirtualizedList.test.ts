@@ -201,7 +201,7 @@ describe('useVirtualizedList', () => {
     expect(result.current.totalHeight).toBe(250)
   })
 
-  it('compensates scrollTop when an item above the viewport is remeasured taller', () => {
+  it('compensates scrollTop when an item fully above the viewport is remeasured taller', () => {
     const scrollElement = {
       scrollTop: 200,
     }
@@ -223,13 +223,45 @@ describe('useVirtualizedList', () => {
       result.current.measureElement('item-0')(firstNode)
     })
 
-    // item-0 start is 0, which is above scrollTop 200; growing it should push scrollTop.
+    // item-0 spans [0, 50], fully above scrollTop 200; growing it should push scrollTop.
     act(() => {
       firstNode.__height = 120
       resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
     })
 
     expect(scrollElement.scrollTop).toBe(270)
+    expect(result.current.totalHeight).toBe(320)
+  })
+
+  it('does not compensate scrollTop when a partially visible item is remeasured taller', () => {
+    const scrollElement = {
+      scrollTop: 40,
+    }
+
+    const { result } = renderHook(() => useVirtualizedList({
+      items: makeItems('stream'),
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 40,
+      viewportHeight: 60,
+      getScrollElement: () => scrollElement as HTMLElement,
+    }))
+
+    const firstNode = createFakeNode(50)
+
+    act(() => {
+      result.current.measureElement('item-0')(firstNode)
+    })
+
+    // item-0 spans [0, 50] and intersects the viewport starting at 40 — do not fight scroll-up.
+    act(() => {
+      firstNode.__height = 120
+      resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
+    })
+
+    expect(scrollElement.scrollTop).toBe(40)
     expect(result.current.totalHeight).toBe(320)
   })
 

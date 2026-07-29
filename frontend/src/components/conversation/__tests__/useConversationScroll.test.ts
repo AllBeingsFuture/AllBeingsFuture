@@ -206,7 +206,7 @@ describe('useConversationScroll', () => {
 
     act(() => {
       vi.advanceTimersByTime(3100)
-      result.current.handleWheel()
+      result.current.handleWheel({ deltaY: -40 } as WheelEvent)
       el.scrollTop = 200
       result.current.handleScroll()
     })
@@ -223,6 +223,44 @@ describe('useConversationScroll', () => {
     })
     flushAnimationFrames()
     expect(el.scrollTop).toBe(200)
+  })
+
+  it('detaches on wheel-up before scroll fires so streaming growth cannot yank back to bottom', () => {
+    const { el, metrics } = createScrollContainer({ scrollHeight: 2000, clientHeight: 400, scrollTop: 1600 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 8, streaming: true },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 8, streaming: true })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(1600)
+
+    // Wheel-up intent only — no scroll event yet (the race that used to re-stick).
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      result.current.handleWheel({ deltaY: -120 } as WheelEvent)
+    })
+
+    metrics.scrollHeight = 2600
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+
+    // Still near the pre-wheel position; must not jump to the new bottom (2200).
+    expect(el.scrollTop).toBe(1600)
+
+    act(() => {
+      rerender({ sessionId: 's1', length: 12, streaming: true })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(1600)
   })
 
   it('re-attaches when the user scrolls back near the bottom', () => {
@@ -242,7 +280,7 @@ describe('useConversationScroll', () => {
 
     act(() => {
       vi.advanceTimersByTime(3100)
-      result.current.handleWheel()
+      result.current.handleWheel({ deltaY: -40 } as WheelEvent)
       el.scrollTop = 100
       result.current.handleScroll()
     })
@@ -279,7 +317,7 @@ describe('useConversationScroll', () => {
 
     act(() => {
       vi.advanceTimersByTime(3100)
-      result.current.handleWheel()
+      result.current.handleWheel({ deltaY: -40 } as WheelEvent)
       el.scrollTop = 40
       result.current.handleScroll()
     })

@@ -346,7 +346,11 @@ export function useVirtualizedList<T>({
       size: normalized,
     })
 
-    // Preserve visual position when an item above the viewport changes height.
+    // Preserve visual position only when the item is fully above the viewport.
+    // Using `itemStart < scrollTop` also matched partially-visible rows; when
+    // long-history estimates under-shoot and many rows remeasure taller while
+    // the user is scrolling up, those partial matches fought the gesture and
+    // made the list feel stuck.
     if (previousSize != null && previousSize > 0) {
       const delta = normalized - previousSize
       const itemStart = itemStartsRef.current.get(key)
@@ -355,7 +359,7 @@ export function useVirtualizedList<T>({
         delta !== 0
         && scrollEl
         && itemStart !== undefined
-        && itemStart < scrollEl.scrollTop
+        && itemStart + previousSize <= scrollEl.scrollTop + 0.5
       ) {
         scrollEl.scrollTop += delta
       }

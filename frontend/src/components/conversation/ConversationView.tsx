@@ -200,19 +200,23 @@ function estimateMessageGroupHeight(group: MessageGroup): number {
   const totalContentLength = group.messages.reduce((sum, message) => sum + (message.content?.length || 0), 0)
   const newlineCount = group.messages.reduce((sum, message) => sum + ((message.content?.match(/\n/g) || []).length), 0)
 
+  // Prefer slight over-estimates. Under-estimated totalHeight shrinks the
+  // scroll range and, during virtualized remeasure, produces large positive
+  // scrollTop compensations that fight "scroll up to read history".
+
   if (group.type === 'thinking') {
-    return Math.min(320, 72 + Math.ceil(totalContentLength / 7) * 10 + newlineCount * 8)
+    return Math.min(960, 80 + Math.ceil(totalContentLength / 6) * 12 + newlineCount * 10)
   }
 
   if (group.type === 'tool_group') {
-    return 48 + group.messages.length * 68
+    return 56 + group.messages.length * 120
   }
 
   if (group.type === 'child_agent') {
-    return 72 + Math.min(120, group.messages.length * 18)
+    return 120 + Math.min(640, group.messages.length * 48)
   }
 
-  return Math.min(420, 68 + Math.ceil(totalContentLength / 9) * 16 + newlineCount * 10)
+  return Math.min(3200, 80 + Math.ceil(totalContentLength / 8) * 18 + newlineCount * 12)
 }
 
 /** Detect file-editing tool names (MCP allbeingsfuture tools + native Edit/Write) */

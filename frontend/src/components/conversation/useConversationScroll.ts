@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 
 interface UseConversationScrollOptions {
   sessionId: string
@@ -26,6 +26,7 @@ const PROGRAMMATIC_SCROLL_GUARD_MS = 150
  * - 用户手动滚离底部后停止自动跟随，避免“抢滚动条”
  * - 监听已渲染内容尺寸变化，修复流式更新 / 虚拟列表重测后无法跟上最新内容的问题
  * - 脱离跟随后，内容增高只做视口上方补偿，绝不再强制滚到底部
+ * - 滚轮/触控板向上意图在 scroll 事件之前就 detach，避免流式增高立刻把视口拽回底部
  */
 export function useConversationScroll({
   sessionId,
@@ -89,14 +90,25 @@ export function useConversationScroll({
     }
   }, [])
 
+  const detachFromBottomNow = useCallback(() => {
+    userDetachedRef.current = true
+    forceScrollUntilRef.current = 0
+    cancelPendingAutoScroll()
+  }, [cancelPendingAutoScroll])
+
   const shouldStickToBottom = useCallback(() => {
-    // Detach always wins. Force window only helps initial pin while still attached;
-    // handleScroll clears force as soon as the user intentionally scrolls away.
+    // Detach always wins — including wheel-up intent that fires before scroll.
+    // Force window only helps initial pin while still attached.
     if (userDetachedRef.current) return false
+    if (userInputActiveRef.current && !isNearBottomRef.current) return false
     return true
   }, [])
 
   const applyScrollToBottom = useCallback(() => {
+    // Never fight the user: if they already detached (e.g. wheel-up during a
+    // pending follow-up frame), leave the viewport alone and keep detach.
+    if (userDetachedRef.current) return
+
     const el = scrollContainerRef.current
     if (!el) return
 
@@ -108,7 +120,8 @@ export function useConversationScroll({
 
     lastScrollTopRef.current = nextScrollTop
     isNearBottomRef.current = true
-    userDetachedRef.current = false
+    // Do NOT clear userDetachedRef here. Clearing it raced with wheel-up
+    // detach and yanked readers back to the live tail when history is long.
     lastContentHeightRef.current = el.scrollHeight
     commitScrollMetrics()
   }, [commitScrollMetrics, markProgrammaticScroll])
@@ -188,9 +201,7 @@ export function useConversationScroll({
     // programmatic-scroll guard (auto-follow only increases scrollTop) and even
     // inside the wider "near bottom" follow band.
     if (scrolledUp && distanceFromBottom > USER_DETACH_THRESHOLD_PX) {
-      userDetachedRef.current = true
-      forceScrollUntilRef.current = 0
-      cancelPendingAutoScroll()
+      detachFromBottomNow()
     } else if (!isProgrammatic && distanceFromBottom <= USER_DETACH_THRESHOLD_PX) {
       // Re-attach only when truly back at the bottom (hysteresis vs detach threshold).
       userDetachedRef.current = false
@@ -201,13 +212,26 @@ export function useConversationScroll({
     lastScrollTopRef.current = el.scrollTop
     lastContentHeightRef.current = el.scrollHeight
     syncScrollMetrics()
-  }, [cancelPendingAutoScroll, syncScrollMetrics])
+  }, [detachFromBottomNow, syncScrollMetrics])
 
-  const handleWheel = useCallback(() => {
+  /**
+   * Wheel/trackpad intent fires before the corresponding scroll event.
+   * Detach immediately on upward intent so streaming ResizeObserver / message
+   * updates cannot snap the viewport back to the live tail mid-gesture.
+   */
+  const handleWheel = useCallback((event?: ReactWheelEvent<HTMLDivElement> | WheelEvent) => {
     userInputActiveRef.current = true
-  }, [])
+    const deltaY = event?.deltaY ?? 0
+    // deltaY < 0 → content moves down / user reads older messages (scroll up)
+    if (deltaY < 0) {
+      detachFromBottomNow()
+      return
+    }
+    // Horizontal / no vertical motion still counts as user control while away
+    // from the tail; stick decision is re-evaluated on the next scroll event.
+  }, [detachFromBottomNow])
 
-  const handlePointerDown = useCallback(() => {
+  const handlePointerDown = useCallback((_event?: ReactPointerEvent<HTMLDivElement> | PointerEvent) => {
     userInputActiveRef.current = true
   }, [])
 
