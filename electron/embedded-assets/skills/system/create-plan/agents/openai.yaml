@@ -1,8 +1,0 @@
-interface:
-  display_name: Create Plan
-  short_description: MUST CALL FIRST for multi-step tasks! If user request needs 2...
-  default_prompt: Use $create-plan
-i18n:
-  zh:
-    name: 创建计划
-    description: 为多步骤任务创建执行计划，在需要 2 个以上工具调用时必须首先创建计划。
