@@ -122,7 +122,7 @@ test('ACP permission requests are cancelled unless auto-accept is configured', a
   }
 })
 
-test('ACP forwards configured instructions once and negotiates image prompts', async () => {
+test('ACP forwards configured instructions once and image prompts', async () => {
   const manager = new BridgeManager()
   const events: BridgeEvent[] = []
 
@@ -145,7 +145,7 @@ test('ACP forwards configured instructions once and negotiates image prompts', a
     )
     assert.ok(events.some((event) =>
       event.event === 'delta'
-      && event.text === 'echo:custom instruction\n\nruntime instruction\n\nfirst'))
+      && event.text === 'echo:custom instruction\n\nruntime instruction\n\nfirst images:1'))
 
     await manager.sendMessage('instruction-session', 'second')
     await waitFor(
@@ -154,6 +154,38 @@ test('ACP forwards configured instructions once and negotiates image prompts', a
     )
     assert.ok(events.some((event) => event.event === 'delta' && event.text === 'echo:second'))
     assert.equal(events.filter((event) => event.event === 'delta' && event.text?.includes('runtime instruction')).length, 1)
+  } finally {
+    await manager.destroyAll()
+  }
+})
+
+test('ACP forwards images even when agent omits promptCapabilities.image', async () => {
+  const manager = new BridgeManager()
+  const events: BridgeEvent[] = []
+
+  try {
+    await manager.initSession('image-no-cap-session', 'acp', adapterConfig({
+      autoAccept: true,
+      envOverrides: { FAKE_ACP_BEHAVIOR: 'no_image_capability' },
+    }), (event) => {
+      events.push(event)
+    })
+
+    const ready = events.find((event) => event.event === 'status' && event.phase === 'ready')
+    assert.equal(ready?.initializeResponse?.agentCapabilities?.promptCapabilities?.image, undefined)
+
+    await manager.sendMessage('image-no-cap-session', 'see this', [{
+      data: 'aW1hZ2U=',
+      mimeType: 'image/png',
+    }])
+    await waitFor(
+      () => events.some((event) => event.event === 'done'),
+      'image prompt without negotiated capability',
+    )
+
+    assert.ok(events.some((event) =>
+      event.event === 'delta' && event.text === 'echo:see this images:1'))
+    assert.equal(events.some((event) => event.event === 'error'), false)
   } finally {
     await manager.destroyAll()
   }

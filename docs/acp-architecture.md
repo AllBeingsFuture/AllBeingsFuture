@@ -190,7 +190,7 @@ terminal mapping:
 **Prompt content construction:**
 
 - User text → `{ type: 'text', text }`
-- Images only if `promptCapabilities.image` negotiated; otherwise fail before send
+- Images → `{ type: 'image', data, mimeType }` always forwarded when present (many agents accept multimodal input even when ACP handshake omits `promptCapabilities.image`)
 - First-turn system/skill injection may prepend text blocks once per process lifetime (existing `appendSystemPrompt` / `customInstructions` pattern)
 
 **Concurrency:** one active `session/prompt` per adapter instance. A second send must fail fast until the previous turn settles.
@@ -568,7 +568,7 @@ These mismatches are observed by comparing `19f91b8` (runtime) with `91263ef` (s
 
 | Area | Cases |
 | --- | --- |
-| AcpAdapter + fake agent | initialize v1; wrong version fails; hang timeout; crash on start; malformed stdout; prompt stream text/thinking/tool/plan/permission; cancel; destroy SIGTERM; load session; image capability gate |
+| AcpAdapter + fake agent | initialize v1; wrong version fails; hang timeout; crash on start; malformed stdout; prompt stream text/thinking/tool/plan/permission; cancel; destroy SIGTERM; load session; image blocks always forwarded |
 | StreamNormalizer | every BridgeEvent kind → AgentStreamEvent; sequence monotonic; itemId synthesis; plan field map; permission label/requestId; cancel mapping |
 | agentStreamCore reducer | ignore old sequence; text append; thinking delta/replace; tool upsert; plan replace; permission wait; terminal finalize |
 | agentStreamIpc parser | reject malformed payloads; accept golden fixtures |
