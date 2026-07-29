@@ -64,6 +64,8 @@ export interface ChatPatchEvent {
 export interface AgentUpdateEvent {
   parentSessionId: string
   agent: AgentInfo
+  /** When true, remove this agent from the sidebar instead of upserting */
+  removed?: boolean
 }
 
 export interface ChatSnapshot {
@@ -509,9 +511,26 @@ export const chatCore = {
   },
 
   applyAgentUpdate(snapshot: ChatSnapshot, data: AgentUpdateEvent) {
-    const { parentSessionId, agent } = data
+    const { parentSessionId, agent, removed } = data
     if (!parentSessionId || !agent) return null
     const prevList = snapshot.agents[parentSessionId] || []
+
+    // Explicit close: drop agent from sidebar and reverse map
+    if (removed === true) {
+      const nextList = prevList.filter(
+        item => item.agentId !== agent.agentId && item.childSessionId !== agent.childSessionId,
+      )
+      const nextChildToParent = { ...snapshot.childToParent }
+      if (agent.childSessionId && nextChildToParent[agent.childSessionId]) {
+        delete nextChildToParent[agent.childSessionId]
+      }
+      return {
+        agents: { ...snapshot.agents, [parentSessionId]: nextList },
+        childToParent: nextChildToParent,
+        sessions: snapshot.sessions,
+      }
+    }
+
     const existingIndex = prevList.findIndex(item => item.agentId === agent.agentId)
     const nextList = existingIndex >= 0 ? prevList.map((item, index) => index === existingIndex ? agent : item) : [...prevList, agent]
     return {
@@ -547,12 +566,16 @@ export const chatCore = {
     for (const session of snapshot.sessions) {
       const parentSessionId = (session as SessionWithParent).parentSessionId
       if (!parentSessionId || seenChildIds.has(session.id)) continue
+      // Closed / terminated children must not reappear in the sidebar
+      if (session.status === 'terminated') continue
+      // Skip terminal statuses rehydrated from DB (prefer live tracker only)
+      if (session.status === 'completed' || session.status === 'error') continue
       const agent: AgentInfo = {
         agentId: `session-${session.id}`,
         name: session.name,
         parentSessionId,
         childSessionId: session.id,
-        status: ['starting', 'running', 'waiting_input'].includes(session.status) ? 'running' : session.status === 'idle' ? 'idle' : session.status === 'error' ? 'failed' : session.status === 'terminated' ? 'cancelled' : 'completed',
+        status: ['starting', 'running', 'waiting_input'].includes(session.status) ? 'running' : session.status === 'idle' ? 'idle' : 'completed',
         workDir: session.workingDirectory,
         createdAt: session.startedAt ? String(session.startedAt) : '',
         providerId: session.providerId,

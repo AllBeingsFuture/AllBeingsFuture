@@ -184,6 +184,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   handleAgentUpdate: (data) => {
     const patch = chatCore.applyAgentUpdate(snapshotOf(get()), data)
     if (patch) set(patch)
+    // Closed agents must not trigger a full reload that could flash UI state.
+    if (data.removed) return
     if (data.agent?.childSessionId && !get().sessions.find(session => session.id === data.agent.childSessionId)) {
       get().load().catch(() => {})
     }

@@ -35,15 +35,19 @@ const statusLabels: Record<string, string> = {
   cancelled: '已取消',
 }
 
+const ACTIVE_STATUSES = new Set(['pending', 'running', 'idle'])
+
 export default function AgentSubList({ agents, onSelectSession }: Props) {
-  const hasActive = agents.some(a => a.status === 'running' || a.status === 'pending' || a.status === 'idle')
+  // Only show non-terminal agents; closed/completed/failed should not linger
+  const visibleAgents = agents.filter(a => ACTIVE_STATUSES.has(a.status))
+  const hasActive = visibleAgents.length > 0
   const [expanded, setExpanded] = useState(hasActive)
 
   useEffect(() => {
     if (hasActive) setExpanded(true)
   }, [hasActive])
 
-  if (agents.length === 0) return null
+  if (visibleAgents.length === 0) return null
 
   return (
     <div className="mt-1 ml-3 border-l border-white/10 pl-2">
@@ -53,13 +57,13 @@ export default function AgentSubList({ agents, onSelectSession }: Props) {
       >
         {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <Cpu size={12} className="text-blue-300" />
-        <span>↳{agents.length}个子任务</span>
+        <span>↳{visibleAgents.length}个子任务</span>
         {hasActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />}
       </button>
 
       {expanded && (
         <div className="space-y-0.5 mt-0.5">
-          {agents.map(agent => (
+          {visibleAgents.map(agent => (
             <button
               key={agent.agentId}
               onClick={(e) => { e.stopPropagation(); onSelectSession?.(agent.childSessionId) }}

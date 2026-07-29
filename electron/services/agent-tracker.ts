@@ -234,6 +234,23 @@ export class AgentTracker {
   }
 
   /**
+   * Remove a tracked agent by its child session ID.
+   * Cleans dedup caches for the removed agent.
+   */
+  removeByChildSessionId(childSessionId: string): TrackedAgent | null {
+    for (const [agentId, agent] of this.agents) {
+      if (agent.childSessionId === childSessionId) {
+        this.agents.delete(agentId)
+        this.lastSummaries.delete(agentId)
+        this.lastAssistantText.delete(agentId)
+        appLog('info', `Agent removed from tracker: ${agentId} (child ${childSessionId})`, 'agent-tracker')
+        return agent
+      }
+    }
+    return null
+  }
+
+  /**
    * Finalize all still-running agents when the parent session completes.
    * Called when the main agent's stream ends normally (done event).
    */

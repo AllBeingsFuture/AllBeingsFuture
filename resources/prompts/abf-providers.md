@@ -72,9 +72,10 @@ opencode / opencode-cli            →  opencode-sdk
 
 ## Supervisor 与子 Agent 的 Provider 选择
 
-- Supervisor 始终是 Claude Code SDK（因为只有它原生支持 MCP，能调度其他 Agent）
-- 子 Agent 可以是任意 Provider，由 Supervisor 在 `spawn_agent` 时通过 `provider` 参数指定
-- `supervisor-prompt.ts` 会动态读取已配置的 Provider 列表，注入到 Supervisor 的规则中
+- 父会话与子 Agent 会话都会注入 **agent-control**（可 `spawn_agent` 继续调度）以及 **ABF Supervisor 规则文件**
+- 子 Agent 可以是任意 Provider，由调用方在 `spawn_agent` 时通过 `provider` 参数指定
+- 嵌套调度时：子 Agent 再 spawn 的孙 Agent 挂在该子会话下（`ABF_PARENT_SESSION_ID` = 当前会话 ID）
+- `supervisor-prompt.ts` 会动态读取已配置的 Provider 列表，注入到规则中
 
 ## 额度不足降级策略
 
