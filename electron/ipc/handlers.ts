@@ -281,6 +281,15 @@ export function registerAllIpcHandlers(
     console.warn('[startup-worktree-cleanup] failed', err)
   })
 
+  try {
+    const purged = (sessionService as any).purgeOrphanChildSessions?.() as number | undefined
+    if (purged && purged > 0) {
+      console.log(`[startup] purged ${purged} orphan child session(s)`)
+    }
+  } catch (err) {
+    console.warn('[startup] purgeOrphanChildSessions failed', err)
+  }
+
   // ==============================================================
   // SessionService
   // ==============================================================
@@ -288,12 +297,12 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SessionService.GetByID', (_e, id: string) => sessionService.getById(id))
   ipcMain.handle('SessionService.Create', (_e, config: any) => sessionService.create(config))
   ipcMain.handle('SessionService.Delete', async (_e, id: string) => {
-    // True teardown: destroy adapter + remove software-prompt files (not stop-only)
-    await processService.disposeSession(id).catch(() => {})
-    // Also dispose any child sessions still tracked (DB cascade deletes rows next)
-    for (const child of processService.getChildSessions(id)) {
-      await processService.disposeSession(child.id).catch(() => {})
+    // Dispose every descendant at any depth (deepest-first via reverse BFS), then self, then DB cascade.
+    const descendants = (sessionService as any).getDescendantSessionIds(id) as string[]
+    for (let i = descendants.length - 1; i >= 0; i--) {
+      await processService.disposeSession(descendants[i]!).catch(() => {})
     }
+    await processService.disposeSession(id).catch(() => {})
     sessionService.delete(id)
   })
   ipcMain.handle('SessionService.End', async (_e, id: string) => {

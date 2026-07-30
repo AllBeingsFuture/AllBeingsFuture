@@ -385,6 +385,15 @@ export class AgentLifecycleManager {
       throw new Error(`Session ${childSessionId} is not a child of ${parentSessionId}`)
     }
 
+    // Recursively close nested children (grandchildren…) before this child.
+    const nested = this.getChildSessions(childSessionId)
+    for (const gc of nested) {
+      await this.closeChildSession(childSessionId, gc.id).catch((err) => {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to close nested child ${gc.id}: ${errMsg}`, 'process')
+      })
+    }
+
     // Stop the child's bridge adapter and free concurrency slot
     await this.bridgeManager.destroySession(childSessionId).catch(() => {})
     this.concurrencyGuard.unregisterSession(childSessionId)
