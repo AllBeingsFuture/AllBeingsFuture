@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -56,8 +56,8 @@ interface ToolUseCardProps {
 }
 
 const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact = false }) => {
-  // null = follow autoExpand; boolean = sticky user override within the current phase.
-  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
+  // Always default collapsed; user toggle is sticky (streaming must not force expand).
+  const [expanded, setExpanded] = useState(false)
   const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0 })
 
   const resolvedOperation = useMemo(() => normalizeOperation(message, operation), [message, operation])
@@ -94,18 +94,10 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
 
   const isStreamingResult = Boolean(resolvedOperation.liveResult && !resolvedOperation.result)
   const isPending = Boolean(resolvedOperation.toolUse && !resolvedOperation.liveResult && !resolvedOperation.result)
-  // Auto-open only while in flight; settled history stays collapsed (no full input/result dump).
-  const autoExpand = isStreamingResult || isPending
-  const expanded = manualExpanded ?? autoExpand
-
-  useEffect(() => {
-    // Phase flip (in-flight ↔ settled) resets sticky expand so defaults re-apply.
-    setManualExpanded(null)
-  }, [autoExpand])
 
   const toggleExpanded = useCallback(() => {
-    setManualExpanded(current => !(current ?? autoExpand))
-  }, [autoExpand])
+    setExpanded(current => !current)
+  }, [])
 
   const isResult = Boolean(resolvedOperation.result) || primaryMessage?.role === 'tool_result'
   const isError = resolvedOperation.result?.isError ?? primaryMessage?.isError

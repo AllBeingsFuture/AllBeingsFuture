@@ -41,15 +41,15 @@ const liveTools: ConversationMessage[] = [
 ]
 
 describe('ToolOperationGroup', () => {
-  it('auto-expands while active so tool cards stream pending→running→done', () => {
+  it('stays collapsed while active / in-flight by default', () => {
     renderWithProviders(<ToolOperationGroup messages={liveTools} isActive />)
 
     const toggle = screen.getByTestId('tool-operation-group-toggle')
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText(/正在执行/)).toBeInTheDocument()
-    expect(screen.getByText('Bash')).toBeInTheDocument()
-    expect(screen.getByText('Grep')).toBeInTheDocument()
-    expect(screen.queryByText(/最近：/)).not.toBeInTheDocument()
+    expect(screen.getByText(/最近：/)).toBeInTheDocument()
+    expect(screen.queryByText('Bash')).not.toBeInTheDocument()
+    expect(screen.queryByText('Grep')).not.toBeInTheDocument()
   })
 
   it('stays collapsed for finished history groups by default', () => {
@@ -69,7 +69,7 @@ describe('ToolOperationGroup', () => {
   })
 
   it('stays collapsed when all tools settled even if isActive is still true', () => {
-    // Mid-turn: tools finished but session still streaming — must not stay open.
+    // Mid-turn: tools finished but session still streaming — must not auto-open.
     const finished = [
       toolMsg({
         id: 'use-1',
@@ -137,14 +137,10 @@ describe('ToolOperationGroup', () => {
     expect(screen.getByText('最终结果')).toBeInTheDocument()
   })
 
-  it('lets the user collapse a live group and expand it again', () => {
-    renderWithProviders(<ToolOperationGroup messages={liveTools} isActive />)
+  it('lets the user expand a live group and collapse it again; expand sticks across in-flight updates', () => {
+    const { rerender } = renderWithProviders(<ToolOperationGroup messages={liveTools} isActive />)
 
     const toggle = screen.getByTestId('tool-operation-group-toggle')
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Bash')).toBeInTheDocument()
-
-    fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText(/最近：/)).toBeInTheDocument()
     expect(screen.queryByText('Bash')).not.toBeInTheDocument()
@@ -153,6 +149,29 @@ describe('ToolOperationGroup', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Bash')).toBeInTheDocument()
     expect(screen.queryByText(/最近：/)).not.toBeInTheDocument()
+
+    // Streaming update (more output / still in flight) must not force-collapse.
+    const updatedLive: ConversationMessage[] = [
+      ...liveTools.slice(0, 2),
+      toolMsg({
+        id: 'result-1b',
+        role: 'tool_result',
+        toolUseId: 'call-1',
+        toolName: 'Bash',
+        toolResult: 'App.tsx\nmain.tsx\n',
+        content: 'App.tsx\nmain.tsx\n',
+        isDelta: true,
+      }),
+      liveTools[2],
+    ]
+    rerender(<ToolOperationGroup messages={updatedLive} isActive />)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Bash')).toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText(/最近：/)).toBeInTheDocument()
+    expect(screen.queryByText('Bash')).not.toBeInTheDocument()
   })
 
   it('does not dump raw JSON tool payloads into the collapsed summary', () => {
