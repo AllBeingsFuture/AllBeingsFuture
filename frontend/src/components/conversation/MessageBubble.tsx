@@ -234,10 +234,17 @@ export default function MessageBubble({ message, providerId }: Props) {
                 <p className="whitespace-pre-wrap break-words">{message.content}</p>
               </div>
             ) : isPartial ? (
-              <div className="whitespace-pre-wrap break-words text-[15px] leading-[1.8] text-zinc-200/88">
+              <div
+                className="whitespace-pre-wrap break-words text-[15px] leading-[1.8] text-zinc-200/88"
+                data-testid="streaming-message-body"
+              >
                 {displayContent || (
                   <span className="italic text-zinc-600">等待响应...</span>
                 )}
+                <span
+                  aria-hidden
+                  className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[2px] animate-pulse bg-zinc-300/80 align-baseline"
+                />
               </div>
             ) : displayContent ? (
               <>

@@ -79,6 +79,30 @@ function getOperationName(operation: ToolOperationCardData): string {
   return operation.result?.toolName || operation.liveResult?.toolName || operation.toolUse?.toolName || 'Tool'
 }
 
+function looksLikeJsonBlob(value: string): boolean {
+  const trimmed = value.trim()
+  return (trimmed.startsWith('{') && trimmed.includes(':'))
+    || (trimmed.startsWith('[') && trimmed.length > 2)
+}
+
+function summarizeJsonBlob(value: string, toolName: string): string {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>
+      for (const key of ['query', 'command', 'path', 'file_path', 'pattern', 'description', 'prompt', 'name']) {
+        const text = getText(record[key])
+        if (text) return `${key}: ${truncateInline(text, 72)}`
+      }
+      const keys = Object.keys(record).slice(0, 4)
+      if (keys.length > 0) return `${toolName} · ${keys.join(', ')}`
+    }
+  } catch {
+    // fall through
+  }
+  return toolName
+}
+
 function getOperationSummary(operation: ToolOperationCardData): string {
   const message = operation.result || operation.liveResult || operation.toolUse
   if (!message) return ''
@@ -89,6 +113,15 @@ function getOperationSummary(operation: ToolOperationCardData): string {
     ...(operation.liveResult?.toolInput || {}),
     ...(operation.result?.toolInput || {}),
   }
+  const live = Boolean(operation.liveResult && !operation.result)
+    || Boolean(operation.toolUse && !operation.result && !operation.liveResult)
+  const prefix = live
+    ? '执行中'
+    : operation.result?.isError
+      ? '执行失败'
+      : operation.result
+        ? '执行完成'
+        : '已发起'
 
   // Agent 工具专用摘要
   if (AGENT_TOOLS.has(toolName)) {
@@ -99,19 +132,38 @@ function getOperationSummary(operation: ToolOperationCardData): string {
   const command = getText(toolInput.command)
   const filePath = getText(toolInput.file_path) || getText(toolInput.path)
   const pattern = getText(toolInput.pattern)
+  const query = getText(toolInput.query) || getText(toolInput.prompt)
 
-  if (command) {
-    const prefix = operation.liveResult && !operation.result
-      ? '执行中'
-      : operation.result?.isError ? '执行失败' : operation.result ? '执行完成' : '已发起'
-    return `${prefix} · ${truncateInline(command, 96)}`
+  if (command) return `${prefix} · ${truncateInline(command, 96)}`
+  if (filePath) return `${prefix} · ${truncateInline(filePath, 96)}`
+  if (pattern) return `${prefix} · pattern: ${truncateInline(pattern, 72)}`
+  if (query) return `${prefix} · ${truncateInline(query, 96)}`
+
+  // Prefer short human keys over dumping entire toolInput JSON.
+  const inputKeys = Object.keys(toolInput)
+  if (inputKeys.length > 0) {
+    const sample = inputKeys
+      .slice(0, 3)
+      .map((key) => {
+        const text = getText(toolInput[key])
+        return text ? `${key}=${truncateInline(text, 28)}` : key
+      })
+      .join(', ')
+    return `${prefix} · ${sample}`
   }
 
-  if (filePath) return filePath
-  if (pattern) return `pattern: ${pattern}`
-  if (message.toolResult) return firstMeaningfulLine(message.toolResult)
-  if (message.content) return truncateInline(message.content, 96)
-  return getOperationName(operation)
+  if (message.toolResult) {
+    const line = firstMeaningfulLine(message.toolResult)
+    if (looksLikeJsonBlob(line)) return `${prefix} · ${summarizeJsonBlob(line, toolName)}`
+    return `${prefix} · ${line}`
+  }
+  if (message.content) {
+    if (looksLikeJsonBlob(message.content)) {
+      return `${prefix} · ${summarizeJsonBlob(message.content, toolName)}`
+    }
+    return `${prefix} · ${truncateInline(message.content, 96)}`
+  }
+  return `${prefix} · ${toolName}`
 }
 
 function firstMeaningfulLine(value: string): string {
@@ -132,19 +184,19 @@ function getText(value: unknown): string {
 }
 
 const ToolOperationGroup: React.FC<ToolOperationGroupProps> = ({ messages, isActive }) => {
-  // Default closed for both live and finished groups. User toggle is sticky
-  // within the current active/settled phase; phase change resets to closed.
+  // Live groups auto-expand so pending→running→done is visible without a click.
+  // Settled history stays collapsed. User toggle is sticky within the phase.
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
-  const expanded = manualExpanded ?? false
+  const expanded = manualExpanded ?? isActive
 
   useEffect(() => {
-    // New live turn / settled history should start collapsed again.
+    // Phase flip (live ↔ settled) resets sticky expand so defaults re-apply.
     setManualExpanded(null)
   }, [isActive])
 
   const toggleExpanded = useCallback(() => {
-    setManualExpanded(current => !(current ?? false))
-  }, [])
+    setManualExpanded(current => !(current ?? isActive))
+  }, [isActive])
 
   const operations = useMemo(() => aggregateOperations(messages), [messages])
   const toolCounts = useMemo(() => {
