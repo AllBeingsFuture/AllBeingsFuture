@@ -136,10 +136,61 @@ export class SessionService {
     return this.getById(id)!
   }
 
+  /**
+   * Collect all descendant session ids under `id` via parent_session_id (BFS).
+   * Does not include `id` itself.
+   */
+  getDescendantSessionIds(id: string): string[] {
+    const childrenByParent = new Map<string, string[]>()
+    for (const session of this.getAll()) {
+      const parentId = session.parentSessionId || ''
+      if (!parentId) continue
+      const list = childrenByParent.get(parentId)
+      if (list) list.push(session.id)
+      else childrenByParent.set(parentId, [session.id])
+    }
+    const descendants: string[] = []
+    const queue = [...(childrenByParent.get(id) ?? [])]
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      descendants.push(current)
+      const children = childrenByParent.get(current)
+      if (children) queue.push(...children)
+    }
+    return descendants
+  }
+
   delete(id: string): void {
-    // Cascade: delete all child sessions first
-    this.db.raw.prepare('DELETE FROM sessions WHERE parent_session_id = ?').run(id)
-    this.db.raw.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+    // Cascade: delete all descendants (any depth), then self
+    const descendants = this.getDescendantSessionIds(id)
+    const del = this.db.raw.prepare('DELETE FROM sessions WHERE id = ?')
+    for (const childId of descendants) {
+      del.run(childId)
+    }
+    del.run(id)
+  }
+
+  /**
+   * Delete child sessions whose parent_session_id is non-empty but the parent
+   * row no longer exists. Repeats until no more orphans (cascading multi-level).
+   * @returns total number of rows deleted
+   */
+  purgeOrphanChildSessions(): number {
+    let total = 0
+    for (;;) {
+      const sessions = this.getAll()
+      const present = new Set(sessions.map((s) => s.id))
+      const orphans = sessions.filter(
+        (s) => s.parentSessionId && s.parentSessionId !== '' && !present.has(s.parentSessionId),
+      )
+      if (orphans.length === 0) break
+      const del = this.db.raw.prepare('DELETE FROM sessions WHERE id = ?')
+      for (const orphan of orphans) {
+        del.run(orphan.id)
+        total += 1
+      }
+    }
+    return total
   }
 
   end(id: string): void {
