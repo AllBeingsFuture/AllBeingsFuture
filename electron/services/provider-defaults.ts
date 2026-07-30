@@ -64,7 +64,9 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
   {
     id: 'claude-code',
     name: 'Claude Code',
-    // Official ACP registry: @agentclientprotocol/claude-agent-acp (no native claude --acp)
+    // Official ACP registry: @agentclientprotocol/claude-agent-acp (no native claude --acp).
+    // Thin JS wrapper may ship in the app; host Claude CLI is resolved like Grok
+    // (PATH / CLAUDE_CODE_EXECUTABLE / provider executablePath) — never pack platform natives.
     command: 'claude-agent-acp',
     adapterType: 'acp',
     defaultArgs: '',
@@ -72,12 +74,13 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
     isEnabled: true,
     sortOrder: 2,
     acpVerification:
-      'Official ACP registry claude-acp/agent.json → npx @agentclientprotocol/claude-agent-acp (bin claude-agent-acp); app dependency for offline-resolvable spawn',
+      'Official ACP registry claude-acp/agent.json → claude-agent-acp JS wrapper; host Claude via CLAUDE_CODE_EXECUTABLE / CLAUDE_PATH / PATH (no packed platform binary)',
   },
   {
     id: 'codex',
     name: 'Codex CLI',
-    // Official ACP registry: @agentclientprotocol/codex-acp (codex app-server is not ACP)
+    // Official ACP registry: @agentclientprotocol/codex-acp (codex app-server is not ACP).
+    // Thin JS wrapper may ship; host `codex` via CODEX_PATH / PATH like Grok — no packed natives.
     command: 'codex-acp',
     adapterType: 'acp',
     defaultArgs: '',
@@ -85,7 +88,7 @@ export const BUILTIN_PROVIDER_DEFAULTS: readonly BuiltinProviderDefault[] = [
     isEnabled: true,
     sortOrder: 3,
     acpVerification:
-      'Official ACP registry codex-acp/agent.json → npx @agentclientprotocol/codex-acp (bin codex-acp); app dependency; local codex CLI at ~/.npm-global/bin/codex used via CODEX_PATH when present',
+      'Official ACP registry codex-acp/agent.json → codex-acp JS wrapper; host codex via CODEX_PATH / PATH (no packed @openai/codex-* platform packages)',
   },
   {
     id: 'gemini-cli',

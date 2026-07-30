@@ -12,6 +12,11 @@ import {
   isBundledAcpWrapperCommand,
   resolveBundledAcpWrapperEntry,
 } from '../bridge/acp-package-resolve.js'
+import {
+  resolveClaudeCodeExecutable,
+  resolveCodexCliPath,
+  resolveGrokCliPath,
+} from './cli-path-resolve.js'
 
 export interface AIProvider {
   id: string
@@ -126,7 +131,7 @@ function getCommonUserBinDirs(): string[] {
   const dirs: string[] = []
 
   // Explicit overrides: accept a binary path (use its dirname) or a bin directory.
-  for (const envKey of ['GROK_PATH', 'CODEX_PATH'] as const) {
+  for (const envKey of ['GROK_PATH', 'CODEX_PATH', 'CLAUDE_CODE_EXECUTABLE', 'CLAUDE_PATH'] as const) {
     const value = process.env[envKey]?.trim()
     if (!value) continue
     try {
@@ -164,9 +169,11 @@ export function resolveExecutable(target: string): boolean {
   const executable = extractExecutableTarget(target)
   if (!executable) return false
 
-  // Bundled ACP wrappers are resolved to real asar.unpacked paths.
+  // ACP JS wrappers: package entry OR global PATH install (same as Grok).
+  // Host Claude/Codex natives are separate (injected via env at session start).
   if (isBundledAcpWrapperCommand(executable)) {
-    return Boolean(resolveBundledAcpWrapperEntry(executable))
+    if (resolveBundledAcpWrapperEntry(executable)) return true
+    // Continue to PATH / local .bin search below.
   }
 
   const tryCandidate = (basePath: string) => executableExtensions(basePath).some((ext) => {
@@ -179,18 +186,17 @@ export function resolveExecutable(target: string): boolean {
     return tryCandidate(path.resolve(executable)) || tryCandidate(executable)
   }
 
-  // GROK_PATH may point directly at the binary (e.g. ~/.grok/bin/grok).
-  const grokPath = process.env.GROK_PATH?.trim()
-  if (executable === 'grok' && grokPath && tryCandidate(grokPath)) {
-    return true
-  }
+  // Grok / Codex / Claude host CLIs: dedicated resolvers (PATH + env + user bins).
+  if (executable === 'grok' && resolveGrokCliPath()) return true
+  if (executable === 'codex' && resolveCodexCliPath()) return true
+  if (executable === 'claude' && resolveClaudeCodeExecutable()) return true
 
   const pathEntries = (process.env.PATH || '')
     .split(path.delimiter)
     .map(entry => entry.trim())
     .filter(Boolean)
 
-  // Also search app-local node_modules/.bin for bundled ACP wrappers
+  // Also search app-local node_modules/.bin for thin ACP wrappers
   // (claude-agent-acp / codex-acp) without requiring global install.
   const localBins = [
     path.join(process.cwd(), 'node_modules', '.bin'),

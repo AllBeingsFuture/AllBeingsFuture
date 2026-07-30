@@ -18,6 +18,13 @@ import type { ProviderService } from './provider.js'
 import type { SettingsService } from './settings.js'
 import type { BridgeManager } from '../bridge/bridge.js'
 import { ProviderCapabilityRegistry } from '../bridge/ProviderCapabilityRegistry.js'
+import {
+  hasOptionalClaudeNativePackage,
+  hasOptionalCodexNativePackage,
+  missingHostCliError,
+  resolveClaudeCodeExecutable,
+  resolveCodexCliPath,
+} from './cli-path-resolve.js'
 import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
 import { MessageScheduler } from './message-scheduler.js'
@@ -704,14 +711,29 @@ export class ProcessService {
       config.resumeFlag = provider.resumeFlag
     }
 
-    // Wire local Codex binary into the official codex-acp wrapper when present.
-    if (provider.id === 'codex' && isAcp) {
+    // Wire host CLIs into thin ACP wrappers (same model as Grok: PATH / env / settings).
+    // Production packages never embed Codex/Claude platform natives; dev may still have optional packages.
+    if (isAcp && (provider.id === 'codex' || provider.id === 'claude-code')) {
       const envOverrides = {
         ...((config.envOverrides as Record<string, string> | undefined) || {}),
       }
-      if (!envOverrides.CODEX_PATH) {
-        const codexPath = this.resolveLocalCodexPath(provider)
-        if (codexPath) envOverrides.CODEX_PATH = codexPath
+      if (provider.id === 'codex') {
+        if (!envOverrides.CODEX_PATH) {
+          const codexPath = resolveCodexCliPath(provider.executablePath)
+          if (codexPath) envOverrides.CODEX_PATH = codexPath
+        }
+        if (!envOverrides.CODEX_PATH && !hasOptionalCodexNativePackage()) {
+          throw missingHostCliError('codex', `Provider: ${provider.name}.`)
+        }
+      }
+      if (provider.id === 'claude-code') {
+        if (!envOverrides.CLAUDE_CODE_EXECUTABLE) {
+          const claudePath = resolveClaudeCodeExecutable(provider.executablePath)
+          if (claudePath) envOverrides.CLAUDE_CODE_EXECUTABLE = claudePath
+        }
+        if (!envOverrides.CLAUDE_CODE_EXECUTABLE && !hasOptionalClaudeNativePackage()) {
+          throw missingHostCliError('claude', `Provider: ${provider.name}.`)
+        }
       }
       if (Object.keys(envOverrides).length > 0) {
         config.envOverrides = envOverrides
@@ -1841,31 +1863,6 @@ export class ProcessService {
   private isAcpAdapter(adapterType: string): boolean {
     const t = (adapterType || '').toLowerCase()
     return t === 'acp' || t === 'acp-stdio'
-  }
-
-  /** Prefer user executablePath, then CODEX_PATH, then common local install locations. */
-  private resolveLocalCodexPath(provider: { executablePath?: string; command?: string }): string | undefined {
-    const candidates = [
-      provider.executablePath?.trim(),
-      process.env.CODEX_PATH?.trim(),
-      path.join(os.homedir(), '.npm-global', 'bin', 'codex'),
-      path.join(os.homedir(), '.local', 'bin', 'codex'),
-      '/usr/local/bin/codex',
-      '/opt/homebrew/bin/codex',
-    ].filter(Boolean) as string[]
-
-    for (const candidate of candidates) {
-      try {
-        if (candidate && fs.existsSync(candidate) && path.basename(candidate).startsWith('codex') && !candidate.includes('codex-acp')) {
-          return candidate
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // Do not use command='codex-acp' as CODEX_PATH — that is the ACP wrapper.
-    return undefined
   }
 
   /**

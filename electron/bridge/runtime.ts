@@ -195,29 +195,28 @@ export function buildChildProcessEnv(envOverrides?: Record<string, string>): Nod
 export function resolveProcessCommand(command: string | undefined, fallback: string): ResolvedProcessCommand {
   const resolved = resolveCommand(command, fallback)
 
-  // 1) Bundled ACP wrappers (claude-agent-acp / codex-acp): always run the
-  //    real on-disk package entry via Node — never spawn a path inside app.asar.
+  // 1) ACP wrappers (claude-agent-acp / codex-acp): JS-only package entry via Node.
+  //    Platform-native Codex/Claude binaries are NOT packed — wrappers need host CLI
+  //    (CODEX_PATH / CLAUDE_CODE_EXECUTABLE or PATH). Prefer app.asar.unpacked, else
+  //    global install / PATH (same model as Grok).
   if (isBundledAcpWrapperCommand(resolved.command)) {
     const entry = resolveBundledAcpWrapperEntry(resolved.command)
-    if (!entry) {
-      throw new Error(
-        `Bundled ACP wrapper '${resolved.command}' was not found on a spawnable filesystem path. `
-        + 'Ensure the package is listed in build.asarUnpack and installed as a dependency.',
-      )
+    if (entry) {
+      assertSpawnableEntrypoint(entry, resolved.command)
+      const runner = resolveJsRunner()
+      return {
+        command: runner.command,
+        args: [entry, ...resolved.args],
+        shell: false,
+        shimEntrypoint: entry,
+        env: {
+          ...runner.env,
+          // Ensure system Node can resolve asarUnpacked peer deps (sdk/zod/…).
+          ...buildUnpackedNodePathEnv(entry),
+        },
+      }
     }
-    assertSpawnableEntrypoint(entry, resolved.command)
-    const runner = resolveJsRunner()
-    return {
-      command: runner.command,
-      args: [entry, ...resolved.args],
-      shell: false,
-      shimEntrypoint: entry,
-      env: {
-        ...runner.env,
-        // Ensure system Node can resolve asarUnpacked peer deps (sdk/zod/…).
-        ...buildUnpackedNodePathEnv(entry),
-      },
-    }
+    // No bundled entry: resolve like any other PATH CLI (global install).
   }
 
   // 2) Absolute / relative path that points at a JS entry (possibly under asar)

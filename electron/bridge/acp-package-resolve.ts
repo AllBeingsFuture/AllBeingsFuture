@@ -1,13 +1,16 @@
 /**
- * Resolve bundled ACP wrapper packages to real filesystem paths that can be
+ * Resolve thin ACP wrapper packages to real filesystem paths that can be
  * passed to child_process.spawn.
  *
  * Electron packs dependencies into app.asar by default. Paths inside app.asar
  * (without .unpacked) cannot be used as spawn targets for system Node / most
- * OS exec paths. Official wrappers:
+ * OS exec paths. Official **JS-only** wrappers:
  *   - claude-agent-acp → @agentclientprotocol/claude-agent-acp
  *   - codex-acp        → @agentclientprotocol/codex-acp
- * are therefore asarUnpacked and resolved here.
+ * are asarUnpacked and resolved here.
+ *
+ * Platform-native Codex / Claude binaries are **not** packed (see docs/size-packaging.md).
+ * Host CLIs are resolved separately via PATH / CODEX_PATH / CLAUDE_CODE_EXECUTABLE.
  */
 
 import { existsSync, realpathSync, statSync } from 'node:fs'
