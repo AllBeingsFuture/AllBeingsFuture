@@ -40,6 +40,11 @@ export interface AgentApiBody {
   message?: string
   /** When true, block until the child turn finishes. Default false (AO-style fire-and-forget). */
   wait?: boolean
+  /**
+   * When true, cancel the child's current turn then send immediately.
+   * Default false: queue_after_turn (append task; do not interrupt).
+   */
+  interrupt?: boolean
   timeout?: number
   lines?: number
   status?: string

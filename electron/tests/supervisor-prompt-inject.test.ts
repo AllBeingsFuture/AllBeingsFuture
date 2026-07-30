@@ -172,19 +172,29 @@ test('process.ts persistent child done injects result to parent (not only non-pe
   assert.match(block, /Skipping persistent-child idle finalize after interrupt|doneIsFromInterrupt/)
 })
 
-test('sendToChild: interrupt then running then send (no interrupt on send) for 二次派发 status', () => {
+test('sendToChild: default queue (no forced interrupt); optional interrupt then running then send', () => {
   const lifecyclePath = path.join(electronRoot, 'services/agent-lifecycle.ts')
   const lifecycle = readFileSync(lifecyclePath, 'utf8')
   const block = lifecycle.match(/async sendToChild\([\s\S]*?async sendToChildAndWait/)
   assert.ok(block, 'expected sendToChild body')
   const body = block[0]
-  const interruptAt = body.indexOf('interruptTurn')
+  assert.match(body, /opts\?\.interrupt === true/)
+  assert.match(body, /if \(interrupt\)/)
   const runningAt = body.indexOf('updatePersistentAgentStatus')
   const sendAt = body.lastIndexOf('sendMessage')
-  assert.ok(interruptAt >= 0, 'must interrupt first')
-  assert.ok(runningAt > interruptAt, 'running after interrupt')
+  assert.ok(runningAt >= 0, 'running status')
   assert.ok(sendAt > runningAt, 'send after running')
   assert.doesNotMatch(body, /sendMessage\([^)]*interrupt:\s*true/)
+})
+
+test('stopProcess must not finalizeChildAgents cancelled; dispose still finalizes', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  const stopMatch = source.match(
+    /async stopProcess\(sessionId: string\): Promise<void> \{[\s\S]*?\n  \}/,
+  )
+  assert.ok(stopMatch, 'expected stopProcess method')
+  assert.doesNotMatch(stopMatch[0], /finalizeChildAgents/)
+  assert.match(source, /async disposeSession[\s\S]*?finalizeChildAgents\(sessionId, 'cancelled'/)
 })
 
 test('sendMessage dual-insurance marks persistent child running when turn starts', () => {
@@ -416,6 +426,61 @@ test('process.ts only injects worker files for direct child isolated worktree (n
   assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
   // Worker file inject for direct child
   assert.match(source, /injectWorkerPromptFiles/)
+})
+
+test('wrapWorkerTaskPrompt appends mempalace checkpoint reminder for every child task', async () => {
+  const {
+    wrapWorkerTaskPrompt,
+    WORKER_TASK_MEMPALACE_HINT,
+    NESTED_CHILD_MEMPALACE_MEMORY_PROMPT,
+    enabledMcpsIncludeMempalace,
+  } = await loadSupervisorPrompt()
+
+  const wrapped = wrapWorkerTaskPrompt('Implement feature X in foo.ts')
+  assert.match(wrapped, /Implement feature X/)
+  assert.match(wrapped, /mempalace_checkpoint/)
+  assert.match(wrapped, /wing.*room.*content|items:.*wing/i)
+  assert.match(wrapped, /peer lock|retry once/i)
+  assert.ok(wrapped.includes(WORKER_TASK_MEMPALACE_HINT) || wrapped.includes('## Memory (if mempalace MCP is available)'))
+
+  // Idempotent: do not double-append the fixed hint
+  const twice = wrapWorkerTaskPrompt(wrapped)
+  assert.equal(twice, wrapped)
+
+  // Empty task still gets the memory path
+  const emptyWrapped = wrapWorkerTaskPrompt('  ')
+  assert.match(emptyWrapped, /mempalace_checkpoint/)
+
+  // Nested-child short system prompt is present and strong (must / before finishing)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /mempalace_checkpoint/)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /must|Before finishing/i)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /wing|room|content/i)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /peer lock|retry once/i)
+  // Must NOT look like full abf-worker handbook
+  assert.doesNotMatch(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /agent-control|spawn_agent|ABF Worker/)
+
+  assert.equal(enabledMcpsIncludeMempalace({ mempalace: { command: 'node', args: [] } }), true)
+  assert.equal(enabledMcpsIncludeMempalace({ custom: { command: 'npx', args: ['-y', 'mempalace'] } }), true)
+  assert.equal(enabledMcpsIncludeMempalace({ other: { command: 'echo', args: [] } }), false)
+  assert.equal(enabledMcpsIncludeMempalace({}), false)
+  assert.equal(enabledMcpsIncludeMempalace(null), false)
+})
+
+test('process.ts injects nested-child short Memory prompt when mempalace enabled (no full worker)', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  assert.match(source, /NESTED_CHILD_MEMPALACE_MEMORY_PROMPT/)
+  assert.match(source, /enabledMcpsIncludeMempalace/)
+  assert.match(source, /mempalaceEnabled/)
+  assert.match(source, /Injected short mempalace Memory prompt for nested child/)
+  // Still skips full worker + agent-control for sons
+  assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
+  // Nested memory inject is gated on mempalaceEnabled, not unconditional full worker
+  assert.match(source, /if \(mempalaceEnabled\)/)
+  // Must not inject full worker rules content into nested-child arm
+  const nestedArm = source.match(/\} else if \(isChild\) \{[\s\S]*?\} else \{/)
+  assert.ok(nestedArm, 'expected nested-child branch')
+  assert.doesNotMatch(nestedArm[0], /buildWorkerRulesContent\s*\(/)
+  assert.doesNotMatch(nestedArm[0], /injectWorkerPromptFiles/)
 })
 
 test('hasSupervisorPromptFiles detects missing AGENTS block and re-inject restores it', async () => {

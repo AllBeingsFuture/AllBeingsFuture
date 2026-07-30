@@ -214,6 +214,8 @@ test('disposeSession deletes session-keyed maps and cleans lifecycle waiters; st
   assert.doesNotMatch(stop[0], /cleanupDisposedSessionMaps/)
   assert.doesNotMatch(stop[0], /agentStreamNormalizer\.clearSession/)
   assert.doesNotMatch(stop[0], /cleanupDisposedSessionWorktree/)
+  // stop must not cascade-cancel children (user interrupt parent ≠ cancel kids)
+  assert.doesNotMatch(stop[0], /finalizeChildAgents/)
   // stop still keeps sequence counters (comment contract)
   assert.match(stop[0], /Keep stream sequence counters/)
 

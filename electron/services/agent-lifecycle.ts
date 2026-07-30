@@ -34,13 +34,13 @@ export interface ProcessServiceCallbacks {
   emitChatUpdate(sessionId: string): void
   persistMessages(sessionId: string): void
   initSession(sessionId: string): Promise<void>
-  /** @param opts.interrupt parent→child: cancel active turn then send immediately */
+  /** @param opts.interrupt when true: cancel active turn then send immediately */
   sendMessage(
     sessionId: string,
     message: string,
     opts?: { interrupt?: boolean },
   ): Promise<void>
-  /** Cancel active turn without destroying the session (interrupt-then-send). */
+  /** Cancel active turn without destroying the session (opt-in interrupt path). */
   interruptTurn(sessionId: string): Promise<void>
 }
 
@@ -326,49 +326,65 @@ export class AgentLifecycleManager {
 
   /**
    * Send a message to a child session from its parent.
-   * Always interrupt-then-send: if the child is mid-turn, cancel first, then
-   * deliver immediately (no queue_after_turn). Applies to 爷爷→父亲 and 父亲→儿子.
+   * Default: queue_after_turn — do not cancel the child's current turn; idle
+   * sends immediately, streaming queues via MessageScheduler.
+   * Pass `interrupt: true` only for emergency correction (cancel then send).
    */
   async sendToChild(
     parentSessionId: string,
     childSessionId: string,
     message: string,
+    opts?: { interrupt?: boolean },
   ): Promise<void> {
     const child = this.sessionService.getById(childSessionId)
     if (!child) throw new Error(`Child session not found: ${childSessionId}`)
     if (child.parentSessionId !== parentSessionId) {
       throw new Error(`Session ${childSessionId} is not a child of ${parentSessionId}`)
     }
-    // Align with sendToChildAndWait: interrupt FIRST, then mark running, then send
-    // without a second interrupt. Marking running before interrupt lets the cancelled
-    // turn's `done` handler overwrite UI status back to idle (二次派发 stuck 待命).
-    await this.callbacks.interruptTurn(childSessionId)
+    const interrupt = opts?.interrupt === true
+    // interrupt=true only: cancel current turn so the next send is immediate.
+    // Default: leave the child running; sendMessage queues if streaming.
+    if (interrupt) {
+      await this.callbacks.interruptTurn(childSessionId)
+    }
     this.agentIdleFlags.delete(childSessionId)
     this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'running')
+    // No interrupt flag on sendMessage — already interrupted above when requested.
+    // Default path relies on scheduler queue_after_turn while child is streaming.
     await this.callbacks.sendMessage(childSessionId, message)
   }
 
   /**
    * Send a message to a child and wait for its response.
-   * Interrupt first (so waiters attach to the new turn, not the cancelled one).
+   * Default: do not interrupt. If the child is still streaming, wait until
+   * idle first so the turn waiter attaches to the NEW turn (not the current one).
+   * Pass `interrupt: true` to cancel-then-send (emergency).
    */
   async sendToChildAndWait(
     parentSessionId: string,
     childSessionId: string,
     message: string,
     timeoutMs = 300_000,
+    opts?: { interrupt?: boolean },
   ): Promise<string> {
     const child = this.sessionService.getById(childSessionId)
     if (!child) throw new Error(`Child session not found: ${childSessionId}`)
     if (child.parentSessionId !== parentSessionId) {
       throw new Error(`Session ${childSessionId} is not a child of ${parentSessionId}`)
     }
-    // Cancel active turn before registering the new-turn waiter
-    await this.callbacks.interruptTurn(childSessionId)
+    const interrupt = opts?.interrupt === true
+    if (interrupt) {
+      await this.callbacks.interruptTurn(childSessionId)
+    } else {
+      // Ensure waiter is for the queued message's turn, not the in-flight one.
+      const childState = this.sessionStates.get(childSessionId)
+      if (childState?.streaming) {
+        await this.waitAgentIdle(parentSessionId, childSessionId, timeoutMs)
+      }
+    }
     const resultPromise = this.createChildTurnWaiter(childSessionId, timeoutMs)
     this.agentIdleFlags.delete(childSessionId)
     this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'running')
-    // Already interrupted; send without a second interrupt
     await this.callbacks.sendMessage(childSessionId, message)
     return resultPromise
   }

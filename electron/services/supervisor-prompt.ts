@@ -98,8 +98,53 @@ export function buildWorkerRulesContent(): string {
   }
 }
 
+/**
+ * Fixed short Memory reminder appended to every child agent initial task.
+ * Sons do not get abf-worker.md; this keeps a path to file palace when mempalace MCP is present.
+ * Wording aligned with abf-supervisor / abf-worker: when / tool / wing·room·content / lock retry.
+ */
+export const WORKER_TASK_MEMPALACE_HINT = [
+  '## Memory (if mempalace MCP is available)',
+  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. On **peer lock / busy**, wait briefly and **retry once**. Do not claim a write that did not happen.',
+].join('\n')
+
+/**
+ * Extremely short Memory instruction for nested-child (儿子) appendSystemPrompt.
+ * Full abf-worker.md is intentionally NOT injected for sons.
+ * Same obligation strength as father/grandpa when mempalace is present.
+ */
+export const NESTED_CHILD_MEMPALACE_MEMORY_PROMPT = [
+  '## Memory (mempalace)',
+  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. On **peer lock / busy**, wait briefly and **retry once**. Do not claim a write that did not happen.',
+].join('\n')
+
+/** True when enabled user MCP configs look like mempalace (by key/command/args). */
+export function enabledMcpsIncludeMempalace(
+  servers: Record<string, { command?: string; args?: string[] } | undefined> | null | undefined,
+): boolean {
+  if (!servers) return false
+  for (const [key, cfg] of Object.entries(servers)) {
+    const command = String(cfg?.command || '')
+    const args = Array.isArray(cfg?.args) ? cfg.args.map(String) : []
+    const parts = [key, command, ...args].map((p) => p.toLowerCase())
+    if (parts.some((p) => p.includes('mempalace'))) return true
+  }
+  return false
+}
+
+/**
+ * Wrap child initial task prompt with a fixed short Memory (mempalace) reminder.
+ * Does not inject full worker software rules — those are role-gated elsewhere.
+ */
 export function wrapWorkerTaskPrompt(taskPrompt: string): string {
-  return (taskPrompt || '').trim()
+  const body = (taskPrompt || '').trim()
+  const hint = WORKER_TASK_MEMPALACE_HINT.trim()
+  if (!body) return hint
+  // Avoid double-append if caller already included the same fixed hint.
+  if (body.includes(hint) || body.includes('## Memory (if mempalace MCP is available)')) {
+    return body
+  }
+  return `${body}\n\n${hint}`
 }
 
 /**

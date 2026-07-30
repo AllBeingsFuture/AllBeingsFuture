@@ -107,7 +107,7 @@ const TOOLS = [
   {
     name: 'send_to_agent',
     description:
-      'Send a follow-up message to an existing persistent child agent. Interrupt-then-send: if the child is mid-turn/streaming, the host cancels that turn first, then injects this message immediately (does not queue behind the current turn). By default delivers and returns immediately so the parent stays free. Set wait=true to block until the child finishes the new turn.',
+      'Send a follow-up message to an existing persistent child agent. Default is queue_after_turn: does NOT cancel the child\'s current turn — if the child is mid-turn/streaming the message is queued and runs after; if idle it is delivered immediately. Set interrupt=true only for emergency correction (cancel current turn then send). By default delivers/queues and returns immediately so the parent stays free. Set wait=true to block until the child finishes the turn corresponding to this message.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -123,6 +123,11 @@ const TOOLS = [
           type: 'boolean',
           description:
             'If true, block until the child finishes its turn and return the response. Default false (deliver only).',
+        },
+        interrupt: {
+          type: 'boolean',
+          description:
+            'If true, cancel the child\'s current turn then send immediately. Default false (queue after current turn / do not interrupt).',
         },
         timeout: {
           type: 'number',
@@ -321,11 +326,13 @@ async function handleToolCall(name, args) {
 
     case 'send_to_agent': {
       const wait = args.wait === true;
+      const interrupt = args.interrupt === true;
       const res = await httpRequest('POST', '/send', {
         parentSessionId: PARENT_SESSION_ID,
         childSessionId: args.child_session_id,
         message: args.message,
         wait,
+        interrupt,
         timeout: typeof args.timeout === 'number' ? args.timeout : undefined,
       });
       if (res.error) {

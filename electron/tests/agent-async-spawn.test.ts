@@ -25,11 +25,13 @@ test('agent-api spawn defaults to fire-and-forget (spawnChildSession), wait=true
   assert.match(source, /waited:\s*false/)
 })
 
-test('agent-api send defaults to deliver-only; wait=true blocks', () => {
+test('agent-api send defaults to deliver-only; wait=true blocks; interrupt only when true', () => {
   const source = read('electron/services/agent-api.ts')
   assert.match(source, /sendToChildAndWait/)
   assert.match(source, /sendToChild\(/)
   assert.match(source, /delivered:\s*true/)
+  assert.match(source, /body\.interrupt === true/)
+  assert.match(source, /sendOpts/)
 })
 
 test('MCP spawn_agent / send_to_agent expose wait and default async copy', () => {
@@ -39,6 +41,14 @@ test('MCP spawn_agent / send_to_agent expose wait and default async copy', () =>
   assert.match(source, /Parent can go idle/)
   assert.match(source, /wait_agent_idle/)
   assert.match(source, /AO-style/)
+  // send_to_agent: default queue, optional interrupt
+  assert.match(source, /queue_after_turn/)
+  assert.match(source, /args\.interrupt === true/)
+  assert.match(source, /interrupt/)
+  assert.doesNotMatch(
+    source,
+    /Interrupt-then-send: if the child is mid-turn\/streaming, the host cancels/,
+  )
 })
 
 test('child spawn isolates worktree when autoWorktree on; close cleans only child', () => {
@@ -83,6 +93,16 @@ test('abf-supervisor prompt documents async spawn, parent idle, close safety', (
   assert.match(source, /git push origin <base>|push origin <base>/i)
 })
 
+test('abf-supervisor Memory requires mempalace_checkpoint for important conclusions', () => {
+  const source = read('resources/prompts/abf-supervisor.md')
+  assert.match(source, /## Memory \(mempalace\)/)
+  assert.match(source, /mempalace_checkpoint/)
+  assert.match(source, /items:.*wing.*room.*content|wing.*room.*content/i)
+  assert.match(source, /must.*call|you \*\*must\*\* call/i)
+  assert.match(source, /Orchestration sessions still file|reusable conclusions/i)
+  assert.match(source, /peer lock|retry once/i)
+})
+
 test('abf-worker prompt documents worktree isolation, commit, mempalace, must close sons', () => {
   const source = read('resources/prompts/abf-worker.md')
   assert.match(source, /worktree/i)
@@ -92,6 +112,9 @@ test('abf-worker prompt documents worktree isolation, commit, mempalace, must cl
   assert.match(source, /workDir/)
   assert.match(source, /MUST `close_agent`|MUST close_agent/)
   assert.match(source, /Never `git push` isolation branches|Never git push isolation/i)
+  // Finish-gate: at least one checkpoint before done
+  assert.match(source, /Before finishing.*mempalace_checkpoint|at least once/i)
+  assert.match(source, /peer lock|retry once/i)
 })
 
 test('git service deletes remote isolation branches on worktree cleanup', () => {
@@ -117,19 +140,54 @@ test('trackedAgentToInfo fills workDir from child session', () => {
   assert.doesNotMatch(source, /workDir:\s*''/)
 })
 
-test('sendToChild interrupts first then marks running then sends without second interrupt', () => {
+test('sendToChild default path does not interrupt; interrupt=true only cancels then sends', () => {
   const source = read('electron/services/agent-lifecycle.ts')
   const block = source.match(/async sendToChild\([\s\S]*?^  async sendToChildAndWait/m)
   assert.ok(block, 'expected sendToChild method body')
   const body = block[0]
-  const interruptAt = body.indexOf('interruptTurn')
-  const runningAt = body.indexOf("updatePersistentAgentStatus")
+  // Default is queue_after_turn; interrupt only when opts.interrupt === true
+  assert.match(body, /opts\?\.interrupt === true/)
+  assert.match(body, /if \(interrupt\)/)
+  assert.match(body, /interruptTurn/)
+  assert.match(body, /queue_after_turn|streaming/)
+  const runningAt = body.indexOf('updatePersistentAgentStatus')
   const sendAt = body.lastIndexOf('sendMessage')
-  assert.ok(interruptAt >= 0, 'sendToChild must call interruptTurn')
-  assert.ok(runningAt > interruptAt, 'running status must be set after interrupt')
+  assert.ok(runningAt >= 0, 'must mark running')
   assert.ok(sendAt > runningAt, 'sendMessage must come after marking running')
-  // Must not pass interrupt:true on the send after explicit interruptTurn
+  // Must not pass interrupt:true on sendMessage (interrupt is separate, optional)
   assert.doesNotMatch(body, /sendMessage\([^)]*interrupt:\s*true/)
+})
+
+test('sendToChildAndWait default waits for idle when streaming; interrupt path cancels first', () => {
+  const source = read('electron/services/agent-lifecycle.ts')
+  const block = source.match(/async sendToChildAndWait\([\s\S]*?^  async closeChildSession/m)
+  assert.ok(block, 'expected sendToChildAndWait method body')
+  const body = block[0]
+  assert.match(body, /opts\?\.interrupt === true/)
+  assert.match(body, /waitAgentIdle/)
+  assert.match(body, /childState\?\.streaming/)
+  assert.match(body, /interruptTurn/)
+  assert.doesNotMatch(body, /sendMessage\([^)]*interrupt:\s*true/)
+})
+
+test('stopProcess does not finalize/cancel child agents; disposeSession still does', () => {
+  const processSrc = read('electron/services/process.ts')
+  const stop = processSrc.match(
+    /async stopProcess\(sessionId: string\): Promise<void> \{[\s\S]*?\n  \}/,
+  )
+  assert.ok(stop, 'expected stopProcess')
+  assert.doesNotMatch(
+    stop[0],
+    /finalizeChildAgents/,
+    'stopProcess must not cascade-cancel sub-agents',
+  )
+  assert.match(stop[0], /Do NOT cascade-cancel|do not cascade/i)
+
+  const dispose = processSrc.match(
+    /async disposeSession\(sessionId: string\): Promise<void> \{[\s\S]*?\n  \}/,
+  )
+  assert.ok(dispose, 'expected disposeSession')
+  assert.match(dispose[0], /finalizeChildAgents\(sessionId, 'cancelled'/)
 })
 
 test('interrupt done must not idle-finalize persistent child; sendMessage re-marks running', () => {
