@@ -32,6 +32,19 @@ describe('estimateMessageGroupHeight', () => {
     expect(withImages - textOnly).toBe(480) // 2 * 240
   })
 
+  it('uses a tighter height model for partial streaming messages', () => {
+    const partial = estimateMessageGroupHeight(makeGroup('message', [
+      { role: 'assistant', content: 'x'.repeat(200), partial: true },
+    ]))
+    const complete = estimateMessageGroupHeight(makeGroup('message', [
+      { role: 'assistant', content: 'x'.repeat(200), partial: false },
+    ]))
+
+    // Partial estimate tracks plain pre-wrap growth; completed keeps the roomier history pad.
+    expect(partial).toBeLessThan(complete)
+    expect(partial).toBeGreaterThan(72)
+  })
+
   it('keeps tool_group / child_agent estimates independent of thinking content length', () => {
     expect(estimateMessageGroupHeight(makeGroup('tool_group', [
       { role: 'tool_use', content: '' },

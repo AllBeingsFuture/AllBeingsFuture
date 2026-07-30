@@ -9,6 +9,7 @@ import {
   type AgentUpdateEvent,
   type ChatSnapshot,
 } from '../core/chat/chatCore'
+import { createAgentStreamBatcher } from '../core/chat/agentStreamBatch'
 import {
   createAgentSessionStreamState,
   isAgentStreamActive,
@@ -66,7 +67,72 @@ function snapshotOf(state: SessionState): ChatSnapshot {
   }
 }
 
-export const useSessionStore = create<SessionState>((set, get) => ({
+/** Bound after store creation so the rAF batcher can reduce with latest get/set. */
+let applyAgentStreamBatch: (sessionId: string, events: AgentStreamEvent[]) => void = () => {}
+
+function createStoreAgentStreamBatcher() {
+  return createAgentStreamBatcher({
+    onFlush: (sessionId, events) => {
+      applyAgentStreamBatch(sessionId, events)
+    },
+  })
+}
+
+let agentStreamBatcher = createStoreAgentStreamBatcher()
+
+/** Drain pending stream batches (tests / teardown). */
+export function flushAgentStreamBatches(sessionId?: string): void {
+  agentStreamBatcher.flush(sessionId)
+}
+
+/** Drop pending queues and recreate batcher (test isolation). */
+export function disposeAgentStreamBatches(): void {
+  agentStreamBatcher.dispose()
+  agentStreamBatcher = createStoreAgentStreamBatcher()
+}
+
+export const useSessionStore = create<SessionState>((set, get) => {
+  applyAgentStreamBatch = (sessionId, events) => {
+    if (events.length === 0) return
+
+    const state = get()
+    let currentStream = state.agentStreams[sessionId]
+    const selected = state.selectedId === sessionId
+    let messages = state.agentStreamMessages[sessionId] || (selected ? state.messages : [])
+    let lastApplied: ReturnType<typeof reduceAgentStreamEvent> | null = null
+
+    for (const event of events) {
+      const reduction = reduceAgentStreamEvent(messages, currentStream, event)
+      if (reduction.ignored) continue
+      messages = reduction.messages
+      currentStream = reduction.stream
+      lastApplied = reduction
+    }
+
+    if (!lastApplied) return
+
+    const applied = lastApplied
+    // Re-check selection inside set so a mid-frame session switch does not clobber UI.
+    set(current => {
+      const isSelected = current.selectedId === sessionId
+      return {
+        agentStreams: { ...current.agentStreams, [sessionId]: applied.stream },
+        agentStreamMessages: { ...current.agentStreamMessages, [sessionId]: applied.messages },
+        sessions: chatCore.syncRuntimeStatus(current.sessions, sessionId, applied.streaming),
+        ...(isSelected ? {
+          messages: applied.messages,
+          streaming: applied.streaming,
+          chatError: applied.error,
+        } : {}),
+      }
+    })
+
+    if (!applied.streaming) {
+      void get().flushPendingMessages(sessionId)
+    }
+  }
+
+  return {
   sessions: [],
   selectedId: null,
   loading: false,
@@ -288,27 +354,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   handleAgentStreamEvent: (data) => {
-    const state = get()
-    const currentStream = state.agentStreams[data.sessionId]
-    const selected = state.selectedId === data.sessionId
-    const bufferedMessages = state.agentStreamMessages[data.sessionId]
-    const reduction = reduceAgentStreamEvent(bufferedMessages || (selected ? state.messages : []), currentStream, data)
-    if (reduction.ignored) return
-
-    set({
-      agentStreams: { ...state.agentStreams, [data.sessionId]: reduction.stream },
-      agentStreamMessages: { ...state.agentStreamMessages, [data.sessionId]: reduction.messages },
-      sessions: chatCore.syncRuntimeStatus(state.sessions, data.sessionId, reduction.streaming),
-      ...(selected ? {
-        messages: reduction.messages,
-        streaming: reduction.streaming,
-        chatError: reduction.error,
-      } : {}),
-    })
-
-    if (!reduction.streaming) {
-      void get().flushPendingMessages(data.sessionId)
-    }
+    // Batch high-frequency deltas to one store set per frame; terminal/tool events flush immediately.
+    agentStreamBatcher.push(data)
   },
 
   respondToPermission: async (sessionId, requestId, optionId) => {
@@ -449,7 +496,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       throw err
     }
   },
-}))
+  }
+})
 
 export type {
   AgentInfo,

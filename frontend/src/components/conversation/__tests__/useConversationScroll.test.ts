@@ -225,6 +225,40 @@ describe('useConversationScroll', () => {
     expect(el.scrollTop).toBe(200)
   })
 
+  it('detaches on user scroll-up even inside the programmatic guard window', () => {
+    // Mirrors ConversationView: pin to bottom, then user nudges up before 150ms guard ends.
+    // Time-only programmatic detection used to swallow this and re-stick on content growth.
+    const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 2, streaming: true },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(360)
+
+    act(() => {
+      // Do NOT advance past PROGRAMMATIC_SCROLL_GUARD_MS — only leave the pin target.
+      el.scrollTop = 320
+      result.current.handleScroll()
+    })
+
+    metrics.scrollHeight = 900
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+
+    expect(el.scrollTop).toBe(320)
+    expect(result.current.shouldSuppressPositiveScrollCompensation()).toBe(true)
+  })
+
   it('detaches on wheel-up before scroll fires so streaming growth cannot yank back to bottom', () => {
     const { el, metrics } = createScrollContainer({ scrollHeight: 2000, clientHeight: 400, scrollTop: 1600 })
 

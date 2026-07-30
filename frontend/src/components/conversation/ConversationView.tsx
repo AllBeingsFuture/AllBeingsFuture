@@ -215,10 +215,16 @@ function countMessageImages(group: MessageGroup): number {
   return count
 }
 
+/** True when any bubble in the group is still streaming (partial tail). */
+export function messageGroupHasPartial(group: MessageGroup): boolean {
+  return group.messages.some((message) => Boolean((message as { partial?: boolean }).partial))
+}
+
 /** Exported for unit tests; used by virtual list estimateSize. */
 export function estimateMessageGroupHeight(group: MessageGroup): number {
   const totalContentLength = group.messages.reduce((sum, message) => sum + (message.content?.length || 0), 0)
   const newlineCount = group.messages.reduce((sum, message) => sum + ((message.content?.match(/\n/g) || []).length), 0)
+  const isPartial = messageGroupHasPartial(group)
 
   // Prefer over-estimates for unmeasured history the fling jumps into, but never
   // invent expanded thinking height — ThinkingBlock defaults to collapsed.
@@ -235,7 +241,13 @@ export function estimateMessageGroupHeight(group: MessageGroup): number {
     return Math.max(160, 160 + Math.min(800, group.messages.length * 64))
   }
 
-  const textHeight = Math.max(140, Math.min(4000, 120 + Math.ceil(totalContentLength / 6) * 22 + newlineCount * 16))
+  // Streaming partial uses plain pre-wrap (~15px / 1.8 line-height). Keep the
+  // estimate close to real growth so the virtual spacer tracks tokens smoothly
+  // without estimate↔measure thrash. Completed messages keep the roomier
+  // history estimate so fling-into-unmeasured rows still overscan safely.
+  const textHeight = isPartial
+    ? Math.max(72, Math.min(4000, 56 + Math.ceil(totalContentLength / 42) * 27 + newlineCount * 27))
+    : Math.max(140, Math.min(4000, 120 + Math.ceil(totalContentLength / 6) * 22 + newlineCount * 16))
   const imageCount = countMessageImages(group)
   if (imageCount <= 0) return textHeight
 
@@ -922,6 +934,9 @@ export default function ConversationView({ session }: Props) {
     getScrollElement,
     markProgrammaticScroll,
     shouldSuppressPositiveScrollCompensation,
+    // Partial streaming tails: grow spacer with estimate so token growth does not
+    // wait on RO before totalHeight moves (stick-to-bottom stays smooth).
+    shouldPreferGrowingEstimate: messageGroupHasPartial,
   })
   const handleSend = useCallback(async (text: string, images?: Array<{data: string; mimeType: string}>) => {
     await workbenchApi.chat.appendMessage(session.id, text, images)

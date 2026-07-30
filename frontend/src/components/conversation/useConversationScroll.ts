@@ -62,13 +62,26 @@ export function useConversationScroll({
   const lastScrollTopRef = useRef(0)
   const lastContentHeightRef = useRef(0)
   const lastProgrammaticScrollAtRef = useRef(0)
+  /** scrollTop we last wrote programmatically; used so user nudges within the guard window still detach. */
+  const lastProgrammaticScrollTopRef = useRef<number | null>(null)
   const userInputActiveRef = useRef(false)
   /** Last non-programmatic vertical intent: up = reading history, down = toward live tail. */
   const lastUserScrollIntentRef = useRef<'up' | 'down' | null>(null)
   const lastUserScrollDeltaRef = useRef(0)
 
-  const markProgrammaticScroll = useCallback(() => {
+  /**
+   * Mark a scrollTop write as programmatic. Prefer passing the target scrollTop so
+   * a real user scroll that lands elsewhere within PROGRAMMATIC_SCROLL_GUARD_MS is
+   * not swallowed (that bug re-stuck the viewport on streaming ResizeObserver).
+   */
+  const markProgrammaticScroll = useCallback((targetScrollTop?: number) => {
     lastProgrammaticScrollAtRef.current = Date.now()
+    if (typeof targetScrollTop === 'number' && Number.isFinite(targetScrollTop)) {
+      lastProgrammaticScrollTopRef.current = targetScrollTop
+      return
+    }
+    const el = scrollContainerRef.current
+    lastProgrammaticScrollTopRef.current = el ? el.scrollTop : null
   }, [])
 
   const historyOverscanBoost = useCallback((magnitudePx = 0) => {
@@ -154,7 +167,7 @@ export function useConversationScroll({
     if (!el) return
 
     const nextScrollTop = Math.max(el.scrollHeight - el.clientHeight, 0)
-    markProgrammaticScroll()
+    markProgrammaticScroll(nextScrollTop)
     if (Math.abs(el.scrollTop - nextScrollTop) > 1) {
       el.scrollTop = nextScrollTop
     }
@@ -218,7 +231,7 @@ export function useConversationScroll({
     if (previousHeight > 0 && nextHeight < previousHeight) {
       const maxScrollTop = Math.max(nextHeight - el.clientHeight, 0)
       if (el.scrollTop > maxScrollTop) {
-        markProgrammaticScroll()
+        markProgrammaticScroll(maxScrollTop)
         el.scrollTop = maxScrollTop
         lastScrollTopRef.current = maxScrollTop
       }
@@ -239,7 +252,14 @@ export function useConversationScroll({
     const scrolledDown = delta > 1
     const largeJump = Math.abs(delta) >= FAST_SCROLL_DELTA_PX
     const timeSinceProgrammatic = Date.now() - lastProgrammaticScrollAtRef.current
+    // Time alone is not enough: initial pin / stick-to-bottom marks programmatic,
+    // then a real user scroll within ~150ms must still detach. Only treat the
+    // event as programmatic when scrollTop still matches the last write target.
+    const expectedProgrammaticTop = lastProgrammaticScrollTopRef.current
+    const matchesProgrammaticTarget = expectedProgrammaticTop != null
+      && Math.abs(el.scrollTop - expectedProgrammaticTop) <= 2
     const isProgrammatic = timeSinceProgrammatic < PROGRAMMATIC_SCROLL_GUARD_MS
+      && (expectedProgrammaticTop == null || matchesProgrammaticTarget)
 
     // Track real user intent only. Programmatic follow / remeasure writes are ignored.
     if (!isProgrammatic) {
@@ -324,6 +344,7 @@ export function useConversationScroll({
     lastScrollTopRef.current = 0
     lastContentHeightRef.current = 0
     lastProgrammaticScrollAtRef.current = 0
+    lastProgrammaticScrollTopRef.current = null
     userInputActiveRef.current = false
     lastUserScrollIntentRef.current = null
     lastUserScrollDeltaRef.current = 0
