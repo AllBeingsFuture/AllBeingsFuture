@@ -1116,28 +1116,28 @@ export default function ConversationView({ session }: Props) {
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         data-scroll-container
-        className="flex-1 overflow-y-auto px-6 py-6"
+        className="flex-1 overflow-y-auto px-6 py-7"
         style={{ overflowAnchor: 'none', scrollPaddingBottom: `${composerClearance}px` }}
       >
         <div
           ref={contentRef}
-          className="mx-auto flex w-full max-w-[42rem] flex-col gap-5"
+          className="mx-auto flex w-full max-w-[42rem] flex-col gap-6"
           style={{ paddingBottom: composerClearance > 0 ? `${composerClearance}px` : undefined }}
         >
           {!ready && messages.length === 0 ? (
             /* Shimmer skeleton while session is initializing */
             <div className="animate-fade-in space-y-4">
-              <div className="rounded-2xl border border-white/[0.05] bg-white/[0.015] px-6 py-10">
+              <div className="surface-panel px-6 py-10">
                 <div className="shimmer h-3 w-24 rounded-md" />
                 <div className="shimmer mt-4 h-5 w-48 rounded-md" />
                 <div className="shimmer mt-3 h-3 w-64 rounded-md" />
               </div>
             </div>
           ) : messages.length === 0 && !streaming ? (
-            <div className="animate-scale-in rounded-2xl border border-white/[0.05] bg-white/[0.015] px-6 py-10 text-sm text-zinc-300">
-              <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-zinc-600">{isChildSession ? 'Sub-Agent' : 'Conversation'}</p>
-              <h3 className="mt-3 text-lg font-semibold text-zinc-50">{session.name}</h3>
-              <p className="mt-2 leading-7 text-zinc-500">
+            <div className="animate-scale-in surface-panel px-6 py-11 text-sm text-zinc-300">
+              <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-zinc-500">{isChildSession ? 'Sub-Agent' : 'Conversation'}</p>
+              <h3 className="mt-3 text-lg font-semibold tracking-[-0.01em] text-zinc-50">{session.name}</h3>
+              <p className="mt-2.5 leading-7 text-zinc-400">
                 {isChildSession ? '子Agent执行记录将显示在这里。' : '会话已经就绪，输入消息开始对话。'}
               </p>
             </div>

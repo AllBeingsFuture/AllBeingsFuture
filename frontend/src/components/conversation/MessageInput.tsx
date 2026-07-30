@@ -315,7 +315,7 @@ function MessageInput({
 
   return (
     <div
-      className="relative shrink-0 px-4 pb-4 pt-1"
+      className="relative shrink-0 px-4 pb-5 pt-2"
       data-file-drop-target="message-input"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -420,7 +420,7 @@ function MessageInput({
         )}
 
         {/* Floating composer bar */}
-        <div className="flex items-end gap-2 rounded-[1.75rem] border border-white/[0.08] bg-[#12161e]/92 px-2.5 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.35),0_0_0_1px_rgba(255,255,255,0.02)] backdrop-blur-md transition-[border-color,box-shadow] focus-within:border-white/[0.12] focus-within:shadow-[0_16px_48px_rgba(0,0,0,0.4),0_0_0_1px_rgba(255,255,255,0.04)]">
+        <div className="composer-shell flex items-end gap-2 px-2.5 py-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -459,7 +459,7 @@ function MessageInput({
               type="button"
               onClick={onStop}
               disabled={cancelling}
-              className="mb-0.5 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.05] px-3.5 text-zinc-300 transition-colors hover:bg-white/[0.1] hover:text-white disabled:cursor-wait disabled:opacity-60"
+              className="mb-0.5 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.06] px-3.5 text-zinc-300 transition-colors hover:border-white/[0.16] hover:bg-white/[0.1] hover:text-white disabled:cursor-wait disabled:opacity-60"
               aria-label={cancelling ? '正在停止响应' : '停止响应'}
             >
               {cancelling ? (
@@ -474,7 +474,7 @@ function MessageInput({
               type="button"
               disabled={disabled || !hasContent}
               onClick={() => void submit()}
-              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow-sm transition-all hover:bg-white disabled:cursor-not-allowed disabled:bg-white/[0.08] disabled:text-zinc-600 disabled:shadow-none active:scale-95"
+              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow-[0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.3)] disabled:cursor-not-allowed disabled:bg-white/[0.08] disabled:text-zinc-600 disabled:shadow-none active:scale-95"
               aria-label="发送消息"
             >
               <SendHorizonal size={16} />

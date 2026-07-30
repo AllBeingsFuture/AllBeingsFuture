@@ -42,10 +42,10 @@ export default function SessionToolbar({ session }: Props) {
   )
 
   return (
-    <header className="border-b border-white/[0.04] bg-transparent px-6 py-3">
+    <header className="border-b border-white/[0.06] bg-bg-secondary/30 px-6 py-3 backdrop-blur-[2px]">
       {/* Parent session binding banner */}
       {parentBinding && (
-        <div className="mb-2.5 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+        <div className="mb-2.5 flex items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-1.5">
           <ArrowUpLeft size={13} className="shrink-0 text-zinc-400" />
           <span className="text-xs text-zinc-400">
             子Agent · 来自主会话
@@ -53,7 +53,7 @@ export default function SessionToolbar({ session }: Props) {
           <button
             type="button"
             onClick={() => { void workbenchApi.navigation.openSession(parentBinding.parentSessionId) }}
-            className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-zinc-300 transition-all hover:bg-white/[0.08] hover:text-white"
+            className="rounded-lg border border-white/[0.09] bg-white/[0.04] px-2 py-0.5 text-xs font-medium text-zinc-300 transition-all hover:bg-white/[0.09] hover:text-white"
           >
             {parentSession?.name || parentBinding.parentSessionId.slice(0, 12)}
           </button>
@@ -64,19 +64,19 @@ export default function SessionToolbar({ session }: Props) {
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             <div className="relative">
-              <span className={`inline-flex h-2 w-2 rounded-full ${meta.color}`} />
+              <span className={`inline-flex h-2 w-2 rounded-full ${meta.color} shadow-[0_0_6px_currentColor]`} />
               {['starting', 'running'].includes(session.status) && (
                 <span className={`absolute inset-0 h-2 w-2 rounded-full ${meta.color} animate-ping opacity-30`} />
               )}
             </div>
-            <h2 className="truncate text-[15px] font-medium text-zinc-100">{session.name}</h2>
-            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-medium text-zinc-500">
+            <h2 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-zinc-50">{session.name}</h2>
+            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-medium text-zinc-400">
               {modeLabel[session.mode] || session.mode}
             </span>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-medium text-zinc-400">{session.providerId}</span>
-            <span className="inline-flex items-center gap-1.5 text-zinc-600">
+            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 font-medium text-zinc-400">{session.providerId}</span>
+            <span className="inline-flex items-center gap-1.5 text-zinc-500">
               <FolderOpen size={12} />
               <span className="max-w-[280px] truncate">{session.workingDirectory}</span>
             </span>

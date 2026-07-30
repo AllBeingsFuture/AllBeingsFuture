@@ -157,7 +157,7 @@ export default function MessageBubble({ message, providerId }: Props) {
       >
         <div
           className={[
-            'flex min-w-0 flex-col gap-2',
+            'flex min-w-0 flex-col gap-2.5',
             isUser ? 'max-w-[min(85%,28rem)] items-end' : 'w-full max-w-[42rem] items-start',
           ].join(' ')}
         >
@@ -166,7 +166,7 @@ export default function MessageBubble({ message, providerId }: Props) {
               <button
                 type="button"
                 onClick={() => setThinkingExpanded(!thinkingExpanded)}
-                className="group inline-flex items-center gap-1.5 rounded-lg py-1 text-[12px] text-zinc-500 transition-colors hover:text-zinc-300"
+                className="group inline-flex items-center gap-1.5 rounded-lg px-1 py-1 text-[12px] text-zinc-500 transition-colors hover:bg-white/[0.03] hover:text-zinc-300"
               >
                 {thinkingExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 <span className="font-medium tracking-wide">
@@ -181,7 +181,7 @@ export default function MessageBubble({ message, providerId }: Props) {
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
                     transition={{ duration: 0.18, ease: 'easeInOut' }}
-                    className="mt-1.5 max-h-[220px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 text-[12px] leading-relaxed text-zinc-500 scrollbar-thin"
+                    className="surface-inset mt-1.5 max-h-[220px] overflow-y-auto px-3.5 py-2.5 text-[12px] leading-relaxed text-zinc-500 scrollbar-thin"
                   >
                     <div className="md-prose md-prose-muted">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(value) => value}>
@@ -211,8 +211,8 @@ export default function MessageBubble({ message, providerId }: Props) {
           <div
             className={[
               isUser
-                ? 'rounded-[1.25rem] rounded-br-md bg-white/[0.08] px-4 py-2.5 text-[14px] leading-relaxed text-zinc-100'
-                : assistantBodyClass,
+                ? 'msg-user-bubble px-4 py-2.5 text-[14px] leading-relaxed text-zinc-100'
+                : `msg-assistant-body ${assistantBodyClass}`,
             ].join(' ')}
             data-message-presentation={extendedMessage.presentation || 'message'}
           >
@@ -255,13 +255,13 @@ export default function MessageBubble({ message, providerId }: Props) {
                 ) : (
                   <>
                     {shouldCollapsePlainAssistant && !plainExpanded ? (
-                      <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3.5">
+                      <div className="surface-inset relative overflow-hidden px-4 py-3.5">
                         <div className="mb-2 flex items-center gap-2 text-[10px]">
-                          <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-medium tracking-[0.08em] text-zinc-400/80">
+                          <span className="rounded-full border border-white/[0.07] bg-white/[0.04] px-2 py-0.5 font-medium tracking-[0.08em] text-zinc-400">
                             {collapsedCardLabel}
                           </span>
-                          <span className="text-zinc-600">{formatNumber((displayContent || '').length)} 字符</span>
-                          <span className="text-zinc-600">滚动查看</span>
+                          <span className="text-zinc-500">{formatNumber((displayContent || '').length)} 字符</span>
+                          <span className="text-zinc-500">滚动查看</span>
                         </div>
                         <div
                           data-testid="message-scroll-preview"
@@ -285,7 +285,7 @@ export default function MessageBubble({ message, providerId }: Props) {
                       <button
                         type="button"
                         onClick={() => setPlainExpanded(value => !value)}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] font-medium text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-zinc-400 transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-zinc-200"
                       >
                         <span>{plainToggleLabel}</span>
                         {plainExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}

@@ -204,7 +204,7 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
   }
 
   return (
-    <div className={compact ? 'my-0.5 mx-1' : 'my-1 mx-2'}>
+    <div className={compact ? 'my-0.5 mx-1' : 'my-1.5 mx-2'}>
       <button
         type="button"
         onClick={toggleExpanded}
@@ -215,34 +215,34 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
           e.stopPropagation()
           setCtxMenu({ visible: true, x: e.clientX, y: e.clientY })
         }}
-        className={`w-full text-left flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono transition-colors ${getHeaderClass({ isStreamingResult, isPending, isResult, isError })}`}
+        className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono transition-colors ${getHeaderClass({ isStreamingResult, isPending, isResult, isError })}`}
       >
-        <span className="text-[10px]">{expanded ? '▼' : '▶'}</span>
+        <span className="text-[10px] text-zinc-500">{expanded ? '▼' : '▶'}</span>
         <span>{style.icon}</span>
         <span className={`font-semibold ${style.color}`}>
           {effectiveToolName || style.label}
         </span>
-        <span className="text-gray-400 truncate flex-1">
+        <span className="text-zinc-400/90 truncate flex-1">
           {summary}
         </span>
         {latestStream && isStreamingResult && (
-          <span className={`text-[10px] font-bold ${latestStream === 'stderr' ? 'text-red-400' : 'text-purple-400'}`}>
+          <span className={`text-[10px] font-bold tracking-wide ${latestStream === 'stderr' ? 'text-red-400' : 'text-purple-400'}`}>
             {latestStream.toUpperCase()}
           </span>
         )}
         {isStreamingResult && (
-          <span className="text-[10px] font-bold text-purple-400">LIVE</span>
+          <span className="rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-purple-300">LIVE</span>
         )}
         {isPending && !isStreamingResult && (
-          <span className="text-[10px] font-bold text-gray-500">RUN</span>
+          <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-zinc-400">RUN</span>
         )}
         {isResult && isError && (
-          <span className="text-[10px] font-bold text-red-400">ERROR</span>
+          <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-red-400">ERROR</span>
         )}
       </button>
 
       {expanded && (
-        <div className="mt-1 mx-1 p-2 rounded bg-gray-900/60 text-xs font-mono border border-white/10 overflow-auto max-h-[420px]">
+        <div className="mt-1.5 mx-0.5 p-2.5 rounded-lg bg-black/25 text-xs font-mono border border-white/[0.07] overflow-auto max-h-[420px] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           {hasCommandContext && (
             <div className="mb-3">
               <div className="text-gray-500 mb-1">命令上下文</div>
@@ -317,11 +317,11 @@ const OutputBlock: React.FC<OutputBlockProps> = ({ stream, value }) => {
   const isStdErr = stream === 'stderr'
 
   return (
-    <div className={`rounded border px-2 py-1.5 ${isStdErr ? 'border-red-400/30 bg-red-400/5' : 'border-white/10 bg-gray-800/40'}`}>
-      <div className={`mb-1 text-[10px] uppercase tracking-wide ${isStdErr ? 'text-red-400' : 'text-gray-500'}`}>
+    <div className={`rounded-md border px-2.5 py-1.5 ${isStdErr ? 'border-red-400/30 bg-red-400/5' : 'border-white/[0.08] bg-white/[0.03]'}`}>
+      <div className={`mb-1 text-[10px] uppercase tracking-wide ${isStdErr ? 'text-red-400' : 'text-zinc-500'}`}>
         {stream}
       </div>
-      <pre className={`whitespace-pre-wrap break-all ${isStdErr ? 'text-red-400' : 'text-gray-300'}`}>
+      <pre className={`whitespace-pre-wrap break-all ${isStdErr ? 'text-red-400' : 'text-zinc-300'}`}>
         {truncateResult(value, 12000)}
       </pre>
     </div>
@@ -440,14 +440,14 @@ function getHeaderClass({
   isResult: boolean
   isError?: boolean
 }): string {
-  if (isStreamingResult) return 'bg-purple-500/10 text-gray-100 border border-purple-500/30'
-  if (isPending) return 'bg-gray-800/60 text-gray-100 hover:bg-gray-700/60 border border-white/10'
+  if (isStreamingResult) return 'bg-purple-500/[0.12] text-zinc-100 border border-purple-500/35 shadow-[0_0_0_1px_rgba(168,85,247,0.06)]'
+  if (isPending) return 'bg-white/[0.04] text-zinc-100 hover:bg-white/[0.07] border border-white/[0.1]'
   if (isResult) {
     return isError
-      ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-      : 'bg-gray-900/40 text-gray-400 border border-white/10'
+      ? 'bg-red-500/[0.08] text-red-400 border border-red-500/25'
+      : 'bg-white/[0.025] text-zinc-400 hover:bg-white/[0.04] border border-white/[0.08]'
   }
-  return 'bg-gray-800/60 text-gray-100 hover:bg-gray-700/60 border border-white/10'
+  return 'bg-white/[0.04] text-zinc-100 hover:bg-white/[0.07] border border-white/[0.1]'
 }
 
 function formatToolInput(input: Record<string, unknown>): string {

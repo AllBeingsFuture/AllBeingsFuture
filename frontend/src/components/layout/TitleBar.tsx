@@ -57,7 +57,7 @@ export default function TitleBar() {
 
   return (
     <div
-      className="flex items-center h-9 bg-bg-secondary border-b border-border flex-shrink-0 select-none"
+      className="flex items-center h-9 bg-bg-secondary/95 border-b border-white/[0.06] flex-shrink-0 select-none backdrop-blur-sm"
       style={dragStyle}
       onDoubleClick={handleToggleMaximise}
     >

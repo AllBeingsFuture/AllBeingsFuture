@@ -56,16 +56,16 @@ export default function AppLayout() {
   const mainPanelResetKey = `${primaryPane}:${secondaryPane}`
 
   return (
-    <div className="flex flex-col h-screen bg-bg-primary">
+    <div className="flex flex-col h-screen bg-bg-primary text-text-primary">
       <TitleBar />
       <div className="flex-1 overflow-hidden flex">
         <ActivityBar />
 
         {teamsMode ? (
           <div className="flex-1 overflow-hidden flex flex-col">
-            <div className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 border-b border-indigo-500/20 shrink-0">
+            <div className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500/[0.12] border-b border-indigo-500/25 shrink-0">
               <Users className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="text-xs font-medium text-indigo-400">Agent Teams 模式</span>
+              <span className="text-xs font-medium tracking-wide text-indigo-300">Agent Teams 模式</span>
               <div className="flex-1" />
               <button
                 onClick={() => { void workbenchApi.ui.setTeamsMode(false) }}

@@ -41,30 +41,30 @@ export default function StatusBar() {
   }, [])
 
   return (
-    <div className="h-7 bg-bg-secondary/80 backdrop-blur-sm border-t border-white/[0.06] flex items-center justify-between px-4 text-[11px] text-text-secondary">
+    <div className="h-7 bg-bg-secondary/90 backdrop-blur-sm border-t border-white/[0.06] flex items-center justify-between px-4 text-[11px] text-text-secondary">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1.5">
-          <div className={`w-1.5 h-1.5 rounded-full transition-colors ${activeSessions > 0 ? 'bg-accent-green shadow-[0_0_4px_rgba(63,185,80,0.5)]' : 'bg-text-muted'}`} />
-          <span title="活跃会话 / 历史总会话" className="cursor-default">
+          <div className={`w-1.5 h-1.5 rounded-full transition-colors ${activeSessions > 0 ? 'bg-accent-green shadow-[0_0_6px_rgba(63,185,80,0.55)]' : 'bg-text-muted/70'}`} />
+          <span title="活跃会话 / 历史总会话" className="cursor-default tracking-wide">
             活跃 {activeSessions}
-            <span className="mx-0.5 text-text-muted/50">/</span>
+            <span className="mx-0.5 text-text-muted/60">/</span>
             共 {totalSessions}
           </span>
         </div>
       </div>
 
-      <div className="text-text-muted cursor-default">会话视图</div>
+      <div className="text-text-muted/90 cursor-default tracking-wide">会话视图</div>
 
       <div className="flex items-center gap-3">
         <div className="hidden md:flex items-center gap-2.5 cursor-default" title="会话统计">
           <span className="text-text-muted">总 <span className="font-medium text-text-primary">{totalSessions}</span></span>
-          <span className="text-white/[0.08]">|</span>
+          <span className="text-white/[0.1]">|</span>
           <span className="text-text-muted">运行 <span className="font-medium text-accent-green">{runningSessions}</span></span>
           <span className="text-text-muted">等待 <span className="font-medium text-accent-yellow">{waitingSessions}</span></span>
           <span className="text-text-muted">异常 <span className="font-medium text-accent-red">{errorSessions}</span></span>
         </div>
-        <span className="text-white/[0.08]">|</span>
-        <span title="应用本次启动运行时长" className="cursor-default tabular-nums">运行 {formatDuration(elapsed * 1000)}</span>
+        <span className="text-white/[0.1]">|</span>
+        <span title="应用本次启动运行时长" className="cursor-default tabular-nums text-text-muted">运行 {formatDuration(elapsed * 1000)}</span>
       </div>
     </div>
   )

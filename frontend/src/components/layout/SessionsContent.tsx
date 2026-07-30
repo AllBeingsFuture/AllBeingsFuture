@@ -113,25 +113,25 @@ export default function SessionsContent() {
     : '暂无会话，点击下方按钮创建'
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-bg-secondary" data-testid="sessions-sidebar">
+    <div className="flex h-full flex-col overflow-hidden bg-bg-secondary/95" data-testid="sessions-sidebar">
       <div className="px-3 pt-3.5 pb-2">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <h2 className="text-[13px] font-semibold text-text-primary tracking-wide">会话</h2>
             {activeSessions > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/15 px-2 py-0.5 text-[10px] font-medium tabular-nums text-emerald-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-medium tabular-nums text-emerald-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 {activeSessions} 活跃
               </span>
             ) : (
-              <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">{sessions.length}</span>
+              <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">{sessions.length}</span>
             )}
           </div>
           <div className="flex items-center gap-0.5">
             <button
               type="button"
               onClick={() => { void workbenchApi.ui.setNewSessionDialogVisible(true) }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
               title="新建会话"
             >
               <MessageSquarePlus size={14} />
@@ -139,7 +139,7 @@ export default function SessionsContent() {
             <button
               type="button"
               onClick={() => setShowTaskDialog(true)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
               title="新建任务"
             >
               <FolderKanban size={14} />
@@ -147,7 +147,7 @@ export default function SessionsContent() {
             <button
               type="button"
               onClick={() => { void workbenchApi.ui.toggleSearchPanel() }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/[0.08] hover:text-blue-400 transition-all duration-150"
               title="搜索"
             >
               <Search size={14} />
@@ -158,23 +158,23 @@ export default function SessionsContent() {
         <div className={[
           'flex items-center gap-2.5 rounded-xl border px-3 py-2 transition-all duration-200',
           searchFocused
-            ? 'border-blue-500/30 bg-white/[0.05] shadow-[0_0_0_1px_rgba(59,130,246,0.1)]'
-            : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.03]',
+            ? 'border-blue-500/35 bg-white/[0.055] shadow-[0_0_0_3px_rgba(59,130,246,0.08)]'
+            : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.11] hover:bg-white/[0.04]',
         ].join(' ')}>
-          <Search size={13} className={`shrink-0 transition-colors duration-200 ${searchFocused ? 'text-blue-400' : 'text-gray-600'}`} />
+          <Search size={13} className={`shrink-0 transition-colors duration-200 ${searchFocused ? 'text-blue-400' : 'text-zinc-500'}`} />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
             placeholder="搜索会话..."
-            className="w-full border-0 bg-transparent text-xs text-text-primary outline-none placeholder:text-gray-600"
+            className="w-full border-0 bg-transparent text-xs text-text-primary outline-none placeholder:text-zinc-500"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery('')}
-              className="shrink-0 text-gray-600 hover:text-gray-400 transition-colors"
+              className="shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
             >
               <span className="text-xs">&#x2715;</span>
             </button>
@@ -182,12 +182,12 @@ export default function SessionsContent() {
         </div>
 
         <div className="mt-2.5 flex items-center justify-between">
-          <span className="text-[11px] text-gray-600">分组</span>
+          <span className="text-[11px] text-zinc-500">分组</span>
           <GroupByToggle value={groupMode} onChange={setGroupMode} />
         </div>
       </div>
 
-      <div className="mx-3 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+      <div className="hairline-divider mx-3" />
 
       <div className="flex-1 overflow-y-auto px-2 py-2 scrollbar-thin">
         {groupMode === 'time' && timeGroups.length > 0 && (
