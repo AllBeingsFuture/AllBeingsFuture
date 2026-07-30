@@ -44,7 +44,7 @@ vi.mock('../../../bindings/allbeingsfuture/internal/services/processservice', ()
   ListAllAgents: serviceMocks.processApi.ListAllAgents,
 }))
 
-import { useSessionStore } from '../sessionStore'
+import { disposeAgentStreamBatches, flushAgentStreamBatches, useSessionStore } from '../sessionSnapshotStore'
 import { useGitStore } from '../gitStore'
 import { useDraftStore } from '../draftStore'
 
@@ -78,6 +78,7 @@ function makeSession(overrides: Partial<Session> & { messagesJson?: string; pare
 }
 
 function resetStore() {
+  disposeAgentStreamBatches()
   useSessionStore.setState({
     sessions: [],
     selectedId: null,
@@ -711,6 +712,8 @@ describe('sessionStore runtime status sync', () => {
     useSessionStore.getState().handleAgentStreamEvent({
       type: 'text_delta', sessionId: 'session-1', sequence: 2, itemId: 'reply-1', delta: 'world',
     })
+    // rAF batcher: apply pending deltas in one store set
+    flushAgentStreamBatches('session-1')
     useSessionStore.getState().handleChatPatch({
       sessionId: 'session-1',
       type: 'upsert_last',
@@ -739,12 +742,40 @@ describe('sessionStore runtime status sync', () => {
     useSessionStore.getState().handleAgentStreamEvent({
       type: 'text_delta', sessionId: 'session-2', sequence: 1, itemId: 'reply-2', delta: 'background',
     })
+    flushAgentStreamBatches('session-2')
 
     const state = useSessionStore.getState()
     expect(state.messages[0]?.content).toBe('foreground')
     expect(state.streaming).toBe(false)
     expect(state.agentStreamMessages['session-2']?.[0]?.content).toBe('background')
     expect(state.sessions.find(session => session.id === 'session-2')?.status).toBe('running')
+  })
+
+  it('merges consecutive text_delta into a single store update before flush', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'idle' })],
+      messages: [],
+    })
+
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta', sessionId: 'session-1', sequence: 1, itemId: 'reply-1', delta: 'A',
+    })
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta', sessionId: 'session-1', sequence: 2, itemId: 'reply-1', delta: 'B',
+    })
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta', sessionId: 'session-1', sequence: 3, itemId: 'reply-1', delta: 'C',
+    })
+    // Pending batch must not mutate store until flush (or rAF)
+    expect(useSessionStore.getState().messages).toEqual([])
+    expect(useSessionStore.getState().agentStreams['session-1']).toBeUndefined()
+
+    flushAgentStreamBatches('session-1')
+
+    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual(['ABC'])
+    expect(useSessionStore.getState().agentStreams['session-1']?.lastSequence).toBe(3)
+    expect(useSessionStore.getState().streaming).toBe(true)
   })
 
   it('shows cancellation immediately and settles after the process stops', async () => {

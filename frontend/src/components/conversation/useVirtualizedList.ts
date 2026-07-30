@@ -47,6 +47,12 @@ export interface BuildVirtualLayoutOptions<T> {
   overscanPx: number
   scrollTop: number
   viewportHeight: number
+  /**
+   * When true for an item, layout height may grow with the estimate even if a
+   * smaller measured size is cached (streaming partial tails). Never shrinks
+   * below the last measured height.
+   */
+  shouldPreferGrowingEstimate?: (item: T, index: number) => boolean
 }
 
 export interface VirtualizedListOptions<T> extends Omit<BuildVirtualLayoutOptions<T>, 'measuredSizes'> {
@@ -54,7 +60,7 @@ export interface VirtualizedListOptions<T> extends Omit<BuildVirtualLayoutOption
   /** Optional: used to preserve visual position when items above the viewport remeasure. */
   getScrollElement?: () => HTMLElement | null
   /** Optional: mark scrollTop writes so stick-to-bottom does not treat them as user intent. */
-  markProgrammaticScroll?: () => void
+  markProgrammaticScroll?: (targetScrollTop?: number) => void
   /**
    * Optional: while true, skip positive scrollTop compensation on remeasure.
    * Wired to "user is reading history" (any scroll speed) so remeasure cannot
@@ -154,15 +160,22 @@ function resolveMeasuredSize<T>(
   item: T,
   index: number,
   estimatedSize: number,
+  preferGrowingEstimate = false,
 ): { fingerprint: string; size: number } {
   const fingerprint = getItemFingerprint(item, index, estimatedSize)
   const safeEstimate = Math.max(1, estimatedSize)
 
   if (typeof entry === 'number') {
-    return { fingerprint, size: entry > 0 ? entry : safeEstimate }
+    const measured = entry > 0 ? entry : safeEstimate
+    // Streaming tails: let the estimate pull the spacer forward before RO catches up.
+    if (preferGrowingEstimate) return { fingerprint, size: Math.max(measured, safeEstimate) }
+    return { fingerprint, size: measured }
   }
 
   if (entry && typeof entry.size === 'number' && entry.size > 0) {
+    if (preferGrowingEstimate) {
+      return { fingerprint, size: Math.max(entry.size, safeEstimate) }
+    }
     return { fingerprint, size: entry.size }
   }
 
@@ -177,13 +190,21 @@ export function buildVirtualLayout<T>({
   overscanPx,
   scrollTop,
   viewportHeight,
+  shouldPreferGrowingEstimate,
 }: BuildVirtualLayoutOptions<T>): VirtualizedLayout<T> {
   const fingerprints = new Map<string, string>()
   const startsMap = new Map<string, number>()
   const resolvedSizes = items.map((item, index) => {
     const key = getItemKey(item, index)
     const estimatedSize = estimateSize(item, index)
-    const resolved = resolveMeasuredSize(measuredSizes?.get(key), item, index, estimatedSize)
+    const preferGrowing = Boolean(shouldPreferGrowingEstimate?.(item, index))
+    const resolved = resolveMeasuredSize(
+      measuredSizes?.get(key),
+      item,
+      index,
+      estimatedSize,
+      preferGrowing,
+    )
     fingerprints.set(key, resolved.fingerprint)
     return resolved.size
   })
@@ -243,6 +264,7 @@ export function useVirtualizedList<T>({
   getScrollElement,
   markProgrammaticScroll,
   shouldSuppressPositiveScrollCompensation,
+  shouldPreferGrowingEstimate,
 }: VirtualizedListOptions<T>): VirtualizedListResult<T> {
   const measuredSizesRef = useRef(new Map<string, MeasuredSizeCacheValue>())
   const observersRef = useRef(new Map<string, ResizeObserver>())
@@ -253,11 +275,16 @@ export function useVirtualizedList<T>({
   const getScrollElementRef = useRef(getScrollElement)
   const markProgrammaticScrollRef = useRef(markProgrammaticScroll)
   const shouldSuppressPositiveScrollCompensationRef = useRef(shouldSuppressPositiveScrollCompensation)
+  const shouldPreferGrowingEstimateRef = useRef(shouldPreferGrowingEstimate)
+  /** Coalesce ResizeObserver height samples per key to one commit per frame (streaming). */
+  const pendingResizeHeightsRef = useRef(new Map<string, number>())
+  const resizeFlushFrameRef = useRef<number | null>(null)
   const [sizeVersion, setSizeVersion] = useState(0)
 
   getScrollElementRef.current = getScrollElement
   markProgrammaticScrollRef.current = markProgrammaticScroll
   shouldSuppressPositiveScrollCompensationRef.current = shouldSuppressPositiveScrollCompensation
+  shouldPreferGrowingEstimateRef.current = shouldPreferGrowingEstimate
 
   useEffect(() => {
     return () => {
@@ -266,6 +293,11 @@ export function useVirtualizedList<T>({
       }
       observersRef.current.clear()
       measureCallbacksRef.current.clear()
+      pendingResizeHeightsRef.current.clear()
+      if (resizeFlushFrameRef.current !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(resizeFlushFrameRef.current)
+        resizeFlushFrameRef.current = null
+      }
     }
   }, [])
 
@@ -313,6 +345,7 @@ export function useVirtualizedList<T>({
       overscanPx,
       scrollTop,
       viewportHeight,
+      shouldPreferGrowingEstimate,
     })
 
     // Full key→size map so first measure can treat the layout estimate as previousSize.
@@ -321,7 +354,14 @@ export function useVirtualizedList<T>({
     items.forEach((item, index) => {
       const key = getItemKey(item, index)
       const estimatedSize = estimateSize(item, index)
-      const resolved = resolveMeasuredSize(measured.get(key), item, index, estimatedSize)
+      const preferGrowing = Boolean(shouldPreferGrowingEstimate?.(item, index))
+      const resolved = resolveMeasuredSize(
+        measured.get(key),
+        item,
+        index,
+        estimatedSize,
+        preferGrowing,
+      )
       fullSizes.set(key, resolved.size)
     })
 
@@ -337,7 +377,17 @@ export function useVirtualizedList<T>({
       sizes: fullSizes,
       virtualItems: nextLayout.items,
     }
-  }, [enabled, estimateSize, getItemKey, items, overscanPx, scrollTop, sizeVersion, viewportHeight])
+  }, [
+    enabled,
+    estimateSize,
+    getItemKey,
+    items,
+    overscanPx,
+    scrollTop,
+    shouldPreferGrowingEstimate,
+    sizeVersion,
+    viewportHeight,
+  ])
 
   fingerprintsRef.current = layout.fingerprints
   if (layout.starts.size > 0) {
@@ -402,8 +452,9 @@ export function useVirtualizedList<T>({
             ? fullyAboveAfterGrowth
             : fullyAboveBeforeShrink
         if (shouldCompensate) {
-          markProgrammaticScrollRef.current?.()
-          scrollEl.scrollTop += delta
+          const nextScrollTop = scrollEl.scrollTop + delta
+          markProgrammaticScrollRef.current?.(nextScrollTop)
+          scrollEl.scrollTop = nextScrollTop
         }
       }
     }
@@ -411,6 +462,30 @@ export function useVirtualizedList<T>({
     itemSizesRef.current.set(key, normalized)
     setSizeVersion((version) => version + 1)
   }, [])
+
+  const flushPendingResizeHeights = useCallback(() => {
+    resizeFlushFrameRef.current = null
+    const pending = pendingResizeHeightsRef.current
+    if (pending.size === 0) return
+    const batch = [...pending.entries()]
+    pending.clear()
+    for (const [key, height] of batch) {
+      const fingerprint = fingerprintsRef.current.get(key) ?? ''
+      commitSize(key, height, fingerprint)
+    }
+  }, [commitSize])
+
+  const scheduleResizeCommit = useCallback((key: string, height: number) => {
+    pendingResizeHeightsRef.current.set(key, height)
+    if (typeof requestAnimationFrame !== 'function') {
+      flushPendingResizeHeights()
+      return
+    }
+    if (resizeFlushFrameRef.current !== null) return
+    resizeFlushFrameRef.current = requestAnimationFrame(() => {
+      flushPendingResizeHeights()
+    })
+  }, [flushPendingResizeHeights])
 
   const measureElement = useCallback((key: string) => {
     let callback = measureCallbacksRef.current.get(key)
@@ -420,15 +495,14 @@ export function useVirtualizedList<T>({
         if (!node) {
           existingObserver?.disconnect()
           observersRef.current.delete(key)
+          pendingResizeHeightsRef.current.delete(key)
           return
         }
 
         const fingerprint = fingerprintsRef.current.get(key) ?? ''
-        const apply = (height: number) => {
-          commitSize(key, height, fingerprintsRef.current.get(key) ?? fingerprint)
-        }
-
-        apply(node.getBoundingClientRect().height)
+        // First paint: commit synchronously so layout/tests see the measured size
+        // without waiting for a frame. Subsequent RO samples are rAF-coalesced.
+        commitSize(key, node.getBoundingClientRect().height, fingerprintsRef.current.get(key) ?? fingerprint)
 
         if (typeof ResizeObserver === 'undefined') return
 
@@ -436,7 +510,7 @@ export function useVirtualizedList<T>({
         const observer = new ResizeObserver((entries) => {
           const entry = entries[0]
           if (!entry) return
-          apply(entry.contentRect.height)
+          scheduleResizeCommit(key, entry.contentRect.height)
         })
         observer.observe(node)
         observersRef.current.set(key, observer)
@@ -444,7 +518,7 @@ export function useVirtualizedList<T>({
       measureCallbacksRef.current.set(key, callback)
     }
     return callback
-  }, [commitSize])
+  }, [commitSize, scheduleResizeCommit])
 
   return {
     enabled: layout.enabled,

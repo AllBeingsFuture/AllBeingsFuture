@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildVirtualLayout, useVirtualizedList } from '../useVirtualizedList'
 
 const originalResizeObserver = globalThis.ResizeObserver
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
 const resizeObserverInstances: MockResizeObserver[] = []
+let animationFrameId = 0
+let animationFrameQueue = new Map<number, FrameRequestCallback>()
 
 class MockResizeObserver {
   private readonly callback: ResizeObserverCallback
@@ -37,17 +41,55 @@ class MockResizeObserver {
 
 function installResizeObserverMock() {
   resizeObserverInstances.length = 0
+  animationFrameId = 0
+  animationFrameQueue = new Map()
   ;(globalThis as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
+  ;(globalThis as typeof globalThis & {
+    requestAnimationFrame: typeof requestAnimationFrame
+    cancelAnimationFrame: typeof cancelAnimationFrame
+  }).requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    animationFrameId += 1
+    animationFrameQueue.set(animationFrameId, callback)
+    return animationFrameId
+  }) as typeof requestAnimationFrame
+  ;(globalThis as typeof globalThis & {
+    cancelAnimationFrame: typeof cancelAnimationFrame
+  }).cancelAnimationFrame = ((id: number) => {
+    animationFrameQueue.delete(id)
+  }) as typeof cancelAnimationFrame
+}
+
+function flushAnimationFrames(iterations = 2) {
+  for (let index = 0; index < iterations; index += 1) {
+    const queued = [...animationFrameQueue.values()]
+    animationFrameQueue.clear()
+    if (queued.length === 0) return
+    act(() => {
+      queued.forEach((callback) => callback(performance.now()))
+    })
+  }
 }
 
 function restoreResizeObserverMock() {
   resizeObserverInstances.length = 0
+  animationFrameQueue.clear()
   if (originalResizeObserver) {
     ;(globalThis as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver = originalResizeObserver
-    return
+  } else {
+    Reflect.deleteProperty(globalThis, 'ResizeObserver')
   }
-
-  Reflect.deleteProperty(globalThis, 'ResizeObserver')
+  if (originalRequestAnimationFrame) {
+    ;(globalThis as typeof globalThis & { requestAnimationFrame: typeof requestAnimationFrame }).requestAnimationFrame =
+      originalRequestAnimationFrame
+  } else {
+    Reflect.deleteProperty(globalThis, 'requestAnimationFrame')
+  }
+  if (originalCancelAnimationFrame) {
+    ;(globalThis as typeof globalThis & { cancelAnimationFrame: typeof cancelAnimationFrame }).cancelAnimationFrame =
+      originalCancelAnimationFrame
+  } else {
+    Reflect.deleteProperty(globalThis, 'cancelAnimationFrame')
+  }
 }
 
 function createFakeNode(height: number) {
@@ -247,9 +289,87 @@ describe('useVirtualizedList', () => {
       firstNode.__height = 120
       resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
     })
+    flushAnimationFrames()
 
     expect(scrollElement.scrollTop).toBe(270)
     expect(result.current.totalHeight).toBe(320)
+  })
+
+  it('grows layout height with estimate for streaming partial items before RO catches up', () => {
+    type Row = { id: string; size: number; partial?: boolean; content: string }
+    const { result, rerender } = renderHook(({ items }) => useVirtualizedList({
+      items,
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 0,
+      viewportHeight: 200,
+      shouldPreferGrowingEstimate: (item) => Boolean(item.partial),
+    }), {
+      initialProps: {
+        items: [
+          { id: 'a', size: 80, partial: true, content: 'hi' },
+          { id: 'b', size: 50, content: 'done' },
+        ] as Row[],
+      },
+    })
+
+    const node = createFakeNode(80)
+    act(() => {
+      result.current.measureElement('a')(node)
+    })
+    expect(result.current.totalHeight).toBe(130)
+
+    // Content estimate grows while measured cache still holds 80 — spacer follows max.
+    rerender({
+      items: [
+        { id: 'a', size: 160, partial: true, content: 'hi there longer' },
+        { id: 'b', size: 50, content: 'done' },
+      ],
+    })
+    expect(result.current.totalHeight).toBe(210)
+
+    // Completed (non-partial) keeps sticky measured size even if estimate is larger.
+    rerender({
+      items: [
+        { id: 'a', size: 300, partial: false, content: 'finalized long body' },
+        { id: 'b', size: 50, content: 'done' },
+      ],
+    })
+    expect(result.current.totalHeight).toBe(130)
+  })
+
+  it('coalesces multiple ResizeObserver samples into one commit per animation frame', () => {
+    const { result } = renderHook(() => useVirtualizedList({
+      items: makeItems('stream'),
+      enabled: true,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 0,
+      viewportHeight: 60,
+    }))
+
+    const node = createFakeNode(50)
+    act(() => {
+      result.current.measureElement('item-0')(node)
+    })
+    expect(result.current.totalHeight).toBe(250)
+
+    act(() => {
+      node.__height = 70
+      resizeObserverInstances[0]?.trigger(node as unknown as Element)
+      node.__height = 90
+      resizeObserverInstances[0]?.trigger(node as unknown as Element)
+      node.__height = 110
+      resizeObserverInstances[0]?.trigger(node as unknown as Element)
+    })
+    // Not applied until rAF flush — still first measured height.
+    expect(result.current.totalHeight).toBe(250)
+
+    flushAnimationFrames()
+    expect(result.current.totalHeight).toBe(310)
   })
 
   it('does not compensate scrollTop when a partially visible item is remeasured taller', () => {
@@ -279,6 +399,7 @@ describe('useVirtualizedList', () => {
       firstNode.__height = 120
       resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
     })
+    flushAnimationFrames()
 
     expect(scrollElement.scrollTop).toBe(40)
     expect(result.current.totalHeight).toBe(320)
@@ -315,6 +436,7 @@ describe('useVirtualizedList', () => {
       firstNode.__height = 150
       resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
     })
+    flushAnimationFrames()
 
     expect(scrollElement.scrollTop).toBe(80)
     expect(markProgrammaticScroll).not.toHaveBeenCalled()
@@ -379,6 +501,7 @@ describe('useVirtualizedList', () => {
       firstNode.__height = 120
       resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
     })
+    flushAnimationFrames()
 
     expect(scrollElement.scrollTop).toBe(200)
     expect(result.current.totalHeight).toBe(320)
@@ -473,6 +596,7 @@ describe('useVirtualizedList', () => {
       firstNode.__height = 180
       resizeObserverInstances[0]?.trigger(firstNode as unknown as Element)
     })
+    flushAnimationFrames()
 
     expect(result.current.totalHeight).toBe(380)
     expect(result.current.virtualItems.find((item) => item.key === 'item-1')?.start).toBe(180)
