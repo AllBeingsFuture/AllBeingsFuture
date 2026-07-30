@@ -121,9 +121,11 @@ test('package.json does not ship skill catalog or full MCP catalog as extraResou
     false,
     'full mcps dir must not be packaged; only agent-control if needed',
   )
-  // Internal agent-control runtime may still be packaged.
+  // Internal agent-control / mempalace-safe runtimes may still be packaged.
   const agentControl = froms.find(f => f.includes('agent-control'))
   assert.ok(agentControl, 'agent-control internal runtime should remain packaged')
+  const mempalaceSafe = froms.find(f => f.includes('mempalace-safe'))
+  assert.ok(mempalaceSafe, 'mempalace-safe internal proxy should remain packaged')
 })
 
 test('embedded skills directory has no SKILL.md catalog entries', () => {
@@ -141,14 +143,18 @@ test('embedded skills directory has no SKILL.md catalog entries', () => {
   assert.deepEqual(walk(skillsDir), [], 'no embedded SKILL.md files should remain')
 })
 
-test('embedded mcps has no user-facing catalog servers (only agent-control optional)', () => {
+test('embedded mcps has no user-facing catalog servers (only internal runtimes)', () => {
   const mcpsDir = path.join(electronRoot, 'embedded-assets/mcps')
   assert.ok(existsSync(mcpsDir))
   const dirs = readdirSync(mcpsDir, { withFileTypes: true })
     .filter(e => e.isDirectory())
     .map(e => e.name)
     .sort()
-  assert.deepEqual(dirs, ['agent-control'], 'only internal agent-control may remain under mcps')
+  assert.deepEqual(
+    dirs,
+    ['agent-control', 'mempalace-safe'],
+    'only internal agent-control + mempalace-safe may remain under mcps',
+  )
   assert.equal(existsSync(path.join(mcpsDir, 'chrome-devtools')), false)
   assert.equal(existsSync(path.join(mcpsDir, 'web-search')), false)
 })

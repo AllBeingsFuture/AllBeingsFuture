@@ -40,6 +40,8 @@ The app also has Mission / Workflow / Team / Kanban UI features; **in-session or
 
 The host may also inject other MCP servers (e.g. mempalace) and Skills when enabled; **only call tools that are actually available in the current session**. Do not assume unlisted MCPs exist.
 
+**mempalace writes:** the host serializes multi-agent palace writes. If a write fails with peer lock / busy after retries, wait and retry once; avoid many parallel writers for the same palace.
+
 ## Hard rules
 
 1. **Serial by default.** Parallel only when tasks are independent and module ranges do not overlap (each child has its own worktree; merges can still conflict).

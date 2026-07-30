@@ -8,6 +8,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { Database } from './database.js'
 import { resolveProcessCommand } from '../bridge/runtime.js'
+import { applyMempalaceSafeProxy } from './mempalace-safe.js'
 
 type McpSummary = {
   serverIdentifier: string
@@ -232,7 +233,10 @@ export class MCPService {
       }
     }
 
-    return configs
+    // MemPalace: multi-agent sessions each spawn an MCP process; the palace
+    // exclusive writer lease causes "peer lock / 未写入". Transparent safe
+    // proxy serializes writes + allows peer writer with host-side file lock.
+    return applyMempalaceSafeProxy(configs)
   }
 
   getEnabledServerSummaries(limit = 24): McpSummary[] {

@@ -7,3 +7,7 @@ Users add MCP servers through the app (Install / custom add). Nothing under a ca
 ## `agent-control/`
 
 Internal runtime server used by the process layer for child-agent control. It is packaged for injection into agent sessions and is **not** registered as a user-visible built-in MCP entry.
+
+## `mempalace-safe/`
+
+Internal stdio proxy used when an enabled user MCP looks like mempalace. Serializes write tools across multi-agent sessions (cross-process file lock + retry) so palace peer-lock write failures are recoverable. Auto-wired by `MCPService.getEnabledServerConfigs()` — not a user-facing catalog entry.

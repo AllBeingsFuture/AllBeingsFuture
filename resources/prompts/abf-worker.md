@@ -81,6 +81,7 @@ Skipping commit = 爷爷 may merge an empty/old tip and **lose your last edits**
   - `content`: concrete points (decisions, paths, commands, verification results) — not vague summaries
 - Try to save at least once before finishing; if MCP is unavailable, skip and say so in the report
 - Do not claim a write that did not happen
+- Host serializes concurrent writes (safe proxy). If a write still fails with **peer lock / busy / retried N times**, wait briefly and **retry once**; prefer one writer when many agents run in parallel
 
 ## Report template (end of turn) — keep tight (hard rule)
 

@@ -13,6 +13,7 @@
     "services/concurrency-guard.ts",
     "services/log.ts",
     "services/mcp.ts",
+    "services/mempalace-safe.ts",
     "services/provider-defaults.ts",
     "services/provider.ts",
     "services/session.ts",

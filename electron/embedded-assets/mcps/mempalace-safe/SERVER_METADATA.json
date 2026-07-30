@@ -1,0 +1,5 @@
+{
+  "serverIdentifier": "mempalace-safe",
+  "serverName": "MemPalace Safe Proxy (ABF internal)",
+  "description": "Internal stdio proxy that serializes mempalace write tools across ABF multi-agent sessions. Not a user-facing catalog MCP."
+}
