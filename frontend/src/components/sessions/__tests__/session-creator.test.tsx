@@ -242,4 +242,30 @@ describe('SessionCreator', () => {
       }))
     })
   })
+
+  it('opens session and closes dialog without waiting for provider init', async () => {
+    getRepoRootMock.mockResolvedValue('C:/repo')
+    let resolveInit: (() => void) | undefined
+    initProcessMock.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveInit = resolve }),
+    )
+    const onClose = vi.fn()
+
+    renderWithProviders(<SessionCreator onClose={onClose} />)
+
+    fireEvent.change(screen.getByPlaceholderText('选择工作区，或输入/浏览目录'), {
+      target: { value: 'C:/repo' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+
+    await waitFor(() => {
+      expect(createMock).toHaveBeenCalled()
+      expect(openSessionMock).toHaveBeenCalledWith('session-1')
+      expect(onClose).toHaveBeenCalled()
+    })
+    // init is fired but not awaited — dialog already closed while init pending
+    expect(initProcessMock).toHaveBeenCalledWith('session-1')
+    expect(resolveInit).toBeDefined()
+    resolveInit?.()
+  })
 })

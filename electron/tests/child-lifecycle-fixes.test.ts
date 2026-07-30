@@ -176,6 +176,9 @@ test('disposeSession cleans managed child worktree via cleanupDisposedSessionWor
   assert.match(lifecycle, /cleanupChildWorktree\(parent, child\)/)
   // Reuses managed-path gates
   assert.match(lifecycle, /isManagedAbfWorktreePath/)
+  // Top-level + orphan-child managed worktrees also cleaned on dispose (not children only)
+  assert.match(lifecycle, /worktreeSourceRepo/)
+  assert.match(lifecycle, /gitService\.removeWorktree/)
 })
 
 // ─── Source contracts: item 9 isolation failure ─────────────────────

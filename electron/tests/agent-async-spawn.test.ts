@@ -123,6 +123,10 @@ test('git service deletes remote isolation branches on worktree cleanup', () => 
   assert.match(source, /deleteRemoteIsolationBranch/)
   assert.match(source, /push',\s*'origin',\s*'--delete'/)
   assert.match(source, /name\.startsWith\('worktree-'\)/)
+  // Must not block removeWorktree on network: fire-and-forget + timeouts
+  assert.match(source, /void this\.deleteRemoteIsolationBranch/)
+  assert.match(source, /timeoutMs:\s*8_000|timeoutMs:\s*8000/)
+  assert.match(source, /timeoutMs:\s*15_000|timeoutMs:\s*15000/)
 })
 
 test('close_agent tool text requires close after accept; handlers expose UI CloseChildSession', () => {

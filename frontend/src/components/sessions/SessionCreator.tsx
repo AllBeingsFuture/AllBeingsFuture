@@ -428,11 +428,11 @@ export default function SessionCreator({ onClose }: Props) {
         saveLastWorkDir(trimmedWorkDir)
         saveLastWorkspaceId(selectedWorkspaceId)
         addRecentDir(trimmedWorkDir)
-        // Best-effort pre-warm for a brand-new session only. ConversationView
-        // no longer auto-inits on open (avoids re-running history after restart);
-        // sendMessage still auto-inits if this pre-warm fails.
-        try { await workbenchApi.session.init(session.id) } catch {}
-        await workbenchApi.navigation.openSession(session.id)
+        // Open + close dialog immediately so create latency is not blocked by
+        // provider cold-start (ACP/CLI spawn). Pre-warm init in the background;
+        // sendMessage still auto-inits if pre-warm fails or is still in flight.
+        void workbenchApi.session.init(session.id).catch(() => {})
+        void workbenchApi.navigation.openSession(session.id)
       }
       onClose()
     } catch (err: any) {
