@@ -17,7 +17,13 @@ import {
 } from './child-turn-waiter.js'
 import { appLog } from './log.js'
 import { wrapWorkerTaskPrompt } from './supervisor-prompt.js'
-import type { ChatMessage, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
+import {
+  findLastMessage,
+  type ChatMessage,
+  type SessionState,
+  type BridgeEvent,
+  type AgentInfo,
+} from './process-types.js'
 import type { BrowserWindow } from 'electron'
 
 /** Normalize for path equality (posix-ish, no trailing slash). */
@@ -423,7 +429,7 @@ export class AgentLifecycleManager {
 
     // Get last result from child
     const childState = this.callbacks.getOrCreateState(childSessionId)
-    const lastAssistant = [...childState.messages].reverse().find(m => m.role === 'assistant')
+    const lastAssistant = findLastMessage(childState.messages, m => m.role === 'assistant')
     const result = lastAssistant?.content || '(no output)'
 
     // Mark session terminated (not completed) so fetchAllAgents will not rehydrate it
@@ -527,7 +533,7 @@ export class AgentLifecycleManager {
     if (!child) return
 
     const childState = this.callbacks.getOrCreateState(childSessionId)
-    const lastAssistant = [...childState.messages].reverse().find(m => m.role === 'assistant')
+    const lastAssistant = findLastMessage(childState.messages, m => m.role === 'assistant')
     const result = lastAssistant?.content || '(no output)'
 
     const childWorkDir = child.worktreePath || child.workingDirectory || ''
@@ -968,7 +974,7 @@ export class AgentLifecycleManager {
   getAgentOutputText(childSessionId: string): string {
     const state = this.sessionStates.get(childSessionId)
     if (!state) return ''
-    const last = [...state.messages].reverse().find(m => m.role === 'assistant')
+    const last = findLastMessage(state.messages, m => m.role === 'assistant')
     return last?.content || ''
   }
 

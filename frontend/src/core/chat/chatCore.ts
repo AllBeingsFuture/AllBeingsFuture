@@ -81,6 +81,53 @@ export interface ChatSnapshot {
 
 const ACTIVE_RUNTIME_STATUSES = new Set<Session['status']>(['starting', 'running'])
 const MANAGED_WORKTREE_MARKERS = ['/.allbeingsfuture-worktrees/', '/.abf-worktrees/', '/.claudeops-worktrees/']
+/** Session statuses that must never rehydrate closed children into the sidebar. */
+const TERMINAL_SESSION_STATUSES = new Set([
+  'terminated',
+  'cancelled',
+  'completed',
+  'error',
+  'failed',
+  'ended',
+])
+const RUNNING_LIKE_SESSION_STATUSES = new Set(['starting', 'running', 'waiting_input'])
+
+/**
+ * Field-level equality for sidebar agent lists.
+ * Avoids JSON.stringify on every 5s poll (and is order-stable on object keys).
+ */
+function agentsSnapshotEqual(
+  left: Record<string, AgentInfo[]>,
+  right: Record<string, AgentInfo[]>,
+): boolean {
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  if (leftKeys.length !== rightKeys.length) return false
+
+  for (const parentId of leftKeys) {
+    const aList = left[parentId]
+    const bList = right[parentId]
+    if (!bList || aList.length !== bList.length) return false
+    for (let index = 0; index < aList.length; index += 1) {
+      const a = aList[index]
+      const b = bList[index]
+      if (
+        a.agentId !== b.agentId
+        || a.childSessionId !== b.childSessionId
+        || a.parentSessionId !== b.parentSessionId
+        || a.status !== b.status
+        || a.name !== b.name
+        || a.workDir !== b.workDir
+        || a.createdAt !== b.createdAt
+        || a.completedAt !== b.completedAt
+        || a.providerId !== b.providerId
+      ) {
+        return false
+      }
+    }
+  }
+  return true
+}
 
 type WorktreeCreateResult = CreateWorktreeResult & { baseBranch?: string; path?: string }
 
@@ -637,15 +684,6 @@ export const chatCore = {
     const reverseMap: Record<string, ParentBinding> = {}
     const result = await ListAllAgentsAPI() as AgentInfo[] | undefined
     const seenChildIds = new Set<string>()
-    // Terminal / closed children must never reappear as idle in the sidebar
-    const terminalSessionStatuses = new Set([
-      'terminated',
-      'cancelled',
-      'completed',
-      'error',
-      'failed',
-      'ended',
-    ])
     if (result && Array.isArray(result)) {
       for (const agent of result) {
         if (!agent.parentSessionId) continue
@@ -661,13 +699,17 @@ export const chatCore = {
     for (const session of snapshot.sessions) {
       const parentSessionId = (session as SessionWithParent).parentSessionId
       if (!parentSessionId || seenChildIds.has(session.id)) continue
-      if (terminalSessionStatuses.has(session.status)) continue
+      if (TERMINAL_SESSION_STATUSES.has(session.status)) continue
       const agent: AgentInfo = {
         agentId: `session-${session.id}`,
         name: session.name,
         parentSessionId,
         childSessionId: session.id,
-        status: ['starting', 'running', 'waiting_input'].includes(session.status) ? 'running' : session.status === 'idle' ? 'idle' : 'completed',
+        status: RUNNING_LIKE_SESSION_STATUSES.has(session.status)
+          ? 'running'
+          : session.status === 'idle'
+            ? 'idle'
+            : 'completed',
         workDir: session.workingDirectory,
         createdAt: session.startedAt ? String(session.startedAt) : '',
         providerId: session.providerId,
@@ -679,7 +721,7 @@ export const chatCore = {
       reverseMap[session.id] = { parentSessionId, agentId: agent.agentId, agentName: session.name }
     }
 
-    if (JSON.stringify(snapshot.agents) === JSON.stringify(grouped)) return null
+    if (agentsSnapshotEqual(snapshot.agents, grouped)) return null
     return { agents: grouped, childToParent: reverseMap }
   },
 

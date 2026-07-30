@@ -212,6 +212,37 @@ describe('buildVirtualLayout', () => {
     expect(layout.totalHeight).toBe(940)
     expect(layout.items[0]?.size).toBe(40)
   })
+
+  it('binary-searches the visible window on long lists and returns full sizes', () => {
+    const longItems = Array.from({ length: 500 }, (_, index) => ({
+      id: `row-${index}`,
+      size: 40,
+    }))
+    const layout = buildVirtualLayout({
+      items: longItems,
+      getItemKey: (item) => item.id,
+      estimateSize: (item) => item.size,
+      overscanPx: 0,
+      scrollTop: 4000, // exact top of row-100; row-99 still included (end === minOffset)
+      viewportHeight: 200, // rows through start <= 4200
+    })
+
+    expect(layout.totalHeight).toBe(20_000)
+    expect(layout.sizes.size).toBe(500)
+    expect(layout.sizes.get('row-100')).toBe(40)
+    // Window is [first end >= 4000, first start > 4200) → rows 99..105
+    expect(layout.items.map((item) => item.key)).toEqual([
+      'row-99',
+      'row-100',
+      'row-101',
+      'row-102',
+      'row-103',
+      'row-104',
+      'row-105',
+    ])
+    expect(layout.items[0]?.start).toBe(3960)
+    expect(layout.items[1]?.start).toBe(4000)
+  })
 })
 
 describe('useVirtualizedList', () => {

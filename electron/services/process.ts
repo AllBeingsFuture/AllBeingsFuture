@@ -37,7 +37,15 @@ import {
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
-import type { ChatMessage, ChatState, ChatPatchEvent, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
+import {
+  findLastMessage,
+  type ChatMessage,
+  type ChatState,
+  type ChatPatchEvent,
+  type SessionState,
+  type BridgeEvent,
+  type AgentInfo,
+} from './process-types.js'
 import { AgentLifecycleManager } from './agent-lifecycle.js'
 import { SessionSearchService } from './session-search.js'
 import { AgentStreamNormalizer } from './agent-stream-normalizer.js'
@@ -1012,8 +1020,9 @@ export class ProcessService {
             const doneSession = this.sessionService.getById(sessionId)
             if (!doneSession?.parentSessionId && this.notificationManager) {
               const sessionName = doneSession?.name || sessionId
-              const lastAssistantMsg = [...state.messages].reverse().find(
-                m => m.role === 'assistant' && m.content && !m.toolName && !m.toolUse
+              const lastAssistantMsg = findLastMessage(
+                state.messages,
+                m => m.role === 'assistant' && Boolean(m.content) && !m.toolName && !m.toolUse,
               )
               const summary = lastAssistantMsg?.content || undefined
               appLog('info', `Sending turn-complete notification for "${sessionName}" (${sessionId})`, 'process')
@@ -1092,7 +1101,7 @@ export class ProcessService {
             )
           } else if (this.agentLifecycle.isPersistentChild(doneSessionForChild.parentSessionId, sessionId)) {
             // Persistent child: resolve waiter, inject turn result, set idle, keep alive
-            const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant')
+            const lastAssistant = findLastMessage(state.messages, m => m.role === 'assistant')
             const resultText = lastAssistant?.content || '(no output)'
             this.agentLifecycle.resolveChildTurnWaiter(sessionId, resultText)
             this.agentLifecycle.injectChildResult(doneSessionForChild.parentSessionId, sessionId)
@@ -1146,7 +1155,7 @@ export class ProcessService {
           errSessionForChild?.parentSessionId
           && this.agentLifecycle.isPersistentChild(errSessionForChild.parentSessionId, sessionId)
         ) {
-          const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant')
+          const lastAssistant = findLastMessage(state.messages, m => m.role === 'assistant')
           const resultText =
             state.error
               ? `(error: ${state.error})`
@@ -1189,8 +1198,9 @@ export class ProcessService {
         }
         const childInfoTool = this.agentLifecycle.getActiveChildInfo(sessionId)
         if (event.isUpdate && event.toolCallId) {
-          const existingTool = [...state.messages].reverse().find(
-            message => message.role === 'tool_use' && message.toolCallId === event.toolCallId
+          const existingTool = findLastMessage(
+            state.messages,
+            message => message.role === 'tool_use' && message.toolCallId === event.toolCallId,
           )
           if (existingTool) {
             existingTool.toolStatus = event.toolStatus
@@ -1204,8 +1214,9 @@ export class ProcessService {
             // the child UI freezes on "running" without output.
             if (childInfoTool) {
               const childState = this.getOrCreateState(childInfoTool.id)
-              const childTool = [...childState.messages].reverse().find(
-                message => message.role === 'tool_use' && message.toolCallId === event.toolCallId
+              const childTool = findLastMessage(
+                childState.messages,
+                message => message.role === 'tool_use' && message.toolCallId === event.toolCallId,
               )
               if (childTool) {
                 childTool.toolStatus = event.toolStatus
@@ -1247,7 +1258,7 @@ export class ProcessService {
         state.messages.push(toolMsg)
 
         // Also maintain toolUse array on last assistant message for StreamingIndicator compat
-        const prevMsg = state.messages.slice().reverse().find(m => m.role === 'assistant')
+        const prevMsg = findLastMessage(state.messages, m => m.role === 'assistant')
         if (prevMsg) {
           if (!prevMsg.toolUse) prevMsg.toolUse = []
           prevMsg.toolUse.push({

@@ -115,3 +115,18 @@ export interface SessionState {
    */
   doneIsFromInterrupt?: boolean
 }
+
+/**
+ * Find the last element matching `predicate` without allocating a reversed copy.
+ * Hot path on tool/done events where message lists can be long.
+ */
+export function findLastMessage<T>(
+  messages: readonly T[],
+  predicate: (message: T) => boolean,
+): T | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (predicate(message)) return message
+  }
+  return undefined
+}

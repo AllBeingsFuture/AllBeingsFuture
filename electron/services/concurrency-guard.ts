@@ -75,46 +75,16 @@ export class ConcurrencyGuard {
    * Low free memory / high freemem % yields a warning only (macOS freemem is unreliable).
    */
   checkCanCreateSession(): CanCreateResult {
-    // Check session count limit — only hard block
-    if (this.activeSessionIds.size >= this.config.maxSessions) {
-      return {
-        allowed: false,
-        reason: `Maximum concurrent session limit reached (${this.activeSessionIds.size}/${this.config.maxSessions})`,
-      }
-    }
-
-    const memSnapshot = this.getMemorySnapshot()
-    const freeMB = Math.round(memSnapshot.availableMB)
-    const totalMB = Math.round(memSnapshot.totalMB)
-    const usedPct = Math.round(memSnapshot.usagePercent)
-
-    // Memory pressure is always warning-only (never hard-block on freemem).
-    // High freemem-based usage % or very low absolute free → warn for UI only.
-    if (memSnapshot.usagePercent >= this.config.memoryWarningPercent) {
-      return {
-        allowed: true,
-        warning: `High memory usage: ${usedPct}% used (${freeMB}MB free of ${totalMB}MB)`,
-      }
-    }
-
-    // Soft absolute floor for warning when % is still below the threshold
-    // (e.g. small total RAM). Does not block session creation.
-    if (memSnapshot.availableMB < 256) {
-      return {
-        allowed: true,
-        warning: `System memory low: ${freeMB}MB free of ${totalMB}MB (${usedPct}% used)`,
-      }
-    }
-
-    return { allowed: true }
+    return this.evaluateCanCreate(this.getMemorySnapshot())
   }
 
   /**
    * Get current resource usage info for display in the frontend.
+   * Single memory snapshot shared with can-create evaluation (no double os.freemem).
    */
   getResourceStatus(): ResourceStatus {
     const memSnapshot = this.getMemorySnapshot()
-    const canCreate = this.checkCanCreateSession()
+    const canCreate = this.evaluateCanCreate(memSnapshot)
 
     return {
       currentSessions: this.activeSessionIds.size,
@@ -179,6 +149,44 @@ export class ConcurrencyGuard {
   }
 
   // ── Private ──────────────────────────────────────────────────
+
+  private evaluateCanCreate(memSnapshot: {
+    totalMB: number
+    availableMB: number
+    usagePercent: number
+  }): CanCreateResult {
+    // Check session count limit — only hard block
+    if (this.activeSessionIds.size >= this.config.maxSessions) {
+      return {
+        allowed: false,
+        reason: `Maximum concurrent session limit reached (${this.activeSessionIds.size}/${this.config.maxSessions})`,
+      }
+    }
+
+    const freeMB = Math.round(memSnapshot.availableMB)
+    const totalMB = Math.round(memSnapshot.totalMB)
+    const usedPct = Math.round(memSnapshot.usagePercent)
+
+    // Memory pressure is always warning-only (never hard-block on freemem).
+    // High freemem-based usage % or very low absolute free → warn for UI only.
+    if (memSnapshot.usagePercent >= this.config.memoryWarningPercent) {
+      return {
+        allowed: true,
+        warning: `High memory usage: ${usedPct}% used (${freeMB}MB free of ${totalMB}MB)`,
+      }
+    }
+
+    // Soft absolute floor for warning when % is still below the threshold
+    // (e.g. small total RAM). Does not block session creation.
+    if (memSnapshot.availableMB < 256) {
+      return {
+        allowed: true,
+        warning: `System memory low: ${freeMB}MB free of ${totalMB}MB (${usedPct}% used)`,
+      }
+    }
+
+    return { allowed: true }
+  }
 
   private getMemorySnapshot(): { totalMB: number; availableMB: number; usagePercent: number } {
     const { totalBytes, freeBytes } = this.readMemory()

@@ -37,6 +37,8 @@ interface VirtualizedLayout<T> {
   items: Array<VirtualizedLayoutItem<T>>
   fingerprints: Map<string, string>
   starts: Map<string, number>
+  /** Full key→resolved height for every item (avoids a second resolve pass in the hook). */
+  sizes: Map<string, number>
 }
 
 export interface BuildVirtualLayoutOptions<T> {
@@ -182,6 +184,21 @@ function resolveMeasuredSize<T>(
   return { fingerprint, size: safeEstimate }
 }
 
+/**
+ * First index whose extent (start + size) reaches `minOffset`.
+ * Binary search keeps long conversations O(log n) on the layout hot path.
+ */
+function findStartIndex(starts: number[], sizes: number[], minOffset: number): number {
+  let lo = 0
+  let hi = starts.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (starts[mid] + sizes[mid] < minOffset) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
 export function buildVirtualLayout<T>({
   items,
   getItemKey,
@@ -194,8 +211,14 @@ export function buildVirtualLayout<T>({
 }: BuildVirtualLayoutOptions<T>): VirtualizedLayout<T> {
   const fingerprints = new Map<string, string>()
   const startsMap = new Map<string, number>()
-  const resolvedSizes = items.map((item, index) => {
+  const sizesMap = new Map<string, number>()
+  const keys = new Array<string>(items.length)
+  const resolvedSizes = new Array<number>(items.length)
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]
     const key = getItemKey(item, index)
+    keys[index] = key
     const estimatedSize = estimateSize(item, index)
     const preferGrowing = Boolean(shouldPreferGrowingEstimate?.(item, index))
     const resolved = resolveMeasuredSize(
@@ -206,25 +229,22 @@ export function buildVirtualLayout<T>({
       preferGrowing,
     )
     fingerprints.set(key, resolved.fingerprint)
-    return resolved.size
-  })
+    resolvedSizes[index] = resolved.size
+    sizesMap.set(key, resolved.size)
+  }
 
   const starts = new Array<number>(items.length)
   let totalHeight = 0
   for (let index = 0; index < items.length; index += 1) {
     starts[index] = totalHeight
+    startsMap.set(keys[index], totalHeight)
     totalHeight += resolvedSizes[index]
   }
 
   const minOffset = Math.max(0, scrollTop - overscanPx)
   const maxOffset = scrollTop + viewportHeight + overscanPx
 
-  let startIndex = 0
-  while (startIndex < items.length) {
-    const end = starts[startIndex] + resolvedSizes[startIndex]
-    if (end >= minOffset) break
-    startIndex += 1
-  }
+  const startIndex = findStartIndex(starts, resolvedSizes, minOffset)
 
   let endIndex = startIndex
   while (endIndex < items.length) {
@@ -232,24 +252,23 @@ export function buildVirtualLayout<T>({
     endIndex += 1
   }
 
-  for (let index = 0; index < items.length; index += 1) {
-    startsMap.set(getItemKey(items[index], index), starts[index])
+  const visible: Array<VirtualizedLayoutItem<T>> = []
+  for (let index = startIndex; index < endIndex; index += 1) {
+    visible.push({
+      index,
+      item: items[index],
+      key: keys[index],
+      size: resolvedSizes[index],
+      start: starts[index],
+    })
   }
 
   return {
     totalHeight,
     fingerprints,
     starts: startsMap,
-    items: items.slice(startIndex, endIndex).map((item, relativeIndex) => {
-      const index = startIndex + relativeIndex
-      return {
-        index,
-        item,
-        key: getItemKey(item, index),
-        size: resolvedSizes[index],
-        start: starts[index],
-      }
-    }),
+    sizes: sizesMap,
+    items: visible,
   }
 }
 
@@ -348,33 +367,17 @@ export function useVirtualizedList<T>({
       shouldPreferGrowingEstimate,
     })
 
-    // Full key→size map so first measure can treat the layout estimate as previousSize.
-    const fullSizes = new Map<string, number>()
-    const measured = measuredSizesRef.current
-    items.forEach((item, index) => {
-      const key = getItemKey(item, index)
-      const estimatedSize = estimateSize(item, index)
-      const preferGrowing = Boolean(shouldPreferGrowingEstimate?.(item, index))
-      const resolved = resolveMeasuredSize(
-        measured.get(key),
-        item,
-        index,
-        estimatedSize,
-        preferGrowing,
-      )
-      fullSizes.set(key, resolved.size)
-    })
-
     // Parent already decided virtualization is worth it. Always keep the spacer
     // + absolute layout path while enabled — flipping to flow layout when the
     // overscan window briefly covers every row caused height jumps and made
     // slow/fast scroll-up feel stuck at the mode boundary.
+    // sizes come from buildVirtualLayout (single resolve pass, no double fingerprint).
     return {
       enabled: true,
       totalHeight: nextLayout.totalHeight,
       fingerprints: nextLayout.fingerprints,
       starts: nextLayout.starts,
-      sizes: fullSizes,
+      sizes: nextLayout.sizes,
       virtualItems: nextLayout.items,
     }
   }, [
