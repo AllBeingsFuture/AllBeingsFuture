@@ -71,6 +71,49 @@ describe('ToolOperationGroup', () => {
     expect(screen.queryByText(/最近：执行中/)).not.toBeInTheDocument()
   })
 
+  it('treats partial-only open tool_use as 执行中 (agent:stream may omit isDelta)', () => {
+    const partialOpen = [
+      toolMsg({
+        id: 'use-1',
+        role: 'tool_use',
+        toolUseId: 'call-1',
+        toolName: 'Bash',
+        toolInput: { command: 'ls frontend' },
+        content: 'ls frontend',
+        partial: true,
+      }),
+    ]
+    renderWithProviders(<ToolOperationGroup messages={partialOpen} isActive />)
+    expect(screen.getByText(/正在执行/)).toBeInTheDocument()
+    expect(screen.getByText(/最近：执行中/)).toBeInTheDocument()
+  })
+
+  it('treats partial tool_result as live output not final result', () => {
+    const livePartial = [
+      toolMsg({
+        id: 'use-1',
+        role: 'tool_use',
+        toolUseId: 'call-1',
+        toolName: 'Bash',
+        toolInput: { command: 'ls' },
+        content: 'ls',
+        partial: true,
+      }),
+      toolMsg({
+        id: 'result-1',
+        role: 'tool_result',
+        toolUseId: 'call-1',
+        toolName: 'Bash',
+        toolResult: 'App.tsx\n',
+        content: 'App.tsx\n',
+        partial: true,
+      }),
+    ]
+    renderWithProviders(<ToolOperationGroup messages={livePartial} isActive />)
+    expect(screen.getByText(/最近：执行中/)).toBeInTheDocument()
+    expect(screen.getByText('LIVE')).toBeInTheDocument()
+  })
+
   it('stays collapsed for finished history groups by default', () => {
     const finished = liveTools.map(message => (
       message.role === 'tool_result'

@@ -55,23 +55,28 @@ function aggregateOperations(messages: ConversationMessage[]): ToolOperationCard
 
     if (message.role === 'tool_result' && pendingUnkeyedOperation) {
       assignMessage(pendingUnkeyedOperation, message)
-      if (!message.isDelta) pendingUnkeyedOperation = undefined
+      if (!isLiveToolMessage(message)) pendingUnkeyedOperation = undefined
       continue
     }
 
     operations.push({
       id: message.id,
-      liveResult: message.role === 'tool_result' && message.isDelta ? message : undefined,
-      result: message.role === 'tool_result' && !message.isDelta ? message : undefined,
+      liveResult: message.role === 'tool_result' && isLiveToolMessage(message) ? message : undefined,
+      result: message.role === 'tool_result' && !isLiveToolMessage(message) ? message : undefined,
     })
   }
 
   return operations
 }
 
+/** In-flight tool rows may only carry partial (agent:stream) or isDelta (legacy). */
+function isLiveToolMessage(message: ConversationMessage): boolean {
+  return Boolean(message.isDelta || message.partial)
+}
+
 function assignMessage(operation: ToolOperationCardData, message: ConversationMessage): void {
   if (message.role === 'tool_use') { operation.toolUse = message; return }
-  if (message.isDelta) { operation.liveResult = message; return }
+  if (isLiveToolMessage(message)) { operation.liveResult = message; return }
   operation.result = message
 }
 
@@ -120,7 +125,7 @@ function getOperationSummary(operation: ToolOperationCardData): string {
     operation.toolUse
     && !operation.result
     && !operation.liveResult
-    && operation.toolUse.isDelta,
+    && isLiveToolMessage(operation.toolUse),
   )
   const live = Boolean(operation.liveResult && !operation.result) || toolUseLive
   const prefix = live

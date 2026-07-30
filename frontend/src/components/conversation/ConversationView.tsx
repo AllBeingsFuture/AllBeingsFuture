@@ -681,26 +681,12 @@ const ThinkingBlock = memo(function ThinkingBlock({
           {preview}
         </div>
       )}
-      {/* Live body is static: height:0→auto animation thrashs stick-to-bottom every token. */}
-      {expanded && content && isActive && (
+      {/* Static body always: live height anim thrash + live→settled host swap both jump scroll. */}
+      {expanded && content && (
         <div className={bodyClassName} data-testid="thinking-block-body">
           {content}
         </div>
       )}
-      <AnimatePresence>
-        {expanded && content && !isActive && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.18, ease: 'easeInOut' }}
-            className={bodyClassName}
-            data-testid="thinking-block-body"
-          >
-            {content}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   )
 })

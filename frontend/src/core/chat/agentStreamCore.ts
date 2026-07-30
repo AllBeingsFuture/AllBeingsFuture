@@ -208,22 +208,22 @@ function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
   const patched = patchMessage(
     messages,
     message => message.role === 'tool_use' && matchesToolCall(message, event.toolCallId),
-    message => ({
-      ...message,
-      toolName: event.name || message.toolName || event.title,
-      toolInput: event.input || message.toolInput,
-      content: event.title || message.content,
-      // Normalize legacy toolCallId rows so later stream updates keep matching.
-      toolUseId: message.toolUseId || event.toolCallId,
-      toolCallId: message.toolCallId || event.toolCallId,
-      // tool_call has no status field; keep existing terminal status, else pending.
-      toolStatus: message.toolStatus === 'completed' || message.toolStatus === 'failed'
-        ? message.toolStatus
-        : (message.toolStatus || 'pending'),
-      partial: message.toolStatus === 'completed' || message.toolStatus === 'failed'
-        ? false
-        : true,
-    }),
+    message => {
+      const terminal = message.toolStatus === 'completed' || message.toolStatus === 'failed'
+      return {
+        ...message,
+        toolName: event.name || message.toolName || event.title,
+        toolInput: event.input || message.toolInput,
+        content: event.title || message.content,
+        // Normalize legacy toolCallId rows so later stream updates keep matching.
+        toolUseId: message.toolUseId || event.toolCallId,
+        toolCallId: message.toolCallId || event.toolCallId,
+        // tool_call has no status field; keep existing terminal status, else pending.
+        toolStatus: terminal ? message.toolStatus : (message.toolStatus || 'pending'),
+        partial: !terminal,
+        isDelta: !terminal,
+      }
+    },
   )
   if (patched.found) return patched.messages
   // New tool boundary: seal any live narrative so the next text_delta opens a new bubble.
@@ -232,6 +232,7 @@ function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     role: 'tool_use',
     content: event.title || '',
     partial: true,
+    isDelta: true,
     id: `tool-${event.toolCallId}`,
     toolUseId: event.toolCallId,
     toolCallId: event.toolCallId,
@@ -254,6 +255,9 @@ function ensureToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     role: 'tool_use',
     content: event.title || '',
     partial: !terminal,
+    // Keep isDelta in lockstep with partial so tool UI (groups/cards) treats
+    // in-flight tool_use as live, not settled "已发起".
+    isDelta: !terminal,
     id: `tool-${event.toolCallId}`,
     toolUseId: event.toolCallId,
     toolCallId: event.toolCallId,
@@ -280,6 +284,7 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
       // ConversationView / tool groups key off toolStatus (not only partial).
       toolStatus: event.status,
       partial: !terminal,
+      isDelta: !terminal,
     }),
   )
   next = callPatch.messages

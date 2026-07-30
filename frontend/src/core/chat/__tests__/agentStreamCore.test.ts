@@ -178,14 +178,14 @@ describe('agentStreamCore', () => {
       toolCallId: 'tool-1', title: 'Run tests', name: 'shell', input: { command: 'npm test' },
     })
     expect(call.messages[0]).toEqual(expect.objectContaining({
-      role: 'tool_use', toolUseId: 'tool-1', toolStatus: 'pending', partial: true,
+      role: 'tool_use', toolUseId: 'tool-1', toolStatus: 'pending', partial: true, isDelta: true,
     }))
     const output = reduceAgentStreamEvent(call.messages, call.stream, {
       type: 'tool_update', sessionId: 'session-1', sequence: 2,
       toolCallId: 'tool-1', status: 'in_progress', output: { stream: 'stdout', text: 'PASS\n' },
     })
     expect(output.messages[0]).toEqual(expect.objectContaining({
-      role: 'tool_use', toolStatus: 'in_progress', partial: true,
+      role: 'tool_use', toolStatus: 'in_progress', partial: true, isDelta: true,
     }))
     const complete = reduceAgentStreamEvent(output.messages, output.stream, {
       type: 'tool_update', sessionId: 'session-1', sequence: 3,
@@ -194,7 +194,7 @@ describe('agentStreamCore', () => {
 
     expect(complete.messages).toHaveLength(2)
     expect(complete.messages[0]).toEqual(expect.objectContaining({
-      role: 'tool_use', toolUseId: 'tool-1', toolStatus: 'completed', partial: false,
+      role: 'tool_use', toolUseId: 'tool-1', toolStatus: 'completed', partial: false, isDelta: false,
     }))
     expect(complete.messages[1]).toEqual(expect.objectContaining({
       role: 'tool_result', toolUseId: 'tool-1', toolResult: 'PASS\nDone', isDelta: false, partial: false,

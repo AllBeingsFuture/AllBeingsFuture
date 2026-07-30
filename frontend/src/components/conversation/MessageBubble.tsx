@@ -146,10 +146,10 @@ function MessageBubble({ message, providerId }: Props) {
   )
 
   const thinkingSeconds = Math.max(1, Math.round((thinkingText?.length || 0) / 180))
-  // Streaming tokens re-render every frame — skip enter motion to avoid opacity/y thrash.
-  const BubbleShell = isPartial ? 'div' : motion.div
+  // Always the same host element: switching div↔motion.div on partial→settled remounts
+  // the whole bubble (flash/jump). Skip enter motion while streaming.
   const bubbleMotionProps = isPartial
-    ? {}
+    ? { initial: false as const, animate: { opacity: 1, y: 0 } }
     : {
         initial: { opacity: 0, y: 6 },
         animate: { opacity: 1, y: 0 },
@@ -158,7 +158,7 @@ function MessageBubble({ message, providerId }: Props) {
 
   return (
     <>
-      <BubbleShell
+      <motion.div
         className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}
         {...bubbleMotionProps}
       >
@@ -321,7 +321,7 @@ function MessageBubble({ message, providerId }: Props) {
             </div>
           )}
         </div>
-      </BubbleShell>
+      </motion.div>
 
       {previewIndex !== null && userImages && (
         <ImageViewer
