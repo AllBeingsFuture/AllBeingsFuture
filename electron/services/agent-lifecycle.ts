@@ -10,6 +10,11 @@ import type { ConcurrencyGuard } from './concurrency-guard.js'
 import type { GitService } from './git.js'
 import type { SettingsService } from './settings.js'
 import { AgentTracker, type TrackedAgent } from './agent-tracker.js'
+import {
+  installChildTurnWaiter,
+  resolveChildTurnWaiterEntry,
+  type ChildTurnWaiterHandle,
+} from './child-turn-waiter.js'
 import { appLog } from './log.js'
 import { wrapWorkerTaskPrompt } from './supervisor-prompt.js'
 import type { ChatMessage, SessionState, BridgeEvent, AgentInfo } from './process-types.js'
@@ -58,8 +63,8 @@ export class AgentLifecycleManager {
   private activeChildStack = new Map<string, string[]>()
   /** Reverse lookup: childSessionId → agent display name */
   private childSessionNames = new Map<string, string>()
-  /** Waiters for persistent child turns: childSessionId → resolve(result) */
-  private childTurnWaiters = new Map<string, (result: string) => void>()
+  /** Waiters for persistent child turns: childSessionId → { resolve, reject, timer } */
+  private childTurnWaiters = new Map<string, ChildTurnWaiterHandle>()
   /** Idle flags for persistent agents: childSessionId → true when turn completed but agent still alive */
   private agentIdleFlags = new Map<string, boolean>()
   /** Waiters for idle detection: childSessionId → resolve callbacks */
@@ -243,7 +248,13 @@ export class AgentLifecycleManager {
       )
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      appLog('warn', `Child worktree isolation failed for ${child.id}, using parent dir: ${errMsg}`, 'process')
+      // Fail-open: spawn still succeeds with shared parent cwd. Leave worktreePath
+      // unset so cleanup will never try to delete the parent directory.
+      appLog(
+        'warn',
+        `Child worktree isolation failed (shared cwd fallback): child=${child.id} parentDir=${parentDir} error=${errMsg}`,
+        'process',
+      )
     }
   }
 
@@ -548,6 +559,7 @@ export class AgentLifecycleManager {
 
   /**
    * When a parent session finishes, finalize all its still-running child agents.
+   * Also unblocks any AndWait / wait_agent_idle waiters so they do not hang.
    */
   finalizeChildAgents(
     parentSessionId: string,
@@ -567,6 +579,12 @@ export class AgentLifecycleManager {
       if (childState) {
         childState.streaming = false
       }
+      const resultText =
+        this.getAgentOutputText(agent.childSessionId)
+        || `(${status})`
+      this.resolveChildTurnWaiter(agent.childSessionId, resultText)
+      this.setAgentIdleFlag(agent.childSessionId, true)
+      this.resolveAgentIdleWaiters(agent.childSessionId)
       this.emitAgentUpdate(parentSessionId, agent)
       this.callbacks.emitChatUpdate(agent.childSessionId)
     }
@@ -748,22 +766,79 @@ export class AgentLifecycleManager {
   createChildTurnWaiter(childSessionId: string, timeoutMs = 300_000): Promise<string> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.childTurnWaiters.delete(childSessionId)
+        // Only delete if this timer's entry is still installed (not superseded)
+        const current = this.childTurnWaiters.get(childSessionId)
+        if (current?.timer === timer) {
+          this.childTurnWaiters.delete(childSessionId)
+        }
         reject(new Error(`Timeout waiting for child agent ${childSessionId} (${timeoutMs}ms)`))
       }, timeoutMs)
 
-      this.childTurnWaiters.set(childSessionId, (result: string) => {
-        clearTimeout(timer)
-        resolve(result)
+      installChildTurnWaiter(this.childTurnWaiters, childSessionId, {
+        resolve,
+        reject,
+        timer,
       })
     })
   }
 
   resolveChildTurnWaiter(childSessionId: string, result: string): void {
-    const waiter = this.childTurnWaiters.get(childSessionId)
-    if (waiter) {
-      this.childTurnWaiters.delete(childSessionId)
-      waiter(result)
+    resolveChildTurnWaiterEntry(this.childTurnWaiters, childSessionId, result)
+  }
+
+  /**
+   * Clean managed ABF child worktree when a session is disposed/deleted.
+   * Same safety gates as closeChildSession → cleanupChildWorktree.
+   * No-op for top-level sessions or when isolation never set worktreePath.
+   */
+  async cleanupDisposedSessionWorktree(sessionId: string): Promise<void> {
+    const child = this.sessionService.getById(sessionId)
+    if (!child) return
+    if (!child.parentSessionId) return
+    const worktreePath = (child.worktreePath || '').trim()
+    if (!worktreePath || child.worktreeMerged) return
+
+    const parent = this.sessionService.getById(child.parentSessionId)
+    if (!parent) {
+      appLog(
+        'warn',
+        `Disposed-session worktree cleanup skipped: parent ${child.parentSessionId} not found for ${sessionId}`,
+        'process',
+      )
+      return
+    }
+    await this.cleanupChildWorktree(parent, child)
+  }
+
+  /**
+   * Release lifecycle maps for a disposed session so waiters never hang and
+   * memory does not leak. Call only from disposeSession (not stopProcess).
+   */
+  cleanupDisposedSessionMaps(sessionId: string): void {
+    // Unblock AndWait / wait_agent_idle so dispose never leaves hangers
+    const resultText = this.getAgentOutputText(sessionId) || '(session disposed)'
+    this.resolveChildTurnWaiter(sessionId, resultText)
+    this.agentIdleFlags.delete(sessionId)
+    const idleWaiters = this.agentIdleWaiters.get(sessionId)
+    if (idleWaiters) {
+      for (const w of idleWaiters) {
+        if (w.timer) clearTimeout(w.timer)
+        w.resolve({ idle: true, output: resultText })
+      }
+      this.agentIdleWaiters.delete(sessionId)
+    }
+
+    this.childSessionNames.delete(sessionId)
+    this.activeChildStack.delete(sessionId)
+    this.agentTrackers.delete(sessionId)
+
+    // Drop this id from any parent active stack
+    for (const [parentId, stack] of this.activeChildStack) {
+      const idx = stack.indexOf(sessionId)
+      if (idx !== -1) {
+        stack.splice(idx, 1)
+        if (stack.length === 0) this.activeChildStack.delete(parentId)
+      }
     }
   }
 

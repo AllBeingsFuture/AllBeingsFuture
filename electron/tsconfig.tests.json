@@ -10,6 +10,7 @@
     "services/agent-stream-normalizer.ts",
     "services/agent-stream-types.ts",
     "services/builtin-skills.ts",
+    "services/child-turn-waiter.ts",
     "services/concurrency-guard.ts",
     "services/file-transfer.ts",
     "services/git.ts",

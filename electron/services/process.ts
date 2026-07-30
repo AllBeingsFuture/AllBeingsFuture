@@ -1115,15 +1115,39 @@ export class ProcessService {
           }
           this.agentLifecycle.deleteActiveChildStack(sessionId)
         }
-        // Mark sub-agents as failed when parent errors (including persistent)
+        // Mark sub-agents as failed when parent errors (including persistent).
+        // finalizeChildAgents also resolves child turn/idle waiters.
         this.agentLifecycle.finalizeChildAgents(sessionId, 'failed', false)
+
+        // Persistent child that itself errored: unblock wait=true / wait_agent_idle
+        // (mirror done path, but status=failed — agent stays tracked until close).
+        const errSessionForChild = this.sessionService.getById(sessionId)
+        if (
+          errSessionForChild?.parentSessionId
+          && this.agentLifecycle.isPersistentChild(errSessionForChild.parentSessionId, sessionId)
+        ) {
+          const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant')
+          const resultText =
+            state.error
+              ? `(error: ${state.error})`
+              : (lastAssistant?.content || '(error)')
+          this.agentLifecycle.resolveChildTurnWaiter(sessionId, resultText)
+          this.agentLifecycle.updatePersistentAgentStatus(
+            errSessionForChild.parentSessionId,
+            sessionId,
+            'failed',
+          )
+          this.agentLifecycle.setAgentIdleFlag(sessionId, true)
+          this.agentLifecycle.resolveAgentIdleWaiters(sessionId)
+        }
+
         // Keep software-prompt files on error — session may be re-initialized.
         // Files are cleaned only on disposeSession (delete/end) or workDir reinit.
 
         // Send error notification for top-level sessions
         try {
           if (this.notificationManager) {
-            const errSession = this.sessionService.getById(sessionId)
+            const errSession = errSessionForChild || this.sessionService.getById(sessionId)
             if (!errSession?.parentSessionId) {
               const sessionName = errSession?.name || sessionId
               appLog('info', `Sending error notification for "${sessionName}" (${sessionId})`, 'process')
@@ -1494,6 +1518,10 @@ export class ProcessService {
    * True session teardown: destroy adapter and remove software-prompt files
    * when no other session still tracks the same workDir. Call on session
    * delete / end (not on ordinary stop / turn complete).
+   *
+   * Also: clean managed ABF child worktrees, drop session-keyed maps, and
+   * resolve lifecycle waiters so dispose never leaks hangers.
+   * stopProcess must NOT call this full teardown (session may be reused).
    */
   async disposeSession(sessionId: string): Promise<void> {
     const state = this.sessionStates.get(sessionId)
@@ -1503,12 +1531,23 @@ export class ProcessService {
     this.initializedSessionWorkDirs.delete(sessionId)
     const scheduler = this.schedulers.get(sessionId)
     if (scheduler) scheduler.clear()
+    this.schedulers.delete(sessionId)
+    this.clearPendingChatPatch(sessionId)
     this.cancelPendingPermissions(sessionId)
     await this.bridgeManager.destroySession(sessionId).catch(() => {})
     this.concurrencyGuard.unregisterSession(sessionId)
     this.outputParser.clearSession(sessionId)
     this.stateInference.removeSession(sessionId)
+    // Stream sequence counters only cleared on true dispose (not stop)
+    this.agentStreamNormalizer.clearSession(sessionId)
     this.agentLifecycle.finalizeChildAgents(sessionId, 'cancelled', false)
+    // Managed child worktree (same gates as closeChildSession)
+    await this.agentLifecycle.cleanupDisposedSessionWorktree(sessionId).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      appLog('warn', `Disposed-session worktree cleanup failed for ${sessionId}: ${msg}`, 'process')
+    })
+    this.agentLifecycle.cleanupDisposedSessionMaps(sessionId)
+    this.sessionStates.delete(sessionId)
     this.cleanupSupervisorPromptForSession(sessionId)
     appLog('info', `Disposed session resources (prompts cleaned): ${sessionId}`, 'process')
   }
