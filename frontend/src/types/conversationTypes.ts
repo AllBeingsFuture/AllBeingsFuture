@@ -47,6 +47,11 @@ export interface ConversationMessage {
   }
   toolUseId?: string
   isDelta?: boolean
+  /**
+   * Streaming / in-flight marker from agent:stream (and related UI).
+   * Live tool rows may set partial without isDelta; treat as open until cleared.
+   */
+  partial?: boolean
   isThinking?: boolean
   fileChange?: FileChangeInfo
 }
