@@ -13,11 +13,13 @@ import {
 } from '../core/chat/chatCore'
 import { createAgentStreamBatcher } from '../core/chat/agentStreamBatch'
 import {
+  convergeAgentStreamOnLegacyEnd,
   createAgentSessionStreamState,
   isAgentStreamActive,
   reduceAgentStreamEvent,
   requestAgentStreamCancellation,
   resolveAgentStreamPermission,
+  shouldPreferAgentStream,
 } from '../core/chat/agentStreamCore'
 import { respondToAgentPermission } from '../hooks/agentStreamIpc'
 import type { AgentSessionStreamState, AgentStreamEvent } from '../types/agentStreamTypes'
@@ -329,15 +331,26 @@ export const useSessionStore = create<SessionState>((set, get) => {
   },
 
   pollChat: async (id) => {
-    if (isAgentStreamActive(get().agentStreams[id])) return
+    // Fail-open: only skip poll while stream is preferred (active + not silent).
+    if (shouldPreferAgentStream(get().agentStreams[id])) return
     try {
       const patch = await chatCore.poll(snapshotOf(get()), id)
       if (patch) {
-        set(patch)
-        // Always keep the per-session buffer warm, even for background sessions.
-        if (patch.messages) {
-          set(state => ({ agentStreamMessages: { ...state.agentStreamMessages, [id]: patch.messages! } }))
-        }
+        set(state => {
+          const converged = patch.streaming === false
+            ? convergeAgentStreamOnLegacyEnd(state.agentStreams[id])
+            : undefined
+          return {
+            ...patch,
+            ...(converged
+              ? { agentStreams: { ...state.agentStreams, [id]: converged } }
+              : {}),
+            // Always keep the per-session buffer warm, even for background sessions.
+            ...(patch.messages
+              ? { agentStreamMessages: { ...state.agentStreamMessages, [id]: patch.messages } }
+              : {}),
+          }
+        })
       }
       // flushPendingMessages itself re-checks selected streaming / agent stream activity.
       void get().flushPendingMessages(id)
@@ -347,16 +360,25 @@ export const useSessionStore = create<SessionState>((set, get) => {
   },
 
   handleChatUpdate: (data) => {
-    if (isAgentStreamActive(get().agentStreams[data.sessionId])) return
     const state = get()
+    const stream = state.agentStreams[data.sessionId]
+    // Prefer stream only while active and not silent; always fail-open on explicit end.
+    if (shouldPreferAgentStream(stream) && data.streaming !== false) return
+
     const patch = chatCore.applyChatUpdate(snapshotOf(state), data)
     const messages = data.messages ?? []
+    const converged = data.streaming === false
+      ? convergeAgentStreamOnLegacyEnd(stream)
+      : undefined
     set({
       ...(patch || {}),
       agentStreamMessages: {
         ...state.agentStreamMessages,
         [data.sessionId]: messages,
       },
+      ...(converged
+        ? { agentStreams: { ...state.agentStreams, [data.sessionId]: converged } }
+        : {}),
     })
     if (!data.streaming) {
       void get().flushPendingMessages(data.sessionId)
@@ -365,16 +387,18 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
   handleChatPatch: (data) => {
     const state = get()
-    const streamActive = isAgentStreamActive(state.agentStreams[data.sessionId])
+    const stream = state.agentStreams[data.sessionId]
+    const preferStream = shouldPreferAgentStream(stream)
     const isUserAppend = data.type === 'append' && data.message?.role === 'user'
+    const legacyEnded = data.streaming === false
 
     // Normalized agent:stream owns the live transcript, but user turns still
     // arrive via legacy chat:patch and must never be dropped — including when
     // the user has already switched to a child session.
-    if (streamActive && !isUserAppend) {
+    // Fail-open: silence timeout or explicit streaming:false unblocks legacy.
+    if (preferStream && !isUserAppend && !legacyEnded) {
       const sessions = chatCore.syncRuntimeStatus(state.sessions, data.sessionId, data.streaming)
       if (sessions !== state.sessions) set({ sessions })
-      if (!data.streaming) void get().flushPendingMessages(data.sessionId)
       return
     }
 
@@ -384,6 +408,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       : (state.agentStreamMessages[data.sessionId] || [])
     const nextMessages = chatCore.applyMessagePatch(baseMessages, data)
     const sessions = chatCore.syncRuntimeStatus(state.sessions, data.sessionId, data.streaming)
+    const converged = legacyEnded ? convergeAgentStreamOnLegacyEnd(stream) : undefined
 
     set({
       sessions,
@@ -391,6 +416,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
         ...state.agentStreamMessages,
         [data.sessionId]: nextMessages,
       },
+      ...(converged
+        ? { agentStreams: { ...state.agentStreams, [data.sessionId]: converged } }
+        : {}),
       ...(selected ? {
         messages: nextMessages,
         streaming: data.streaming,

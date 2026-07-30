@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../../../../bindings/allbeingsfuture/internal/models/models'
-import { createAgentSessionStreamState, reduceAgentStreamEvent } from '../agentStreamCore'
+import {
+  AGENT_STREAM_SILENCE_MS,
+  convergeAgentStreamOnLegacyEnd,
+  createAgentSessionStreamState,
+  isAgentStreamActive,
+  reduceAgentStreamEvent,
+  shouldPreferAgentStream,
+} from '../agentStreamCore'
 
 describe('agentStreamCore', () => {
   it('appends text deltas once and ignores replayed sequence numbers', () => {
@@ -18,6 +25,36 @@ describe('agentStreamCore', () => {
     expect(second.messages[0].content).toBe('Hello world')
     expect(replay.ignored).toBe(true)
     expect(replay.messages).toBe(second.messages)
+    expect(typeof second.stream.lastEventAt).toBe('number')
+    expect(shouldPreferAgentStream(second.stream)).toBe(true)
+  })
+
+  it('stamps lastEventAt and fails open after silence timeout', () => {
+    const applied = reduceAgentStreamEvent([], undefined, {
+      type: 'text_delta',
+      sessionId: 'session-1',
+      sequence: 1,
+      itemId: 'reply-1',
+      delta: 'hi',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    })
+    expect(applied.stream.lastEventAt).toBe(Date.parse('2026-01-01T00:00:00.000Z'))
+    expect(isAgentStreamActive(applied.stream)).toBe(true)
+    expect(shouldPreferAgentStream(applied.stream, applied.stream.lastEventAt! + 1000)).toBe(true)
+    expect(shouldPreferAgentStream(
+      applied.stream,
+      applied.stream.lastEventAt! + AGENT_STREAM_SILENCE_MS,
+    )).toBe(false)
+
+    // Missing lastEventAt still prefers an active stream (safe default).
+    expect(shouldPreferAgentStream({ phase: 'running', lastSequence: 1 })).toBe(true)
+    expect(convergeAgentStreamOnLegacyEnd(applied.stream)).toEqual(expect.objectContaining({
+      phase: 'done',
+      permission: undefined,
+      plan: undefined,
+      statusMessage: undefined,
+    }))
+    expect(convergeAgentStreamOnLegacyEnd({ phase: 'done', lastSequence: 1 })).toBeUndefined()
   })
 
   it('opens a new assistant bubble after a turn is finalized (multi-turn)', () => {

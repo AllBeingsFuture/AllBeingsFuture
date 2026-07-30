@@ -112,6 +112,8 @@ export type AgentStreamEvent =
 export interface AgentSessionStreamState {
   phase: AgentStreamPhase
   lastSequence: number
+  /** Epoch ms of the last successfully applied agent:stream event. Used for fail-open silence. */
+  lastEventAt?: number
   statusMessage?: string
   plan?: AgentPlan
   permission?: AgentPermissionRequest

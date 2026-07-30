@@ -735,6 +735,160 @@ describe('sessionStore runtime status sync', () => {
     expect(state.streaming).toBe(true)
   })
 
+  it('fail-opens legacy chat paths after agent stream silence timeout', async () => {
+    const silencedAt = Date.now() - 20_000
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'running' })],
+      messages: [{ role: 'user', content: 'hello' } as never],
+      agentStreamMessages: {
+        'session-1': [{ role: 'user', content: 'hello' } as never],
+      },
+      streaming: true,
+      agentStreams: {
+        'session-1': { phase: 'running', lastSequence: 2, lastEventAt: silencedAt },
+      },
+    })
+
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-1',
+      type: 'upsert_last',
+      message: { role: 'assistant', content: 'recovered via patch', timestamp: 'legacy-ts' } as never,
+      streaming: true,
+      error: '',
+    })
+
+    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual([
+      'hello',
+      'recovered via patch',
+    ])
+    expect(useSessionStore.getState().streaming).toBe(true)
+    // Still active phase after streaming:true recovery; silence only unblocks legacy.
+    expect(useSessionStore.getState().agentStreams['session-1']?.phase).toBe('running')
+
+    useSessionStore.getState().handleChatUpdate({
+      sessionId: 'session-1',
+      messages: [
+        { role: 'user', content: 'hello' } as never,
+        { role: 'assistant', content: 'final from update' } as never,
+      ],
+      streaming: true,
+      error: '',
+    })
+    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual([
+      'hello',
+      'final from update',
+    ])
+
+    serviceMocks.processService.GetChatState.mockResolvedValue({
+      messages: [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'polled recovery' },
+      ],
+      streaming: false,
+      error: '',
+    })
+    // Re-silence so poll is allowed (handleChatUpdate above did not refresh lastEventAt).
+    useSessionStore.setState(state => ({
+      agentStreams: {
+        ...state.agentStreams,
+        'session-1': { phase: 'running', lastSequence: 2, lastEventAt: silencedAt },
+      },
+      streaming: true,
+    }))
+
+    await useSessionStore.getState().pollChat('session-1')
+
+    const afterPoll = useSessionStore.getState()
+    expect(afterPoll.messages.map(m => m.content)).toEqual(['hello', 'polled recovery'])
+    expect(afterPoll.streaming).toBe(false)
+    expect(afterPoll.agentStreams['session-1']?.phase).toBe('done')
+  })
+
+  it('fail-opens immediately when legacy reports streaming:false while stream is active', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'running' })],
+      messages: [
+        { role: 'user', content: 'hello' } as never,
+        { role: 'assistant', content: 'partial', partial: true } as never,
+      ],
+      agentStreamMessages: {
+        'session-1': [
+          { role: 'user', content: 'hello' } as never,
+          { role: 'assistant', content: 'partial', partial: true } as never,
+        ],
+      },
+      streaming: true,
+      agentStreams: {
+        'session-1': {
+          phase: 'running',
+          lastSequence: 5,
+          lastEventAt: Date.now(),
+          plan: { entries: [{ id: '1', title: 'step', status: 'in_progress' }] },
+          statusMessage: 'working',
+        },
+      },
+    })
+
+    useSessionStore.getState().handleChatUpdate({
+      sessionId: 'session-1',
+      messages: [
+        { role: 'user', content: 'hello' } as never,
+        { role: 'assistant', content: 'complete reply' } as never,
+      ],
+      streaming: false,
+      error: '',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.messages.map(m => m.content)).toEqual(['hello', 'complete reply'])
+    expect(state.streaming).toBe(false)
+    expect(state.agentStreams['session-1']?.phase).toBe('done')
+    expect(state.agentStreams['session-1']?.plan).toBeUndefined()
+    expect(state.agentStreams['session-1']?.statusMessage).toBeUndefined()
+    expect(state.sessions[0]?.status).toBe('idle')
+  })
+
+  it('still ignores live legacy upsert while agent stream is freshly active', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'running' })],
+      messages: [
+        { role: 'user', content: 'hello' } as never,
+        { role: 'assistant', content: 'from stream' } as never,
+      ],
+      agentStreamMessages: {
+        'session-1': [
+          { role: 'user', content: 'hello' } as never,
+          { role: 'assistant', content: 'from stream' } as never,
+        ],
+      },
+      streaming: true,
+      agentStreams: {
+        'session-1': { phase: 'running', lastSequence: 2, lastEventAt: Date.now() },
+      },
+    })
+
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-1',
+      type: 'upsert_last',
+      message: { role: 'assistant', content: 'legacy should not win', timestamp: 'legacy' } as never,
+      streaming: true,
+      error: '',
+    })
+    useSessionStore.getState().handleChatUpdate({
+      sessionId: 'session-1',
+      messages: [{ role: 'assistant', content: 'legacy update should not win' } as never],
+      streaming: true,
+      error: '',
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.messages.map(m => m.content)).toEqual(['hello', 'from stream'])
+    expect(state.agentStreams['session-1']?.phase).toBe('running')
+  })
+
   it('buffers background normalized streams without replacing the selected conversation', () => {
     useSessionStore.setState({
       selectedId: 'session-1',

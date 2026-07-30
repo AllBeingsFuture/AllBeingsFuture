@@ -30,12 +30,47 @@ export interface AgentStreamReduction {
 
 const ACTIVE_PHASES = new Set<AgentStreamPhase>(['running', 'waiting_permission', 'cancelling'])
 
+/** How long agent:stream may stay silent before legacy chat:update/patch/poll may resume. */
+export const AGENT_STREAM_SILENCE_MS = 12_000
+
 export function createAgentSessionStreamState(): AgentSessionStreamState {
   return { phase: 'idle', lastSequence: -1 }
 }
 
 export function isAgentStreamActive(stream: AgentSessionStreamState | undefined): boolean {
   return Boolean(stream && ACTIVE_PHASES.has(stream.phase))
+}
+
+/**
+ * Prefer the normalized agent:stream path only while it is active and not silent.
+ * After silence timeout, legacy chat paths fail open so a lost done/event cannot freeze the UI.
+ */
+export function shouldPreferAgentStream(
+  stream: AgentSessionStreamState | undefined,
+  now: number = Date.now(),
+): boolean {
+  if (!isAgentStreamActive(stream)) return false
+  const lastEventAt = stream!.lastEventAt
+  // No timestamp yet (e.g. manually seeded active state) — keep preferring stream.
+  if (lastEventAt == null) return true
+  return now - lastEventAt < AGENT_STREAM_SILENCE_MS
+}
+
+/**
+ * Converge a stuck active stream when legacy backend reports the turn has ended.
+ * Returns undefined when there is nothing to change.
+ */
+export function convergeAgentStreamOnLegacyEnd(
+  stream: AgentSessionStreamState | undefined,
+): AgentSessionStreamState | undefined {
+  if (!stream || !isAgentStreamActive(stream)) return undefined
+  return {
+    ...stream,
+    phase: 'done',
+    permission: undefined,
+    statusMessage: undefined,
+    plan: undefined,
+  }
 }
 
 function timestampOf(event: AgentStreamEvent): string {
@@ -295,7 +330,9 @@ export function reduceAgentStreamEvent(
   }
 
   let nextMessages = messages
-  let stream = { ...current, lastSequence: event.sequence }
+  const eventAt = event.timestamp ? Date.parse(event.timestamp) : NaN
+  const lastEventAt = Number.isFinite(eventAt) ? eventAt : Date.now()
+  let stream = { ...current, lastSequence: event.sequence, lastEventAt }
   let error = ''
 
   switch (event.type) {
@@ -375,6 +412,9 @@ export function reduceAgentStreamEvent(
       }
       break
   }
+
+  // activate() / branch spreads must not drop the stamp from a successful apply.
+  stream = { ...stream, lastEventAt }
 
   return {
     messages: nextMessages,
