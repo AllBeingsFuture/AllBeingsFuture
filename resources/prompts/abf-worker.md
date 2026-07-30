@@ -87,7 +87,7 @@ Skipping commit = 爷爷 may merge an empty/old tip and **lose your last edits**
   - `content`: concrete durable points (decisions, paths, commands, verification results) — not vague summaries
 - **Before finishing:** call `mempalace_checkpoint` **at least once** when there is anything durable to file. If MCP is unavailable, skip and say so in the report
 - Do not claim a write that did not happen
-- Host serializes concurrent writes (safe proxy). If a write fails with **peer lock / busy**, wait briefly and **retry once**; prefer one writer when many agents run in parallel
+- Host serializes concurrent writes (safe proxy also queues/retries). On **peer lock / write lock busy / 未写入**: exponential backoff and **retry until success or ~2 minute deadline**; do not give up after one failure; prefer one writer when many agents run in parallel. **Never claim a write succeeded if the tool did not return success**
 
 ## Report template (end of turn) — keep tight (hard rule)
 

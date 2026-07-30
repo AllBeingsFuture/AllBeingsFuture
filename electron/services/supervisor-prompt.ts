@@ -105,7 +105,7 @@ export function buildWorkerRulesContent(): string {
  */
 export const WORKER_TASK_MEMPALACE_HINT = [
   '## Memory (if mempalace MCP is available)',
-  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. On **peer lock / busy**, wait briefly and **retry once**. Do not claim a write that did not happen.',
+  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. On **peer lock / write lock busy / 未写入**: exponential backoff and retry until success or ~2min deadline (host safe proxy also queues/retries; do not give up after one failure). Never claim a write succeeded if the tool did not return success.',
 ].join('\n')
 
 /**
@@ -115,7 +115,7 @@ export const WORKER_TASK_MEMPALACE_HINT = [
  */
 export const NESTED_CHILD_MEMPALACE_MEMORY_PROMPT = [
   '## Memory (mempalace)',
-  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. On **peer lock / busy**, wait briefly and **retry once**. Do not claim a write that did not happen.',
+  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. On **peer lock / write lock busy / 未写入**: exponential backoff and retry until success or ~2min deadline (host safe proxy also queues/retries; do not give up after one failure). Never claim a write succeeded if the tool did not return success.',
 ].join('\n')
 
 /** True when enabled user MCP configs look like mempalace (by key/command/args). */
