@@ -65,7 +65,7 @@ ABF is a local multi-agent coding workbench: you complete assigned tasks in an i
 **Before** you report success / claim the task finished / expect 爷爷 to merge you:
 
 1. Run `git status` in **your** workDir
-2. If there are valuable modifications or untracked source files: **`git add` + `git commit`** on the **current branch** with a clear message (do **not** `git push` unless asked)
+2. If there are valuable modifications or untracked source files: **`git add` + `git commit`** on the **current branch** with a clear message. **Never `git push` isolation branches** (`worktree-*`, including this worktree) — they are local-only. Even if the user says “推送”, do not `git push -u origin HEAD` from a `worktree-*` branch; report the commit hash and let 爷爷 merge to base (`main`) and push base only. Open a PR only if the user **explicitly** asks for a PR.
 3. Report the **commit hash** (and branch) in the final report — “Commit? yes / `<hash>`”
 4. **Do not** leave final code changes only as unstaged/uncommitted edits
 5. After merging sons into your workDir, **commit again** if the tree is dirty — then report that hash

@@ -33,12 +33,39 @@ function normalizeFilePath(target: string): string {
   return path.resolve(target).replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
+/**
+ * ABF session / child-agent isolation branches (`worktree-*`).
+ * These exist only for local worktree isolation and must never be published to origin
+ * (pushing them creates remote branches that look like accidental PRs).
+ */
+export function isAbfIsolationBranch(branch: string): boolean {
+  const name = (branch || '').replace(/^refs\/heads\//, '').trim()
+  return name.startsWith('worktree-')
+}
+
 export class GitService {
   private async getWorktreeBranch(repoPath: string, worktreePath: string): Promise<string> {
     const normalizedWorktreePath = normalizeFilePath(worktreePath)
     const worktree = (await this.listWorktrees(repoPath))
       .find(item => normalizeFilePath(item.path) === normalizedWorktreePath)
     return worktree?.branch || ''
+  }
+
+  /**
+   * If an isolation branch was mistakenly pushed to origin, delete it.
+   * No-op for non-isolation branches or when remote ref is absent.
+   */
+  private async deleteRemoteIsolationBranch(repoPath: string, branch: string): Promise<string | null> {
+    if (!isAbfIsolationBranch(branch)) return null
+    const remoteHeads = await this.git(['ls-remote', '--heads', 'origin', branch], repoPath).catch(() => '')
+    if (!remoteHeads.trim()) return null
+    try {
+      await this.git(['push', 'origin', '--delete', branch], repoPath)
+      return `已删除远端隔离分支 origin/${branch}`
+    } catch (err: any) {
+      const detail = err?.stderr || err?.message || String(err)
+      return `删除远端隔离分支 origin/${branch} 失败: ${detail}`
+    }
   }
 
   private async git(args: string[], cwd: string): Promise<string> {
@@ -245,6 +272,8 @@ export class GitService {
 
     if (deleteBranch && branchToDelete) {
       await this.git(['branch', '-D', branchToDelete], baseRepoPath).catch(() => {})
+      // Safety net: agents sometimes push worktree-* isolation branches to origin.
+      await this.deleteRemoteIsolationBranch(baseRepoPath, branchToDelete)
     }
   }
 
@@ -335,9 +364,16 @@ export class GitService {
           notes.push(`已自动清理 ${worktree.path}`)
         } catch (cleanupErr: any) {
           notes.push(`自动清理 Worktree 失败: ${cleanupErr?.message || String(cleanupErr)}`)
+          // removeWorktree may have failed before remote cleanup — still try.
+          const remoteNote = await this.deleteRemoteIsolationBranch(baseRepoPath, worktreeBranch)
+          if (remoteNote) notes.push(remoteNote)
         }
       } else {
         notes.push('未找到对应 Worktree，跳过自动清理')
+        // Branch-only merge path: still scrub a mistaken remote isolation ref.
+        const remoteNote = await this.deleteRemoteIsolationBranch(baseRepoPath, worktreeBranch)
+        if (remoteNote) notes.push(remoteNote)
+        await this.git(['branch', '-D', worktreeBranch], baseRepoPath).catch(() => {})
       }
 
       return {

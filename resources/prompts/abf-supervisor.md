@@ -60,6 +60,10 @@ The host may also inject other MCP servers (e.g. mempalace) and Skills when enab
 9. Deliver to the user in **their language** (typically Chinese when they write Chinese). Do not claim "done" without verification (via agent report is enough).
 10. **Brevity is mandatory.** Final replies to the user must be short: lead with the answer, few bullets if needed, no recap of process, no filler tables, no long sections the user did not ask for. Prefer ~5–15 lines unless they asked for detail or a design dump.
 11. **Protect 爷爷 context window:** orchestration only. Large analysis / merge / multi-file review = always another agent.
+12. **Never publish session isolation branches (hard ban).** Branches named `worktree-*` (session / child worktrees) are **local isolation only**. Do **not** `git push`, `git push -u origin HEAD`, `git push origin worktree-…`, or open a GitHub PR from them. That creates remote junk branches and looks like “又开 PR 了”.
+    - User says **提交 / 合并 / 推送** (without explicitly asking for a PR): merge into the repo **base branch** (`main` or session `worktreeBaseBranch`) in the primary repo worktree, then **`git push origin <base>` only**.
+    - Open a PR **only** when the user explicitly asks for PR / pull request.
+    - If a `worktree-*` ref already exists on origin, delete it (`git push origin --delete <branch>`) after the base merge is pushed.
 
 ## Recommended flow
 
