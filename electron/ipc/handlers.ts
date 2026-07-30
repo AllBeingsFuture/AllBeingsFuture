@@ -92,6 +92,41 @@ function formatGithubIssueError(status: number, message: string): string {
   }
 }
 
+/** BFS descendants of rootId (excludes root). Prefer SessionService.getDescendantSessionIds when present. */
+function collectDescendants(
+  sessionService: { getAll: () => Array<{ id: string; parentSessionId?: string }> },
+  rootId: string,
+): string[] {
+  const all = sessionService.getAll()
+  const byParent = new Map<string, string[]>()
+  for (const s of all) {
+    const p = s.parentSessionId || ''
+    if (!p) continue
+    if (!byParent.has(p)) byParent.set(p, [])
+    byParent.get(p)!.push(s.id)
+  }
+  const out: string[] = []
+  const q = [rootId]
+  while (q.length) {
+    const id = q.shift()!
+    for (const c of byParent.get(id) || []) {
+      out.push(c)
+      q.push(c)
+    }
+  }
+  return out
+}
+
+function getDescendantSessionIds(
+  sessionService: SessionService & { getDescendantSessionIds?: (id: string) => string[] },
+  rootId: string,
+): string[] {
+  if (typeof sessionService.getDescendantSessionIds === 'function') {
+    return sessionService.getDescendantSessionIds(rootId)
+  }
+  return collectDescendants(sessionService, rootId)
+}
+
 async function submitGithubIssue(payload: GithubIssuePayload): Promise<GithubIssueResult> {
   const normalized = normalizeGithubIssuePayload(payload)
   if (!normalized.owner || !normalized.repo) {
@@ -281,6 +316,21 @@ export function registerAllIpcHandlers(
     console.warn('[startup-worktree-cleanup] failed', err)
   })
 
+  // Cold-start: purge orphan child session rows if SessionService supports it (merged later).
+  try {
+    const purge = (sessionService as SessionService & {
+      purgeOrphanChildSessions?: () => number
+    }).purgeOrphanChildSessions
+    if (typeof purge === 'function') {
+      const purged = purge.call(sessionService)
+      if (purged > 0) {
+        console.log(`[startup] purged ${purged} orphan child session(s)`)
+      }
+    }
+  } catch (err) {
+    console.warn('[startup] purgeOrphanChildSessions failed', err)
+  }
+
   // ==============================================================
   // SessionService
   // ==============================================================
@@ -288,12 +338,13 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SessionService.GetByID', (_e, id: string) => sessionService.getById(id))
   ipcMain.handle('SessionService.Create', (_e, config: any) => sessionService.create(config))
   ipcMain.handle('SessionService.Delete', async (_e, id: string) => {
-    // True teardown: destroy adapter + remove software-prompt files (not stop-only)
-    await processService.disposeSession(id).catch(() => {})
-    // Also dispose any child sessions still tracked (DB cascade deletes rows next)
-    for (const child of processService.getChildSessions(id)) {
-      await processService.disposeSession(child.id).catch(() => {})
+    // True teardown: dispose all descendants first (deep tree), then self, then DB delete.
+    // sessionService.delete is assumed recursive on rows; we must still dispose every process.
+    const descendants = getDescendantSessionIds(sessionService, id)
+    for (const descendantId of descendants) {
+      await processService.disposeSession(descendantId).catch(() => {})
     }
+    await processService.disposeSession(id).catch(() => {})
     sessionService.delete(id)
   })
   ipcMain.handle('SessionService.End', async (_e, id: string) => {

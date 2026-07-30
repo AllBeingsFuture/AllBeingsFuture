@@ -138,6 +138,22 @@ export class ProcessService {
       appLog('warn', `Failed to reconcile orphaned live sessions: ${errMsg}`, 'process')
     }
 
+    // Cold start: drop orphan child rows (parent missing) when SessionService supports it.
+    try {
+      const purge = (this.sessionService as SessionService & {
+        purgeOrphanChildSessions?: () => number
+      }).purgeOrphanChildSessions
+      if (typeof purge === 'function') {
+        const purged = purge.call(this.sessionService)
+        if (purged > 0) {
+          appLog('info', `Purged ${purged} orphan child session(s) after restart`, 'process')
+        }
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      appLog('warn', `Failed to purge orphan child sessions: ${errMsg}`, 'process')
+    }
+
     // Start the state inference polling timer
     this.stateInference.start()
 
