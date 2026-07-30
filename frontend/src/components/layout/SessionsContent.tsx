@@ -66,7 +66,6 @@ export default function SessionsContent() {
   }, [groupMode])
 
   const { filteredSessions, activeSessions } = useMemo(() => {
-    const sessionIds = new Set(sessions.map((session) => session.id))
     const nextFilteredSessions: typeof sessions = []
     let activeSessions = 0
 
@@ -76,7 +75,8 @@ export default function SessionsContent() {
       }
 
       const parentId = childToParent[session.id]?.parentSessionId || (session as any).parentSessionId
-      if (parentId && sessionIds.has(parentId)) continue
+      // Hide any bound child even if parent is already gone (avoid orphans rising into main list).
+      if (parentId) continue
       if (!matchesSessionQuery(session, deferredQuery)) continue
       nextFilteredSessions.push(session)
     }

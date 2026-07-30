@@ -314,6 +314,29 @@ async function cleanupSessionWorktree(session: Session) {
   if (worktreePath && repoPath) await GitService.RemoveWorktree(repoPath, worktreePath, true).catch(() => {})
 }
 
+/** Collect root session id and all descendants via parentSessionId (BFS). */
+function collectSessionSubtreeIds(sessions: Session[], rootId: string): Set<string> {
+  const childrenByParent = new Map<string, string[]>()
+  for (const s of sessions) {
+    const p = (s as SessionWithParent).parentSessionId || ''
+    if (!p) continue
+    if (!childrenByParent.has(p)) childrenByParent.set(p, [])
+    childrenByParent.get(p)!.push(s.id)
+  }
+  const ids = new Set<string>([rootId])
+  const q = [rootId]
+  while (q.length) {
+    const cur = q.shift()!
+    for (const c of childrenByParent.get(cur) || []) {
+      if (!ids.has(c)) {
+        ids.add(c)
+        q.push(c)
+      }
+    }
+  }
+  return ids
+}
+
 function sessionHasActiveWorktree(session: Session) {
   const path = ((session as Session & { worktreePath?: string }).worktreePath || '').trim()
   return Boolean(path) && !session.worktreeMerged
@@ -437,17 +460,33 @@ export const chatCore = {
   },
 
   async remove(snapshot: ChatSnapshot, id: string) {
-    const targets = snapshot.sessions.filter(session => session.id === id || (session as SessionWithParent).parentSessionId === id)
-    const childIds = new Set(targets.filter(session => session.id !== id).map(session => session.id))
+    const targetIds = collectSessionSubtreeIds(snapshot.sessions, id)
+    const targets = snapshot.sessions.filter(session => targetIds.has(session.id))
     for (const session of targets) {
       try { await ProcessService.StopProcess(session.id) } catch {}
     }
     for (const session of targets) await cleanupSessionWorktree(session)
     await SessionService.Delete(id)
-    const resetSelection = snapshot.selectedId === id || (snapshot.selectedId ? childIds.has(snapshot.selectedId) : false)
+
+    const nextAgents: Record<string, AgentInfo[]> = {}
+    for (const [parentKey, list] of Object.entries(snapshot.agents)) {
+      if (targetIds.has(parentKey)) continue
+      nextAgents[parentKey] = list.filter(
+        agent => !targetIds.has(agent.childSessionId) && !targetIds.has(agent.parentSessionId),
+      )
+    }
+    const nextChildToParent: Record<string, ParentBinding> = {}
+    for (const [childKey, binding] of Object.entries(snapshot.childToParent)) {
+      if (targetIds.has(childKey) || targetIds.has(binding.parentSessionId)) continue
+      nextChildToParent[childKey] = binding
+    }
+
+    const resetSelection = snapshot.selectedId != null && targetIds.has(snapshot.selectedId)
     return {
-      sessions: snapshot.sessions.filter(session => session.id !== id && !childIds.has(session.id)),
+      sessions: snapshot.sessions.filter(session => !targetIds.has(session.id)),
       selectedId: resetSelection ? null : snapshot.selectedId,
+      agents: nextAgents,
+      childToParent: nextChildToParent,
       ...(resetSelection ? { messages: [], streaming: false, chatError: '' } : {}),
     }
   },
