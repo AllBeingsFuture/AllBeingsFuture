@@ -18,6 +18,10 @@ import {
 import { appLog } from './log.js'
 import { wrapWorkerTaskPrompt } from './supervisor-prompt.js'
 import {
+  resolveAbfSessionRole,
+  shouldInjectAgentControl,
+} from './session-mcp-policy.js'
+import {
   findLastMessage,
   type ChatMessage,
   type SessionState,
@@ -138,6 +142,23 @@ export class AgentLifecycleManager {
   ): Promise<{ childSessionId: string; resultPromise?: Promise<string> }> {
     const parent = this.sessionService.getById(parentSessionId)
     if (!parent) throw new Error(`Parent session not found: ${parentSessionId}`)
+
+    // Three-generation cap: only 爷爷 (top-level) + 父亲 (direct-child) may spawn.
+    // Nested sons never receive agent-control MCP; also refuse API-level spawn so
+    // depth cannot grow past 爷爷 → 父亲 → 儿子 even if MCP is mis-injected.
+    const parentParent = parent.parentSessionId
+      ? this.sessionService.getById(parent.parentSessionId)
+      : undefined
+    const spawnerRole = resolveAbfSessionRole(
+      parent.parentSessionId,
+      parentParent?.parentSessionId,
+    )
+    if (!shouldInjectAgentControl(spawnerRole)) {
+      throw new Error(
+        `Three-generation cap: nested sons cannot spawn further agents (parent=${parentSessionId})`,
+      )
+    }
+
     const parentWorkDir = parent.worktreePath || parent.workingDirectory
     const workerPrompt = wrapWorkerTaskPrompt(options.prompt)
     const displayName = this.normalizeWorkerName(options.name)

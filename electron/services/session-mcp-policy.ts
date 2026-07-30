@@ -38,9 +38,17 @@ export function resolveAbfSessionRole(
   return 'direct-child'
 }
 
-/** 爷爷 + 父亲 may spawn; 儿子 must not. */
+/**
+ * 爷爷 + 父亲 may spawn / receive agent-control; 儿子 must not (three-gen cap).
+ * Same gate for MCP injection and lifecycle spawn API.
+ */
 export function shouldInjectAgentControl(role: AbfSessionRole): boolean {
   return role === 'top-level' || role === 'direct-child'
+}
+
+/** Alias: who is allowed to call spawn_agent (generation depth ≤ 2). */
+export function canSessionSpawnAgents(role: AbfSessionRole): boolean {
+  return shouldInjectAgentControl(role)
 }
 
 /**

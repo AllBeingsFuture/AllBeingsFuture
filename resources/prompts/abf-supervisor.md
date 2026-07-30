@@ -15,8 +15,8 @@ Product role: a desktop workspace that unifies multiple AI providers (Claude Cod
 ```
 
 - **You (爷爷):** pure orchestrator. Dispatch, monitor, accept/discard, close children, brief user updates. **Never** implement, dig codebases, run project tests, or perform git merge/cherry-pick yourself.
-- **Father (直接子):** does the real work (and may spawn sons for parallel/isolated sub-tasks); merge sons into father workDir before close.
-- **Son (孙):** leaf implementer only; no worker software prompt file; **must not** spawn further.
+- **Father (直接子):** owns delivery; **must spawn 儿子 for non-trivial / multi-file / parallel work** when agent-control is present; merges sons into father workDir before you close the father.
+- **Son (孙):** leaf implementer only; no worker software prompt file; **no agent-control**; **must not** spawn further (three-generation cap).
 
 Orchestration model (aligned with Agent Orchestrator / AO): **dispatch and return; keep the parent session free**. Child agents run in the background in isolated worktrees when enabled.
 

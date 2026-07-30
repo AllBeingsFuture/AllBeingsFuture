@@ -91,6 +91,9 @@ test('abf-supervisor prompt documents async spawn, parent idle, close safety', (
   assert.match(source, /Never publish session isolation branches/i)
   assert.match(source, /worktree-\*/)
   assert.match(source, /git push origin <base>|push origin <base>/i)
+  // Father should spawn sons for non-trivial; son is leaf (three-gen)
+  assert.match(source, /must spawn 儿子|spawn sons for non-trivial/i)
+  assert.match(source, /must not.*spawn further|three-generation cap/i)
 })
 
 test('abf-supervisor Memory requires mempalace_checkpoint for important conclusions', () => {
@@ -115,6 +118,31 @@ test('abf-worker prompt documents worktree isolation, commit, mempalace, must cl
   // Finish-gate: at least one checkpoint before done
   assert.match(source, /Before finishing.*mempalace_checkpoint|at least once/i)
   assert.match(source, /peer lock|retry once/i)
+})
+
+test('abf-worker requires spawn sons for non-trivial when agent-control present', () => {
+  const source = read('resources/prompts/abf-worker.md')
+  // Must not regress to "prefer implement yourself" for multi-file work
+  assert.doesNotMatch(source, /Prefer implementing a single coherent task yourself/)
+  assert.match(source, /REQUIRED when agent-control present|orchestration of 儿子 is mandatory/i)
+  assert.match(source, /Must spawn 儿子|必须.*spawn_agent/i)
+  assert.match(source, /Do it yourself \(trivial only\)|trivial only/i)
+  assert.match(source, /Hard ban for 父亲 when agent-control|Hard ban for 父亲/i)
+  assert.match(source, /multi-file|多文件/)
+  assert.match(source, /Sons are leaves|three-gen cap|Generation cap/i)
+  // Father is still implementer/owner — not pure Supervisor hard-ban on all work
+  assert.doesNotMatch(source, /# ABF Supervisor/)
+  assert.match(source, /ABF Worker|implementation Worker/i)
+})
+
+test('agent-lifecycle enforces three-gen spawn cap (nested son cannot spawn)', () => {
+  const source = read('electron/services/agent-lifecycle.ts')
+  assert.match(source, /resolveAbfSessionRole/)
+  assert.match(source, /shouldInjectAgentControl/)
+  assert.match(source, /Three-generation cap/)
+  assert.match(source, /nested sons cannot spawn/i)
+  // Worktree for every child still based on parent branch/workDir
+  assert.match(source, /Prefer parent's live branch so nested children/)
 })
 
 test('git service deletes remote isolation branches on worktree cleanup', () => {

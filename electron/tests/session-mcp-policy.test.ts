@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import {
   AGENT_CONTROL_MCP_ID,
   buildUserMcpServersForRole,
+  canSessionSpawnAgents,
   resolveAbfSessionRole,
   resolveSessionMcpServers,
   shouldInjectAgentControl,
@@ -57,6 +58,14 @@ test('shouldInjectAgentControl: only top-level and direct-child', () => {
   assert.equal(shouldInjectAgentControl('top-level'), true)
   assert.equal(shouldInjectAgentControl('direct-child'), true)
   assert.equal(shouldInjectAgentControl('nested-child'), false)
+})
+
+test('canSessionSpawnAgents matches agent-control inject gate (three-gen cap)', () => {
+  assert.equal(canSessionSpawnAgents('top-level'), true)
+  assert.equal(canSessionSpawnAgents('direct-child'), true)
+  assert.equal(canSessionSpawnAgents('nested-child'), false)
+  assert.equal(canSessionSpawnAgents('nested-child'), shouldInjectAgentControl('nested-child'))
+  assert.equal(canSessionSpawnAgents('top-level'), shouldInjectAgentControl('top-level'))
 })
 
 test('nested child keeps enabled user MCPs and never gets agent-control', () => {
