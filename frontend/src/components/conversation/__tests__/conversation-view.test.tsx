@@ -487,9 +487,10 @@ describe('ConversationView session boot', () => {
     })
   })
 
-  it('adds bottom clearance so the composer does not cover the latest activity', async () => {
+  it('uses a small content tail pad (composer is a flex sibling, not an overlay)', async () => {
     const { container } = renderWithProviders(<ConversationView session={makeSession('running')} />)
     const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
+    const content = scrollContainer.firstElementChild as HTMLDivElement
     const composerShell = container.querySelector('[data-message-input-shell]') as HTMLDivElement
 
     await waitFor(() => {
@@ -497,9 +498,39 @@ describe('ConversationView session boot', () => {
     })
     expect(initSessionMock).not.toHaveBeenCalled()
 
-    expect(scrollContainer).toHaveStyle({ scrollPaddingBottom: '108px' })
-    expect(scrollContainer.firstElementChild).toHaveStyle({ paddingBottom: '108px' })
+    // Full composerClearance (~108px) must not be painted as bottom spacer.
+    expect(scrollContainer).toHaveStyle({ scrollPaddingBottom: '16px' })
+    expect(content).toHaveStyle({ paddingBottom: '16px' })
     expect(composerShell).toBeInTheDocument()
+  })
+
+  it('bottom-aligns short conversations so tool cards do not leave a large hole above the composer', async () => {
+    // Content shorter than the viewport: minHeight fills the scrollport and
+    // justify-end keeps the latest tool/message block at the bottom.
+    mockConversationContainerMetrics(120, 400)
+    storeState.messages = [
+      { role: 'user', content: 'hi' } as ChatMessage,
+      {
+        role: 'tool_use',
+        content: '',
+        toolName: 'wait_agent_idle',
+        partial: true,
+      } as unknown as ChatMessage,
+    ]
+
+    const { container } = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
+    const content = scrollContainer.firstElementChild as HTMLDivElement
+
+    await waitFor(() => {
+      expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
+    })
+
+    await waitFor(() => {
+      expect(content).toHaveStyle({ minHeight: '400px' })
+    })
+    // Tailwind maps justify-end → justify-content: flex-end (jsdom does not expand utilities).
+    expect(content.className).toMatch(/\bjustify-end\b/)
   })
 
   it('keeps non-file tools visible when legacy assistant toolUse mixes them with file edits', async () => {

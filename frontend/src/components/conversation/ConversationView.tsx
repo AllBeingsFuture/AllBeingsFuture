@@ -70,6 +70,14 @@ const VIRTUALIZATION_OVERSCAN_PX = 1800
 const VIRTUALIZATION_OVERSCAN_VIEWPORT_MULT = 2.5
 const DEFAULT_COMPOSER_HEIGHT = 96
 const COMPOSER_BOTTOM_GAP = 12
+/**
+ * Small tail pad inside the scroll content.
+ * Composer is a flex sibling (shrink-0) under the scroll area — not overlayed —
+ * so we must NOT reserve full composerClearance (~108px) as paddingBottom /
+ * scrollPaddingBottom (that left a large empty hole under tool cards).
+ * bottomOffset still uses composerClearance so height changes re-pin stick-to-bottom.
+ */
+const CONTENT_TAIL_PAD_PX = 16
 const LIVE_RENDER_HOLD_MS = 700
 
 function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup[] {
@@ -1158,12 +1166,23 @@ export default function ConversationView({ session }: Props) {
         onPointerDown={handlePointerDown}
         data-scroll-container
         className="flex-1 overflow-y-auto px-6 py-7"
-        style={{ overflowAnchor: 'none', scrollPaddingBottom: `${composerClearance}px` }}
+        style={{
+          overflowAnchor: 'none',
+          // Small tail only — composer is not an overlay (see CONTENT_TAIL_PAD_PX).
+          scrollPaddingBottom: `${hasComposer ? CONTENT_TAIL_PAD_PX : 0}px`,
+        }}
       >
         <div
           ref={contentRef}
-          className="mx-auto flex w-full max-w-[42rem] flex-col gap-6"
-          style={{ paddingBottom: composerClearance > 0 ? `${composerClearance}px` : undefined }}
+          // Short sessions: fill the viewport and flex-end so messages/tool cards
+          // sit above the composer instead of top-aligning with a huge hole below.
+          className="mx-auto flex w-full max-w-[42rem] flex-col justify-end gap-6"
+          style={{
+            minHeight: scrollMetrics.viewportHeight > 0
+              ? `${scrollMetrics.viewportHeight}px`
+              : '100%',
+            paddingBottom: hasComposer ? `${CONTENT_TAIL_PAD_PX}px` : undefined,
+          }}
         >
           {!ready && messages.length === 0 ? (
             /* Shimmer skeleton while session is initializing */

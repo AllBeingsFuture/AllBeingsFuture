@@ -83,4 +83,28 @@ describe('estimateMessageGroupHeight', () => {
       { role: 'assistant', content: 'c' },
     ]))).toBe(Math.max(160, 160 + 3 * 64))
   })
+
+  it('caps partial single tool_group height and does not scale with unrelated content bulk', () => {
+    const single = estimateMessageGroupHeight(makeGroup('tool_group', [
+      { role: 'tool_use', content: '', partial: true, toolName: 'wait_agent_idle' },
+    ]))
+    const bulky = estimateMessageGroupHeight(makeGroup('tool_group', [
+      {
+        role: 'tool_use',
+        content: 'x'.repeat(20_000),
+        partial: true,
+        toolName: 'wait_agent_idle',
+      },
+      {
+        role: 'tool_result',
+        content: 'y'.repeat(20_000),
+        isDelta: true,
+      },
+    ]))
+
+    expect(single).toBe(Math.max(160, 88 + 80))
+    // Still only message-count based — must not balloon into multi-k blank gaps.
+    expect(bulky).toBe(Math.max(160, 88 + 2 * 80))
+    expect(bulky).toBeLessThan(400)
+  })
 })
