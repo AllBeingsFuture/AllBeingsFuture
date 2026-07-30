@@ -9,7 +9,7 @@ import NewTaskDialog from './sidebar/NewTaskDialog'
 import { DirectoryGroupCard, TimeGroupCard } from './sidebar/SessionGroupCards'
 import type { DirectoryGroup, SidebarGroupMode, TimeGroup } from './sidebar/types'
 import { ACTIVE_STATUSES } from './sidebar/types'
-import { groupSessionsByDirectory, groupSessionsByTime, matchesSessionQuery } from './sidebar/utils'
+import { groupSessionsByDirectory, groupSessionsByTime, isTopLevelSession, matchesSessionQuery } from './sidebar/utils'
 
 function readInitialGroupMode(): SidebarGroupMode {
   try {
@@ -66,7 +66,6 @@ export default function SessionsContent() {
   }, [groupMode])
 
   const { filteredSessions, activeSessions } = useMemo(() => {
-    const sessionIds = new Set(sessions.map((session) => session.id))
     const nextFilteredSessions: typeof sessions = []
     let activeSessions = 0
 
@@ -75,8 +74,11 @@ export default function SessionsContent() {
         activeSessions++
       }
 
-      const parentId = childToParent[session.id]?.parentSessionId || (session as any).parentSessionId
-      if (parentId && sessionIds.has(parentId)) continue
+      // Nested/orphan children must never appear as top-level list rows,
+      // even when the parent session was already deleted from the list.
+      if (!isTopLevelSession(session as { id: string; parentSessionId?: string }, childToParent)) {
+        continue
+      }
       if (!matchesSessionQuery(session, deferredQuery)) continue
       nextFilteredSessions.push(session)
     }

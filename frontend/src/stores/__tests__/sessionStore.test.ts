@@ -860,6 +860,33 @@ describe('sessionStore runtime status sync', () => {
     expect(state.chatError).toBe('')
   })
 
+  it('removes grandchildren from sessions when deleting a grandparent', async () => {
+    useSessionStore.setState({
+      selectedId: 'grandchild-1',
+      sessions: [
+        makeSession({ id: 'grandpa-1', name: 'Grandpa' }),
+        makeSession({ id: 'father-1', name: 'Father', parentSessionId: 'grandpa-1' }),
+        makeSession({ id: 'grandchild-1', name: 'Grandchild', parentSessionId: 'father-1' }),
+        makeSession({ id: 'other-1', name: 'Other' }),
+      ],
+    })
+
+    serviceMocks.processService.StopProcess.mockResolvedValue(undefined)
+    serviceMocks.gitService.RemoveWorktree.mockResolvedValue(undefined)
+    serviceMocks.sessionService.Delete.mockResolvedValue(undefined)
+
+    await useSessionStore.getState().remove('grandpa-1')
+
+    expect(serviceMocks.processService.StopProcess).toHaveBeenCalledWith('grandpa-1')
+    expect(serviceMocks.processService.StopProcess).toHaveBeenCalledWith('father-1')
+    expect(serviceMocks.processService.StopProcess).toHaveBeenCalledWith('grandchild-1')
+    expect(serviceMocks.sessionService.Delete).toHaveBeenCalledWith('grandpa-1')
+
+    const state = useSessionStore.getState()
+    expect(state.sessions.map((s) => s.id)).toEqual(['other-1'])
+    expect(state.selectedId).toBeNull()
+  })
+
   it('renames sessions and can generate a smart name from stored messages', async () => {
     useSessionStore.setState({
       sessions: [

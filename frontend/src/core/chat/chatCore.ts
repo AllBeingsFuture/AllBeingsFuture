@@ -314,6 +314,35 @@ async function cleanupSessionWorktree(session: Session) {
   if (worktreePath && repoPath) await GitService.RemoveWorktree(repoPath, worktreePath, true).catch(() => {})
 }
 
+/**
+ * Collect root id + all descendant session ids via parentSessionId edges (any depth).
+ * Used by remove() so grandchildren are stopped, cleaned, and dropped from local state.
+ */
+export function collectSessionSubtreeIds(sessions: Session[], rootId: string): Set<string> {
+  const childrenByParent = new Map<string, string[]>()
+  for (const session of sessions) {
+    const parentId = ((session as SessionWithParent).parentSessionId || '').trim()
+    if (!parentId) continue
+    const list = childrenByParent.get(parentId)
+    if (list) list.push(session.id)
+    else childrenByParent.set(parentId, [session.id])
+  }
+
+  const result = new Set<string>([rootId])
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const current = stack.pop()!
+    const children = childrenByParent.get(current)
+    if (!children) continue
+    for (const childId of children) {
+      if (result.has(childId)) continue
+      result.add(childId)
+      stack.push(childId)
+    }
+  }
+  return result
+}
+
 function sessionHasActiveWorktree(session: Session) {
   const path = ((session as Session & { worktreePath?: string }).worktreePath || '').trim()
   return Boolean(path) && !session.worktreeMerged
@@ -437,8 +466,11 @@ export const chatCore = {
   },
 
   async remove(snapshot: ChatSnapshot, id: string) {
-    const targets = snapshot.sessions.filter(session => session.id === id || (session as SessionWithParent).parentSessionId === id)
-    const childIds = new Set(targets.filter(session => session.id !== id).map(session => session.id))
+    // Collect the full subtree (self + all descendants), not only direct children,
+    // so three-generation trees drop grandchildren from local state too.
+    const targetIds = collectSessionSubtreeIds(snapshot.sessions, id)
+    const targets = snapshot.sessions.filter(session => targetIds.has(session.id))
+    const childIds = new Set([...targetIds].filter(sessionId => sessionId !== id))
     for (const session of targets) {
       try { await ProcessService.StopProcess(session.id) } catch {}
     }
@@ -446,7 +478,7 @@ export const chatCore = {
     await SessionService.Delete(id)
     const resetSelection = snapshot.selectedId === id || (snapshot.selectedId ? childIds.has(snapshot.selectedId) : false)
     return {
-      sessions: snapshot.sessions.filter(session => session.id !== id && !childIds.has(session.id)),
+      sessions: snapshot.sessions.filter(session => !targetIds.has(session.id)),
       selectedId: resetSelection ? null : snapshot.selectedId,
       ...(resetSelection ? { messages: [], streaming: false, chatError: '' } : {}),
     }

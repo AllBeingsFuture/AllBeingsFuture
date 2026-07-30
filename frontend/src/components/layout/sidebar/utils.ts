@@ -4,6 +4,35 @@ import { ACTIVE_STATUSES } from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/** Parent binding used by sidebar reverse-map / childToParent. */
+export type SessionParentBinding = { parentSessionId?: string }
+
+type SessionWithOptionalParent = { id: string; parentSessionId?: string }
+
+/**
+ * Resolve a session's parent id from childToParent and/or session.parentSessionId.
+ * Empty string / undefined means top-level (no parent).
+ */
+export function getSessionParentId(
+  session: SessionWithOptionalParent,
+  childToParent: Record<string, SessionParentBinding> = {},
+): string {
+  const fromMap = childToParent[session.id]?.parentSessionId
+  const fromSession = session.parentSessionId
+  return (fromMap || fromSession || '').trim()
+}
+
+/**
+ * Top-level sidebar list only shows sessions without a parent binding.
+ * Orphan children (parent deleted) must stay nested / hidden — never surface.
+ */
+export function isTopLevelSession(
+  session: SessionWithOptionalParent,
+  childToParent: Record<string, SessionParentBinding> = {},
+): boolean {
+  return !getSessionParentId(session, childToParent)
+}
+
 export function getSessionTimestamp(session: Session) {
   const raw = session.endedAt || session.startedAt
   return raw ? new Date(raw as any).getTime() : 0
