@@ -282,8 +282,8 @@ export function registerAllIpcHandlers(
   })
 
   try {
-    const purged = (sessionService as any).purgeOrphanChildSessions?.() as number | undefined
-    if (purged && purged > 0) {
+    const purged = sessionService.purgeOrphanChildSessions()
+    if (purged > 0) {
       console.log(`[startup] purged ${purged} orphan child session(s)`)
     }
   } catch (err) {
@@ -298,7 +298,7 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SessionService.Create', (_e, config: any) => sessionService.create(config))
   ipcMain.handle('SessionService.Delete', async (_e, id: string) => {
     // Dispose every descendant at any depth (deepest-first via reverse BFS), then self, then DB cascade.
-    const descendants = (sessionService as any).getDescendantSessionIds(id) as string[]
+    const descendants = sessionService.getDescendantSessionIds(id)
     for (let i = descendants.length - 1; i >= 0; i--) {
       await processService.disposeSession(descendants[i]!).catch(() => {})
     }

@@ -140,8 +140,8 @@ export class ProcessService {
 
     // Cold start: drop orphan child rows (parent missing).
     try {
-      const purged = (this.sessionService as any).purgeOrphanChildSessions?.() as number | undefined
-      if (purged && purged > 0) {
+      const purged = this.sessionService.purgeOrphanChildSessions()
+      if (purged > 0) {
         appLog('info', `Purged ${purged} orphan child session(s) after restart`, 'process')
       }
     } catch (err: unknown) {
