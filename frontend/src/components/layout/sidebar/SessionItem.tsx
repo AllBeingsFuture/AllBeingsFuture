@@ -28,9 +28,10 @@ export default function SessionItem({
   agentsByParent,
 }: SessionItemProps) {
   const isActive = ACTIVE_STATUSES.has(session.status)
-  const { childToParent, sessions } = useSessionStore(useShallow((state) => ({
+  const { childToParent, sessions, closeChild } = useSessionStore(useShallow((state) => ({
     childToParent: state.childToParent,
     sessions: state.sessions,
+    closeChild: state.closeChild,
   })))
   const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState(session.name)
@@ -293,6 +294,9 @@ export default function SessionItem({
           agents={agents}
           agentsByParent={agentsByParent}
           onSelectSession={onSelect}
+          onCloseAgent={(parentId, childId) => {
+            void closeChild(parentId, childId).catch(() => {})
+          }}
         />
       )}
 

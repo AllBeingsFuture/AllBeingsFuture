@@ -36,3 +36,8 @@ export function SendToChild(parentSessionId: string, childSessionId: string, mes
 export function ListAllAgents(): Promise<any[]> {
     return ipc("ProcessService.ListAllAgents");
 }
+
+/** Explicit close of a persistent child (UI or host). Emits agent:update removed. */
+export function CloseChildSession(parentSessionId: string, childSessionId: string): Promise<void> {
+    return ipc("ProcessService.CloseChildSession", parentSessionId, childSessionId);
+}

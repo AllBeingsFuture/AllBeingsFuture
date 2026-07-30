@@ -45,6 +45,8 @@ interface SessionState extends ChatSnapshot {
   resumeSession: (oldSessionId: string) => Promise<{ success: boolean; sessionId?: string; error?: string }>
   spawnChild: (parentSessionId: string, name: string, prompt: string) => Promise<string | null>
   sendToChild: (parentSessionId: string, childSessionId: string, message: string) => Promise<void>
+  /** User closes a persistent child from the sidebar (not auto-on-idle). */
+  closeChild: (parentSessionId: string, childSessionId: string) => Promise<void>
   fetchAllAgents: () => Promise<void>
   markWorktreeMerged: (id: string) => Promise<void>
   enterWorktree: (id: string) => Promise<Session | null>
@@ -388,6 +390,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   sendToChild: async (parentSessionId, childSessionId, message) => {
     await chatCore.sendToChild(parentSessionId, childSessionId, message)
+  },
+
+  closeChild: async (parentSessionId, childSessionId) => {
+    // Optimistic drop so sidebar clears immediately even if event races
+    const optimistic = chatCore.applyAgentUpdate(snapshotOf(get()), {
+      parentSessionId,
+      removed: true,
+      agent: {
+        agentId: `persistent-${childSessionId}`,
+        name: '',
+        parentSessionId,
+        childSessionId,
+        status: 'cancelled',
+        workDir: '',
+        createdAt: '',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    if (optimistic) set(optimistic)
+    try {
+      await chatCore.closeChild(parentSessionId, childSessionId)
+    } catch (err) {
+      console.error('CloseChildSession failed:', err)
+      // Recover list if backend close failed
+      await get().fetchAllAgents()
+      throw err
+    }
   },
 
   fetchAllAgents: async () => {

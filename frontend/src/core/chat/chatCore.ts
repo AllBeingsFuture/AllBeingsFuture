@@ -2,6 +2,7 @@ import { SessionService, ProcessService, GitService } from '../../../bindings/al
 import {
   ResumeSession as ResumeSessionAPI,
   ListAllAgents as ListAllAgentsAPI,
+  CloseChildSession as CloseChildSessionAPI,
   SpawnChildSession,
   SendToChild,
 } from '../../../bindings/allbeingsfuture/internal/services/processservice'
@@ -566,6 +567,9 @@ export const chatCore = {
   resume: (oldSessionId: string) => ResumeSessionAPI(oldSessionId),
   spawnChild: (parentSessionId: string, name: string, prompt: string) => SpawnChildSession(parentSessionId, { name, prompt }),
   sendToChild: (parentSessionId: string, childSessionId: string, message: string) => SendToChild(parentSessionId, childSessionId, message),
+  /** Explicit UI/host close — same backend path as agent-control close_agent. */
+  closeChild: (parentSessionId: string, childSessionId: string) =>
+    CloseChildSessionAPI(parentSessionId, childSessionId),
 
   async fetchAllAgents(snapshot: ChatSnapshot) {
     const grouped: Record<string, AgentInfo[]> = {}

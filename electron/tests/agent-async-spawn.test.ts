@@ -73,16 +73,29 @@ test('abf-supervisor prompt documents async spawn, parent idle, close safety', (
   assert.match(source, /worktree/)
   assert.match(source, /workDir/)
   assert.match(source, /Brevity is mandatory/i)
+  // Hard rule: must close after accept/merge; idle is not finished
+  assert.match(source, /MUST `close_agent` after accept\/merge|MUST close_agent after accept/i)
+  assert.match(source, /idle.*待命|待命.*idle/)
   assert.doesNotMatch(source, /wait for the first turn.*by default/i)
 })
 
-test('abf-worker prompt documents worktree isolation, commit, mempalace', () => {
+test('abf-worker prompt documents worktree isolation, commit, mempalace, must close sons', () => {
   const source = read('resources/prompts/abf-worker.md')
   assert.match(source, /worktree/i)
   assert.match(source, /mempalace/)
   assert.match(source, /mempalace_checkpoint/)
   assert.match(source, /commit/i)
   assert.match(source, /workDir/)
+  assert.match(source, /MUST `close_agent`|MUST close_agent/)
+})
+
+test('close_agent tool text requires close after accept; handlers expose UI CloseChildSession', () => {
+  const mcp = read('electron/embedded-assets/mcps/agent-control/server.mjs')
+  assert.match(mcp, /REQUIRED after you accept\/merge/)
+  assert.match(mcp, /idle\/待命 is NOT finished/)
+  const handlers = read('electron/ipc/handlers.ts')
+  assert.match(handlers, /ProcessService\.CloseChildSession/)
+  assert.match(handlers, /closeChildSession/)
 })
 test('trackedAgentToInfo fills workDir from child session', () => {
   const source = read('electron/services/agent-lifecycle.ts')

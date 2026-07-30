@@ -321,7 +321,10 @@ export function registerAllIpcHandlers(
   ipcMain.handle('ProcessService.SpawnChildSession', (_e, parentSessionId: string, options: any) => processService.spawnChildSession(parentSessionId, options))
   ipcMain.handle('ProcessService.SendToChild', (_e, parentSessionId: string, childSessionId: string, message: string) => processService.sendToChild(parentSessionId, childSessionId, message))
   ipcMain.handle('ProcessService.ListAllAgents', () => processService.listAllAgents())
-  // IsStreaming / GetChildSessions / GetAgentsBySession / CloseChild / GetResourceStatus: in-process only
+  // Explicit user/UI close of a persistent child (same path as agent-control close_agent).
+  ipcMain.handle('ProcessService.CloseChildSession', (_e, parentSessionId: string, childSessionId: string) =>
+    processService.closeChildSession(parentSessionId, childSessionId))
+  // IsStreaming / GetChildSessions / GetAgentsBySession / GetResourceStatus: in-process only
 
   // ==============================================================
   // ProviderService

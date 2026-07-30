@@ -109,4 +109,40 @@ describe('AgentSubList nested sons', () => {
     fireEvent.click(screen.getByText('Agent: son-x'))
     expect(onSelect).toHaveBeenCalledWith('s-s')
   })
+
+  it('close button calls onCloseAgent with parent and child ids', () => {
+    const onClose = vi.fn()
+    const father = agent({
+      agentId: 'a-f',
+      name: 'father',
+      parentSessionId: 'g',
+      childSessionId: 'f-s',
+      status: 'idle',
+    })
+
+    render(
+      <AgentSubList
+        agents={[father]}
+        agentsByParent={{ g: [father] }}
+        onCloseAgent={onClose}
+      />,
+    )
+
+    fireEvent.click(screen.getByTitle('关闭子任务（close_agent）'))
+    expect(onClose).toHaveBeenCalledWith('g', 'f-s')
+  })
+
+  it('hides terminated status (terminal filter)', () => {
+    const dead = agent({
+      agentId: 'a-dead',
+      name: 'gone',
+      parentSessionId: 'g',
+      childSessionId: 'd',
+      status: 'terminated' as any,
+    })
+    const { container } = render(
+      <AgentSubList agents={[dead]} agentsByParent={{ g: [dead] }} />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
 })

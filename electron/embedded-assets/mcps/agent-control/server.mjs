@@ -144,7 +144,7 @@ const TOOLS = [
   {
     name: 'close_agent',
     description:
-      'Close (terminate) a persistent child agent. Removes only that child worktree (if isolated). Merge/cherry-pick child workDir changes into the parent workDir BEFORE calling this, or unmerged work is lost. Adapter is destroyed and a final note is injected into the parent context.',
+      'Close (terminate) a persistent child agent and remove it from the parent sidebar. REQUIRED after you accept/merge (or discard) the child — idle/待命 is NOT finished; without close the sub-task hangs forever. Removes only that child worktree (if isolated). Merge/cherry-pick child workDir into the parent workDir BEFORE calling this, or uncommitted/unmerged work is lost. Adapter is destroyed; a final note is injected into the parent context.',
     inputSchema: {
       type: 'object',
       properties: {

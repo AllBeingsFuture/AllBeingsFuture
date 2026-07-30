@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Cpu, ChevronDown, ChevronRight } from 'lucide-react'
+import { Cpu, ChevronDown, ChevronRight, X } from 'lucide-react'
 import type { AgentInfo } from '../../../core/chat/chatCore'
 
 export type AgentsByParent = Record<string, AgentInfo[]>
@@ -10,6 +10,8 @@ interface Props {
   /** Full map: parentSessionId → child agents (for nested sons under a father). */
   agentsByParent?: AgentsByParent
   onSelectSession?: (sessionId: string) => void
+  /** Explicit close (UI). Same as agent-control close_agent — not auto-on-idle. */
+  onCloseAgent?: (parentSessionId: string, childSessionId: string) => void
   /** Nesting depth (0 = under root session). Cap at MAX_DEPTH. */
   depth?: number
 }
@@ -36,7 +38,7 @@ const statusLabels: Record<string, string> = {
 
 /** Live sub-tasks only. Terminal statuses must never linger in the sidebar. */
 const ACTIVE_STATUSES = new Set(['pending', 'running', 'idle'])
-const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'terminated'])
 
 function isActiveAgent(agent: AgentInfo): boolean {
   return ACTIVE_STATUSES.has(agent.status) && !TERMINAL_STATUSES.has(agent.status)
@@ -46,6 +48,7 @@ export default function AgentSubList({
   agents,
   agentsByParent,
   onSelectSession,
+  onCloseAgent,
   depth = 0,
 }: Props) {
   const visibleAgents = useMemo(
@@ -54,6 +57,7 @@ export default function AgentSubList({
   )
   const hasActive = visibleAgents.length > 0
   const [expanded, setExpanded] = useState(hasActive)
+  const [closingId, setClosingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (hasActive) setExpanded(true)
@@ -79,29 +83,53 @@ export default function AgentSubList({
         <div className="space-y-0.5 mt-0.5">
           {visibleAgents.map((agent) => {
             const nested = (agentsByParent?.[agent.childSessionId] || []).filter(isActiveAgent)
+            const busy = closingId === agent.childSessionId
             return (
               <div key={agent.agentId}>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onSelectSession?.(agent.childSessionId) }}
-                  className="flex items-center gap-2 w-full rounded-lg px-2 py-1.5 text-left hover:bg-white/5 transition"
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusColors[agent.status] || 'bg-slate-400'}`} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-slate-200 truncate">
-                      Agent: {agent.name || agent.agentId.slice(0, 8)}
-                    </p>
-                    <p className="text-[10px] text-slate-500 truncate">
-                      {statusLabels[agent.status] || agent.status}
-                      {agent.providerId && ` · ${agent.providerId}`}
-                    </p>
-                  </div>
-                </button>
+                <div className="flex items-center gap-1 rounded-lg hover:bg-white/5 transition">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onSelectSession?.(agent.childSessionId) }}
+                    className="flex items-center gap-2 min-w-0 flex-1 px-2 py-1.5 text-left"
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusColors[agent.status] || 'bg-slate-400'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-slate-200 truncate">
+                        Agent: {agent.name || agent.agentId.slice(0, 8)}
+                      </p>
+                      <p className="text-[10px] text-slate-500 truncate">
+                        {statusLabels[agent.status] || agent.status}
+                        {agent.providerId && ` · ${agent.providerId}`}
+                      </p>
+                    </div>
+                  </button>
+                  {onCloseAgent && agent.parentSessionId && agent.childSessionId && (
+                    <button
+                      type="button"
+                      title="关闭子任务（close_agent）"
+                      disabled={busy}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setClosingId(agent.childSessionId)
+                        try {
+                          onCloseAgent(agent.parentSessionId, agent.childSessionId)
+                        } finally {
+                          // agent:update removed / store optimistic clear handles list
+                          setTimeout(() => setClosingId((id) => (id === agent.childSessionId ? null : id)), 800)
+                        }
+                      }}
+                      className="shrink-0 mr-1 p-1 rounded text-slate-500 hover:text-red-300 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
                 {nested.length > 0 && depth < MAX_DEPTH && (
                   <AgentSubList
                     agents={nested}
                     agentsByParent={agentsByParent}
                     onSelectSession={onSelectSession}
+                    onCloseAgent={onCloseAgent}
                     depth={depth + 1}
                   />
                 )}

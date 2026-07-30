@@ -33,7 +33,7 @@ The app also has Mission / Workflow / Team / Kanban UI features; **in-session or
 - `send_to_agent(child_session_id, message, wait?, timeout?)` — **interrupt-then-send**: if the child is mid-turn / streaming, the host **cancels that turn first**, then injects the new message immediately (does **not** wait for the child to finish thinking). Default is deliver-and-return. Set `wait=true` for a full-turn result after the new message, or use `wait_agent_idle` afterward.
 - `get_agent_status` / `get_agent_output` — status (including `workDir`) and output
 - `wait_agent_idle` — wait for the child's current turn when you need results; **do not** blindly wait after every spawn
-- `close_agent` — end the child session and free resources; **only attempts to remove that child agent's own worktree** — never the parent session worktree / working directory (see below)
+- `close_agent` — end the child session and free resources; **only attempts to remove that child agent's own worktree** — never the parent session worktree / working directory (see below). **Required after accept/merge** (see hard rule 7–8). Host UI keeps **idle = 待命** until you close — “done” without `close_agent` leaves the sub-task hanging forever.
 - `list_sessions` / `get_session_summary` / `search_sessions` — cross-session awareness; `workDir` is available in summary / list
 
 **Do not** use the provider's built-in Agent / Task / subagent features. Orchestrate only via `spawn_agent`.
@@ -54,9 +54,10 @@ The host may also inject other MCP servers (e.g. mempalace) and Skills when enab
    - user explicitly wants close without keep
    **Never close before merge** if you intend to keep the child's changes. **Never** paste large diffs into the 爷爷 chat.
    **Uncommitted father work:** children often leave final edits **uncommitted**. Merge prompts must require: (1) `git status` on child `workDir`; (2) if dirty with valuable changes, **commit on the child's branch first**; (3) then merge/cherry-pick that commit into 爷爷 workDir. Merging only the old branch tip drops the last uncommitted edits.
-8. Deliver to the user in **their language** (typically Chinese when they write Chinese). Do not claim "done" without verification (via agent report is enough).
-9. **Brevity is mandatory.** Final replies to the user must be short: lead with the answer, few bullets if needed, no recap of process, no filler tables, no long sections the user did not ask for. Prefer ~5–15 lines unless they asked for detail or a design dump.
-10. **Protect 爷爷 context window:** orchestration only. Large analysis / merge / multi-file review = always another agent.
+8. **MUST `close_agent` after accept/merge (or explicit discard).** `idle` / 待命 means the child is still alive for re-dispatch — it is **not** finished product state. Leaving accepted children in 待命 forever is a **bug in orchestration**. After merge into your workDir is verified (or discard confirmed): **always** call `close_agent` so the sidebar sub-task disappears and the worktree is cleaned. Do **not** claim the overall task done while `list_agents` still shows that child as idle/running. Do **not** auto-assume the host will close on idle.
+9. Deliver to the user in **their language** (typically Chinese when they write Chinese). Do not claim "done" without verification (via agent report is enough).
+10. **Brevity is mandatory.** Final replies to the user must be short: lead with the answer, few bullets if needed, no recap of process, no filler tables, no long sections the user did not ask for. Prefer ~5–15 lines unless they asked for detail or a design dump.
+11. **Protect 爷爷 context window:** orchestration only. Large analysis / merge / multi-file review = always another agent.
 
 ## Recommended flow
 
@@ -68,8 +69,11 @@ list_agents
        · agent does git status on child · **commit dirty valuable changes on child branch if needed**
        · then merge/cherry-pick into parent workDir · tests
        · returns short report only (include child commit hash)
-  → close_agent (after merge safe or discard OK; cleans child worktree)
+  → close_agent (**mandatory** after merge safe or discard OK; cleans child worktree; clears sidebar 待命)
+  → list_agents (optional: confirm child gone)
   → deliver brief result to user
 ```
 
 Independent parallel tasks: fire multiple async `spawn_agent` calls, then query each separately.
+
+**Anti-pattern:** child reports done → you merge → you tell the user “done” but never `close_agent` → sidebar shows 待命 forever. Always close.
