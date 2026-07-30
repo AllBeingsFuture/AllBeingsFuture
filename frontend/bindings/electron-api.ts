@@ -28,11 +28,6 @@ export function onIpc(channel: string, callback: (...args: any[]) => void): () =
   return window.electronAPI.on(channel, callback)
 }
 
-/** Send a one-way message to the main process. */
-export function emitIpc(channel: string, ...args: any[]): void {
-  window.electronAPI.send(channel, ...args)
-}
-
 // ---- Type creation helpers ----
 
 export function createNullable<T>(createFn: (source: any) => T) {
@@ -97,11 +92,6 @@ export interface GithubIssueResult {
 export const FeedbackAPI = {
   submitGithubIssue: (payload: GithubIssuePayload): Promise<GithubIssueResult> =>
     ipc('FeedbackService.SubmitGithubIssue', payload),
-}
-
-export const ClipboardAPI = {
-  writeText: (text: string): Promise<void> => ipc('clipboard:writeText', text),
-  readText: (): Promise<string> => ipc('clipboard:readText'),
 }
 
 export const WindowAPI = {

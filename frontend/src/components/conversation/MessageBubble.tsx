@@ -183,16 +183,7 @@ export default function MessageBubble({ message, providerId }: Props) {
                     transition={{ duration: 0.18, ease: 'easeInOut' }}
                     className="mt-1.5 max-h-[220px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 text-[12px] leading-relaxed text-zinc-500 scrollbar-thin"
                   >
-                    <div className="prose prose-invert prose-xs max-w-none
-                      prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-zinc-500
-                      prose-headings:mb-0.5 prose-headings:mt-2 prose-headings:text-xs prose-headings:text-zinc-400
-                      prose-strong:text-zinc-300
-                      prose-em:text-zinc-500
-                      prose-code:rounded prose-code:bg-white/[0.04] prose-code:px-1 prose-code:py-0.5 prose-code:text-[10px] prose-code:text-zinc-400 prose-code:before:content-none prose-code:after:content-none
-                      prose-li:my-0 prose-li:text-zinc-500
-                      prose-ol:my-0.5 prose-ul:my-0.5
-                      prose-a:text-zinc-400 prose-a:no-underline
-                    ">
+                    <div className="md-prose md-prose-muted">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(value) => value}>
                         {thinkingText}
                       </ReactMarkdown>
@@ -252,33 +243,7 @@ export default function MessageBubble({ message, providerId }: Props) {
               <>
                 {hasRichMarkdown ? (
                   renderMarkdownAssistant(
-                    isCommentary
-                      ? `prose prose-invert prose-sm max-w-none
-                        prose-p:my-2.5 prose-p:leading-[1.8] prose-p:text-zinc-200/90
-                        prose-headings:mb-2 prose-headings:mt-5 prose-headings:text-zinc-100
-                        prose-code:rounded-md prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[12px] prose-code:text-zinc-200 prose-code:before:content-none prose-code:after:content-none
-                        prose-pre:my-3 prose-pre:rounded-xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0c0f14]
-                        prose-a:text-sky-300/90 prose-a:no-underline hover:prose-a:underline
-                        prose-li:my-0.5 prose-li:text-zinc-200/88
-                        prose-table:text-xs
-                        prose-th:border prose-th:border-white/[0.06] prose-th:px-2 prose-th:py-1
-                        prose-td:border prose-td:border-white/[0.06] prose-td:px-2 prose-td:py-1
-                        prose-strong:text-zinc-50
-                        prose-em:text-zinc-300
-                        prose-blockquote:rounded-r-lg prose-blockquote:border-white/10 prose-blockquote:bg-white/[0.02] prose-blockquote:py-1 prose-blockquote:text-zinc-400`
-                      : `prose prose-invert prose-sm max-w-none
-                        prose-p:my-3 prose-p:leading-[1.8] prose-p:text-zinc-100/92
-                        prose-headings:mb-2.5 prose-headings:mt-6 prose-headings:text-zinc-50
-                        prose-code:rounded-md prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[13px] prose-code:text-zinc-200 prose-code:before:content-none prose-code:after:content-none
-                        prose-pre:my-3 prose-pre:rounded-xl prose-pre:border prose-pre:border-white/[0.06] prose-pre:bg-[#0c0f14]
-                        prose-a:text-sky-300/90 prose-a:no-underline hover:prose-a:underline
-                        prose-li:my-0.5 prose-li:text-zinc-100/90
-                        prose-table:text-xs
-                        prose-th:border prose-th:border-white/[0.06] prose-th:px-2 prose-th:py-1
-                        prose-td:border prose-td:border-white/[0.06] prose-td:px-2 prose-td:py-1
-                        prose-strong:text-white
-                        prose-em:text-zinc-300
-                        prose-blockquote:rounded-r-lg prose-blockquote:border-white/10 prose-blockquote:bg-white/[0.02] prose-blockquote:py-1 prose-blockquote:text-zinc-400`,
+                    isCommentary ? 'md-prose opacity-90' : 'md-prose',
                   )
                 ) : (
                   <>

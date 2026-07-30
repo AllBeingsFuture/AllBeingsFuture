@@ -13,8 +13,8 @@ Product role: a desktop workspace that unifies multiple AI providers (Claude Cod
 ```
 
 - **You (爷爷):** schedule, accept, decide keep/discard, close children. **Do not** personally dig large diffs / multi-file merge analysis — that fills this session's context.
-- **Father (直接子):** implements; may spawn sons via agent-control when that MCP is injected.
-- **Son (孙):** leaf implementer only; no worker software prompt file / no agent-control.
+- **Father (直接子):** when agent-control is injected, **must** spawn sons for non-trivial / parallelizable work (same AO style as you); merge sons into father workDir before close. Trivial-only self-work.
+- **Son (孙):** leaf implementer only; no worker software prompt file; **must not** spawn further.
 
 Orchestration model (aligned with Agent Orchestrator / AO): **dispatch and return; keep the parent session free**. Child agents run in the background in isolated worktrees when enabled.
 

@@ -166,6 +166,34 @@ test('process.ts persistent child done injects result to parent (not only non-pe
   assert.ok(persistentArm, 'expected persistent vs non-persistent arms')
   assert.match(persistentArm[0], /injectChildResult/)
   assert.match(persistentArm[0], /updatePersistentAgentStatus/)
+  // Interrupt-cancelled done must skip idle finalize (二次派发 stuck 待命)
+  assert.match(block, /fromInterrupt/)
+  assert.match(block, /Skipping persistent-child idle finalize after interrupt|doneIsFromInterrupt/)
+})
+
+test('sendToChild: interrupt then running then send (no interrupt on send) for 二次派发 status', () => {
+  const lifecyclePath = path.join(electronRoot, 'services/agent-lifecycle.ts')
+  const lifecycle = readFileSync(lifecyclePath, 'utf8')
+  const block = lifecycle.match(/async sendToChild\([\s\S]*?async sendToChildAndWait/)
+  assert.ok(block, 'expected sendToChild body')
+  const body = block[0]
+  const interruptAt = body.indexOf('interruptTurn')
+  const runningAt = body.indexOf('updatePersistentAgentStatus')
+  const sendAt = body.lastIndexOf('sendMessage')
+  assert.ok(interruptAt >= 0, 'must interrupt first')
+  assert.ok(runningAt > interruptAt, 'running after interrupt')
+  assert.ok(sendAt > runningAt, 'send after running')
+  assert.doesNotMatch(body, /sendMessage\([^)]*interrupt:\s*true/)
+})
+
+test('sendMessage dual-insurance marks persistent child running when turn starts', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  assert.match(source, /markPersistentChildRunningIfNeeded/)
+  assert.match(source, /doneIsFromInterrupt/)
+  const sendBlock = source.match(/async sendMessage\([\s\S]*?bridgeManager\.sendMessage/)
+  assert.ok(sendBlock, 'expected sendMessage body')
+  assert.match(sendBlock[0], /markPersistentChildRunningIfNeeded/)
+  assert.match(sendBlock[0], /state\.streaming = true/)
 })
 
 test('injectChildResult includes name and workDir merge hint; close cleans worktree', () => {

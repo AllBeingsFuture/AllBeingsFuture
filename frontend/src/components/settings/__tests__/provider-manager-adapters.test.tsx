@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ADAPTER_OPTIONS } from '../ProviderForm'
+import { ADAPTER_OPTIONS } from '../ProviderManager'
 import { resolveAdapterBadge } from '../../../utils/providerDisplay'
 
 describe('Provider adapter options', () => {

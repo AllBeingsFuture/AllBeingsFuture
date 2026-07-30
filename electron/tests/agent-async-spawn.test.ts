@@ -7,8 +7,10 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const electronRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const workspaceRoot = path.resolve(electronRoot, '..')
+// Compiled under .task/.../tests → walk up to repo root (same as supervisor-prompt-inject).
+const compiledDir = path.dirname(fileURLToPath(import.meta.url))
+const workspaceRoot = path.resolve(compiledDir, '../../..')
+const electronRoot = path.join(workspaceRoot, 'electron')
 
 function read(rel: string): string {
   return readFileSync(path.join(workspaceRoot, rel), 'utf8')
@@ -87,4 +89,31 @@ test('trackedAgentToInfo fills workDir from child session', () => {
   assert.match(source, /trackedAgentToInfo/)
   assert.match(source, /session\?\.worktreePath \|\| session\?\.workingDirectory/)
   assert.doesNotMatch(source, /workDir:\s*''/)
+})
+
+test('sendToChild interrupts first then marks running then sends without second interrupt', () => {
+  const source = read('electron/services/agent-lifecycle.ts')
+  const block = source.match(/async sendToChild\([\s\S]*?^  async sendToChildAndWait/m)
+  assert.ok(block, 'expected sendToChild method body')
+  const body = block[0]
+  const interruptAt = body.indexOf('interruptTurn')
+  const runningAt = body.indexOf("updatePersistentAgentStatus")
+  const sendAt = body.lastIndexOf('sendMessage')
+  assert.ok(interruptAt >= 0, 'sendToChild must call interruptTurn')
+  assert.ok(runningAt > interruptAt, 'running status must be set after interrupt')
+  assert.ok(sendAt > runningAt, 'sendMessage must come after marking running')
+  // Must not pass interrupt:true on the send after explicit interruptTurn
+  assert.doesNotMatch(body, /sendMessage\([^)]*interrupt:\s*true/)
+})
+
+test('interrupt done must not idle-finalize persistent child; sendMessage re-marks running', () => {
+  const processSrc = read('electron/services/process.ts')
+  assert.match(processSrc, /doneIsFromInterrupt/)
+  assert.match(processSrc, /Skipping persistent-child idle finalize after interrupt/)
+  assert.match(processSrc, /markPersistentChildRunningIfNeeded/)
+  // sendMessage sets streaming then dual-insurance running
+  const sendBlock = processSrc.match(/async sendMessage\([\s\S]*?bridgeManager\.sendMessage/)
+  assert.ok(sendBlock, 'expected sendMessage body')
+  assert.match(sendBlock[0], /markPersistentChildRunningIfNeeded/)
+  assert.match(sendBlock[0], /state\.streaming = true/)
 })

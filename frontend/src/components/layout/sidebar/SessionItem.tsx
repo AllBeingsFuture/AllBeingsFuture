@@ -25,6 +25,7 @@ export default function SessionItem({
   onRename,
   onSmartRename,
   agents,
+  agentsByParent,
 }: SessionItemProps) {
   const isActive = ACTIVE_STATUSES.has(session.status)
   const { childToParent, sessions } = useSessionStore(useShallow((state) => ({
@@ -288,7 +289,11 @@ export default function SessionItem({
       </div>
 
       {agents && agents.length > 0 && (
-        <AgentSubList agents={agents} onSelectSession={onSelect} />
+        <AgentSubList
+          agents={agents}
+          agentsByParent={agentsByParent}
+          onSelectSession={onSelect}
+        />
       )}
 
       <ContextMenu

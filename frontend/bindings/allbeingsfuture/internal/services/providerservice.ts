@@ -1,11 +1,11 @@
 import { ipc, createNullable, createArray } from '../../../electron-api';
-import * as models from "../models/models.js";
+import { AIProvider, AdapterType } from "../models/models.js";
 
 /**
  * Create a new AI provider.
  */
-export function Create(name: string, command: string, adapterType: models.AdapterType): Promise<models.AIProvider | null> {
-    return ipc("ProviderService.Create", name, command, adapterType).then(createNullable(models.AIProvider.createFrom));
+export function Create(name: string, command: string, adapterType: AdapterType): Promise<AIProvider | null> {
+    return ipc("ProviderService.Create", name, command, adapterType).then(createNullable(AIProvider.createFrom));
 }
 
 /**
@@ -18,15 +18,15 @@ export function Delete(id: string): Promise<void> {
 /**
  * Get all AI providers.
  */
-export function GetAll(): Promise<models.AIProvider[]> {
-    return ipc("ProviderService.GetAll").then(createArray(models.AIProvider.createFrom));
+export function GetAll(): Promise<AIProvider[]> {
+    return ipc("ProviderService.GetAll").then(createArray(AIProvider.createFrom));
 }
 
 /**
  * Get an AI provider by ID.
  */
-export function GetByID(id: string): Promise<models.AIProvider | null> {
-    return ipc("ProviderService.GetByID", id).then(createNullable(models.AIProvider.createFrom));
+export function GetByID(id: string): Promise<AIProvider | null> {
+    return ipc("ProviderService.GetByID", id).then(createNullable(AIProvider.createFrom));
 }
 
 /**

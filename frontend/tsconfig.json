@@ -17,7 +17,8 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "framer-motion": ["./src/lib/motionShim.tsx"]
     }
   },
   "include": ["src", "bindings/**/*.js", "bindings/**/*.d.ts", "bindings/**/*.ts"]

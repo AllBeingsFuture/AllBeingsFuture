@@ -1,11 +1,11 @@
 import { ipc, createNullable, createArray } from '../../../electron-api';
-import * as models from "../models/models.js";
+import { CreateWorktreeResult, GitStatus, MergeResult, WorktreeInfo } from "../models/models.js";
 
 /**
  * Check if a merge is possible.
  */
-export function CheckMerge(repoPath: string, worktreeBranch: string, targetBranch: string): Promise<models.MergeResult | null> {
-    return ipc("GitService.CheckMerge", repoPath, worktreeBranch, targetBranch).then(createNullable(models.MergeResult.createFrom));
+export function CheckMerge(repoPath: string, worktreeBranch: string, targetBranch: string): Promise<MergeResult | null> {
+    return ipc("GitService.CheckMerge", repoPath, worktreeBranch, targetBranch).then(createNullable(MergeResult.createFrom));
 }
 
 /**
@@ -18,8 +18,8 @@ export function Commit(repoPath: string, message: string): Promise<string> {
 /**
  * Create a new worktree.
  */
-export function CreateWorktree(repoPath: string, branchName: string, taskID: string): Promise<models.CreateWorktreeResult | null> {
-    return ipc("GitService.CreateWorktree", repoPath, branchName, taskID).then(createNullable(models.CreateWorktreeResult.createFrom));
+export function CreateWorktree(repoPath: string, branchName: string, taskID: string): Promise<CreateWorktreeResult | null> {
+    return ipc("GitService.CreateWorktree", repoPath, branchName, taskID).then(createNullable(CreateWorktreeResult.createFrom));
 }
 
 /**
@@ -60,8 +60,8 @@ export function EnsureRepo(path: string): Promise<string> {
 /**
  * Get the git status.
  */
-export function GetStatus(repoPath: string): Promise<models.GitStatus | null> {
-    return ipc("GitService.GetStatus", repoPath).then(createNullable(models.GitStatus.createFrom));
+export function GetStatus(repoPath: string): Promise<GitStatus | null> {
+    return ipc("GitService.GetStatus", repoPath).then(createNullable(GitStatus.createFrom));
 }
 
 /**
@@ -74,15 +74,15 @@ export function IsGitRepo(path: string): Promise<boolean> {
 /**
  * List all worktrees.
  */
-export function ListWorktrees(repoPath: string): Promise<models.WorktreeInfo[]> {
-    return ipc("GitService.ListWorktrees", repoPath).then(createArray(models.WorktreeInfo.createFrom));
+export function ListWorktrees(repoPath: string): Promise<WorktreeInfo[]> {
+    return ipc("GitService.ListWorktrees", repoPath).then(createArray(WorktreeInfo.createFrom));
 }
 
 /**
  * Merge a worktree branch.
  */
-export function MergeWorktree(repoPath: string, worktreeBranch: string, targetBranch: string): Promise<models.MergeResult | null> {
-    return ipc("GitService.MergeWorktree", repoPath, worktreeBranch, targetBranch).then(createNullable(models.MergeResult.createFrom));
+export function MergeWorktree(repoPath: string, worktreeBranch: string, targetBranch: string): Promise<MergeResult | null> {
+    return ipc("GitService.MergeWorktree", repoPath, worktreeBranch, targetBranch).then(createNullable(MergeResult.createFrom));
 }
 
 /**

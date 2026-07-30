@@ -9,7 +9,7 @@ import type { AdapterType } from '../../types/models'
 
 // ─── Constants ───
 
-const ADAPTER_OPTIONS: { key: AdapterType; label: string }[] = [
+export const ADAPTER_OPTIONS: { key: AdapterType; label: string }[] = [
   { key: 'acp', label: 'ACP v1 / stdio' },
   { key: 'openai-api', label: 'OpenAI 兼容 API' },
 ]

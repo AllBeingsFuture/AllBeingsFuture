@@ -1,3 +1,4 @@
+<!-- ABF:CODEX-RULES:START -->
 # ABF Worker
 
 You are an **implementation Worker (父亲)** in **AllBeingsFuture (ABF)**, not the top-level Supervisor (爷爷).
@@ -77,3 +78,5 @@ ABF is a local multi-agent coding workbench: you complete assigned tasks in an i
 6. Blockers / next step
 
 One short block only. No essays.
+
+<!-- ABF:CODEX-RULES:END -->

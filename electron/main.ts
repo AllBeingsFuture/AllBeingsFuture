@@ -402,32 +402,6 @@ function registerAppIpcHandlers() {
     return clipboard.readText()
   })
 
-  ipcMain.handle('tray:updateSessionCount', (_event, count: number) => {
-    trayManager?.onSessionStatusChange(count)
-  })
-
-  ipcMain.handle('notificationManager:notify', (_event, type: string, sessionId: string, sessionName: string, detail?: string) => {
-    notificationManager?.notify(type as never, sessionId, sessionName, detail)
-  })
-  ipcMain.handle('notificationManager:setDND', (_event, enabled: boolean, startTime?: string, endTime?: string) => {
-    notificationManager?.setDND(enabled, startTime, endTime)
-  })
-  ipcMain.handle('notificationManager:setTypeEnabled', (_event, type: string, enabled: boolean) => {
-    notificationManager?.setTypeEnabled(type as never, enabled)
-  })
-  ipcMain.handle('notificationManager:setSoundEnabled', (_event, enabled: boolean) => {
-    notificationManager?.setSoundEnabled(enabled)
-  })
-  ipcMain.handle('notificationManager:setEnabled', (_event, enabled: boolean) => {
-    notificationManager?.setEnabled(enabled)
-  })
-  ipcMain.handle('notificationManager:getConfig', () => {
-    return notificationManager?.getConfig() ?? null
-  })
-  ipcMain.handle('notificationManager:acknowledge', (_event, sessionId: string, type?: string) => {
-    notificationManager?.acknowledge(sessionId, type as never)
-  })
-
   ipcMain.on('native-files-dropped', (event, paths: string[]) => {
     event.sender.send('files-dropped', paths)
   })

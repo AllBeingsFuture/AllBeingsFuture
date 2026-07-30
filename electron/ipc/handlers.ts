@@ -4,7 +4,7 @@
  * Each ipcMain.handle(channel, ...) maps to a service method.
  */
 
-import { ipcMain, BrowserWindow, shell } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { execSync } from 'child_process'
 import { readdir, rm } from 'node:fs/promises'
 import path from 'path'
@@ -28,19 +28,11 @@ import { MCPService } from '../services/mcp.js'
 import { SkillService } from '../services/skill.js'
 
 // New services
-import { AuthService } from '../services/auth.js'
 import { UpdateService } from '../services/update.js'
 import { SystemSettingsService } from '../services/system-settings.js'
-import { PolicyService } from '../services/policy.js'
-import { SupervisorService } from '../services/supervisor.js'
-import { NotificationService } from '../services/notification.js'
 import { StickerService } from '../services/sticker.js'
-import { SuggestionService } from '../services/suggestion.js'
-import { ProactiveService } from '../services/proactive.js'
-import { QueueService } from '../services/queue.js'
 import { FileTransferService } from '../services/file-transfer.js'
 import { TrackerService } from '../services/tracker.js'
-import { UsageService } from '../services/usage.js'
 import { WorkspaceService } from '../services/workspace.js'
 
 type GithubIssuePayload = {
@@ -192,19 +184,11 @@ export function registerAllIpcHandlers(
   const workflowService = new WorkflowService(db)
   const missionService = new MissionService(db)
   const teamService = new TeamService(db)
-  const authService = new AuthService(db)
   const updateService = new UpdateService()
   const systemSettingsService = new SystemSettingsService(db)
-  const policyService = new PolicyService(db)
-  const supervisorService = new SupervisorService()
-  const notificationService = new NotificationService(getWindow)
   const stickerService = new StickerService()
-  const suggestionService = new SuggestionService()
-  const proactiveService = new ProactiveService()
-  const queueService = new QueueService(db)
   const fileTransferService = new FileTransferService()
   const trackerService = new TrackerService(getWindow, db)
-  const usageService = new UsageService(db)
   const workspaceService = new WorkspaceService(db)
 
   // Initialize async services
@@ -329,7 +313,6 @@ export function registerAllIpcHandlers(
   ipcMain.handle('ProcessService.SendMessage', (_e, sessionId: string, message: string) => processService.sendMessage(sessionId, message))
   ipcMain.handle('ProcessService.SendMessageWithImages', (_e, sessionId: string, message: string, images: any[]) => processService.sendMessageWithImages(sessionId, message, images))
   ipcMain.handle('ProcessService.GetChatState', (_e, sessionId: string) => processService.getChatState(sessionId))
-  ipcMain.handle('ProcessService.IsStreaming', (_e, sessionId: string) => processService.isStreaming(sessionId))
   ipcMain.handle('ProcessService.StopProcess', (_e, sessionId: string) => processService.stopProcess(sessionId))
   // Provider-neutral permission response for ACP (and future adapters).
   ipcMain.handle('agent:permission:respond', (_e, payload: { sessionId: string; requestId: string; optionId: string }) =>
@@ -337,11 +320,8 @@ export function registerAllIpcHandlers(
   ipcMain.handle('ProcessService.ResumeSession', (_e, oldSessionId: string) => processService.resumeSession(oldSessionId))
   ipcMain.handle('ProcessService.SpawnChildSession', (_e, parentSessionId: string, options: any) => processService.spawnChildSession(parentSessionId, options))
   ipcMain.handle('ProcessService.SendToChild', (_e, parentSessionId: string, childSessionId: string, message: string) => processService.sendToChild(parentSessionId, childSessionId, message))
-  ipcMain.handle('ProcessService.GetChildSessions', (_e, parentSessionId: string) => processService.getChildSessions(parentSessionId))
   ipcMain.handle('ProcessService.ListAllAgents', () => processService.listAllAgents())
-  ipcMain.handle('ProcessService.GetAgentsBySession', (_e, sessionId: string) => processService.getAgentsBySession(sessionId))
-  ipcMain.handle('ProcessService.CloseChildSession', (_e, parentSessionId: string, childSessionId: string) => processService.closeChildSession(parentSessionId, childSessionId))
-  ipcMain.handle('ProcessService.GetResourceStatus', () => processService.getResourceStatus())
+  // IsStreaming / GetChildSessions / GetAgentsBySession / CloseChild / GetResourceStatus: in-process only
 
   // ==============================================================
   // ProviderService
@@ -362,7 +342,6 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SettingsService.GetAutoWorktree', () => settingsService.getAutoWorktree())
   ipcMain.handle('SettingsService.SetAutoWorktree', (_e, enabled: boolean) => settingsService.setAutoWorktree(enabled))
   ipcMain.handle('SettingsService.SetAutoLaunch', (_e, enabled: boolean) => settingsService.setAutoLaunch(enabled))
-  ipcMain.handle('SettingsService.GetAutoLaunch', () => settingsService.getAutoLaunch())
   ipcMain.handle('SettingsService.GetProxyEnv', () => settingsService.getProxyEnv())
   ipcMain.handle('SettingsService.SendNotification', (_e, title: string, body: string) => settingsService.sendNotification(title, body))
 
@@ -436,16 +415,12 @@ export function registerAllIpcHandlers(
   ipcMain.handle('MissionService.ResumeMission', (_e, id: string) => missionService.resumeMission(id))
   ipcMain.handle('MissionService.AbortMission', (_e, id: string) => missionService.abortMission(id))
   ipcMain.handle('MissionService.SkipCurrentPhase', (_e, id: string) => missionService.skipCurrentPhase(id))
-  ipcMain.handle('MissionService.UpdatePlan', (_e, id: string, plan: any) => missionService.updatePlan(id, plan))
   ipcMain.handle('MissionService.ListRoleTemplates', () => missionService.listRoleTemplates())
-  ipcMain.handle('MissionService.GetRoleTemplate', (_e, id: string) => missionService.getRoleTemplate(id))
-  ipcMain.handle('MissionService.GetRoleTemplatesByCategory', (_e, cat: string) => missionService.getRoleTemplatesByCategory(cat))
 
   // ==============================================================
-  // TeamService (full API)
+  // TeamService (wired API only)
   // ==============================================================
   ipcMain.handle('TeamService.CreateDefinition', (_e, name: string, desc: string, roles: any[]) => teamService.createDefinition(name, desc, roles))
-  ipcMain.handle('TeamService.GetDefinition', (_e, id: string) => teamService.getDefinition(id))
   ipcMain.handle('TeamService.ListDefinitions', () => teamService.listDefinitions())
   ipcMain.handle('TeamService.UpdateDefinition', (_e, id: string, name: string, desc: string) => teamService.updateDefinition(id, name, desc))
   ipcMain.handle('TeamService.DeleteDefinition', (_e, id: string) => teamService.deleteDefinition(id))
@@ -453,16 +428,9 @@ export function registerAllIpcHandlers(
   ipcMain.handle('TeamService.UpdateRole', (_e, roleId: string, role: any) => teamService.updateRole(roleId, role))
   ipcMain.handle('TeamService.DeleteRole', (_e, roleId: string) => teamService.deleteRole(roleId))
   ipcMain.handle('TeamService.StartInstance', (_e, teamId: string, workDir: string, task: string) => teamService.startInstance(teamId, workDir, task))
-  ipcMain.handle('TeamService.GetInstance', (_e, id: string) => teamService.getInstance(id))
   ipcMain.handle('TeamService.ListInstances', () => teamService.listInstances())
-  ipcMain.handle('TeamService.UpdateInstanceStatus', (_e, id: string, status: string) => teamService.updateInstanceStatus(id, status))
-  ipcMain.handle('TeamService.GetMembers', (_e, instId: string) => teamService.getMembers(instId))
-  ipcMain.handle('TeamService.UpdateMemberStatus', (_e, memberId: string, status: string) => teamService.updateMemberStatus(memberId, status))
-  ipcMain.handle('TeamService.SendMessage', (_e, instId: string, from: string, to: string, content: string, msgType: string) => teamService.sendMessage(instId, from, to, content, msgType))
   ipcMain.handle('TeamService.GetMessages', (_e, instId: string, limit: number) => teamService.getMessages(instId, limit))
-  ipcMain.handle('TeamService.CreateTask', (_e, instId: string, title: string, desc: string, taskType: string, assignedTo: string) => teamService.createTask(instId, title, desc, taskType, assignedTo))
   ipcMain.handle('TeamService.GetTasks', (_e, instId: string) => teamService.getTasks(instId))
-  ipcMain.handle('TeamService.UpdateTaskStatus', (_e, taskId: string, status: string, completedBy: string) => teamService.updateTaskStatus(taskId, status, completedBy))
 
   // ==============================================================
   // MCPService (full API)
@@ -474,7 +442,6 @@ export function registerAllIpcHandlers(
   ipcMain.handle('MCPService.UpdateConfig', (_e, id: string, config: any) => mcpService.updateConfig(id, config))
   ipcMain.handle('MCPService.ToggleEnabled', (_e, id: string, enabled: boolean) => mcpService.toggleEnabled(id, enabled))
   ipcMain.handle('MCPService.GetRuntimeInfo', (_e, id: string) => mcpService.getRuntimeInfo(id))
-  ipcMain.handle('MCPService.SeedBuiltins', () => mcpService.seedBuiltins())
 
   // ==============================================================
   // SkillService (full API)
@@ -485,18 +452,7 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SkillService.Delete', (_e, id: string) => skillService.delete(id))
   ipcMain.handle('SkillService.ToggleEnabled', (_e, id: string, enabled: boolean) => skillService.toggleEnabled(id, enabled))
   ipcMain.handle('SkillService.GetRuntimeInfo', (_e, id: string) => skillService.getRuntimeInfo(id))
-  ipcMain.handle('SkillService.SeedBuiltins', () => skillService.seedBuiltins())
-  ipcMain.handle('SkillService.Execute', (_e, skillId: string, userInput: string) => skillService.execute(skillId, userInput))
-  ipcMain.handle('SkillService.MatchCommand', (_e, input: string) => skillService.matchCommand(input))
-
-  // ==============================================================
-  // AuthService
-  // ==============================================================
-  ipcMain.handle('AuthService.GetState', () => authService.getState())
-  ipcMain.handle('AuthService.UpdateState', (_e, state: any) => authService.updateState(state))
-  ipcMain.handle('AuthService.ClearState', () => authService.clearState())
-  ipcMain.handle('AuthService.CanAccess', (_e, feature: string) => authService.canAccess(feature))
-  ipcMain.handle('AuthService.IsAnonymousAllowed', () => authService.isAnonymousAllowed())
+  // Execute / MatchCommand / SeedBuiltins: used in-process (process + startup purge), not via renderer IPC
 
   // ==============================================================
   // UpdateService
@@ -522,54 +478,6 @@ export function registerAllIpcHandlers(
   ipcMain.handle('FeedbackService.SubmitGithubIssue', (_e, payload: GithubIssuePayload) => submitGithubIssue(payload))
 
   // ==============================================================
-  // PolicyService
-  // ==============================================================
-  ipcMain.handle('PolicyService.GetConfig', () => policyService.getConfig())
-  ipcMain.handle('PolicyService.UpdateConfig', (_e, config: any) => policyService.updateConfig(config))
-  ipcMain.handle('PolicyService.ReloadConfig', () => policyService.reloadConfig())
-  ipcMain.handle('PolicyService.CheckToolAllowed', (_e, toolName: string, params: any) => policyService.checkToolAllowed(toolName, params))
-  ipcMain.handle('PolicyService.AddBlockedCommand', (_e, cmd: string) => policyService.addBlockedCommand(cmd))
-  ipcMain.handle('PolicyService.RemoveBlockedCommand', (_e, cmd: string) => policyService.removeBlockedCommand(cmd))
-  ipcMain.handle('PolicyService.AddBlockedPath', (_e, pattern: string) => policyService.addBlockedPath(pattern))
-  ipcMain.handle('PolicyService.RemoveBlockedPath', (_e, pattern: string) => policyService.removeBlockedPath(pattern))
-  ipcMain.handle('PolicyService.AddDangerousPattern', (_e, toolName: string, pattern: string) => policyService.addDangerousPattern(toolName, pattern))
-  ipcMain.handle('PolicyService.GetAuditLog', (_e, limit: number) => policyService.getAuditLog(limit))
-  ipcMain.handle('PolicyService.ClearAuditLog', () => policyService.clearAuditLog())
-  ipcMain.handle('PolicyService.SetAutoConfirm', (_e, auto: boolean) => policyService.setAutoConfirm(auto))
-
-  // ==============================================================
-  // SupervisorService
-  // ==============================================================
-  ipcMain.handle('SupervisorService.StartSession', (_e, sid: string) => supervisorService.startSession(sid))
-  ipcMain.handle('SupervisorService.StopSession', (_e, sid: string) => supervisorService.stopSession(sid))
-  ipcMain.handle('SupervisorService.RecordToolCall', (_e, sid: string, tool: string, params: any, ok: boolean, iter: number) => supervisorService.recordToolCall(sid, tool, params, ok, iter))
-  ipcMain.handle('SupervisorService.RecordResponse', (_e, sid: string, text: string) => supervisorService.recordResponse(sid, text))
-  ipcMain.handle('SupervisorService.RecordTokens', (_e, sid: string, tokens: number) => supervisorService.recordTokens(sid, tokens))
-  ipcMain.handle('SupervisorService.RecordConsecutiveToolRounds', (_e, sid: string, rounds: number) => supervisorService.recordConsecutiveToolRounds(sid, rounds))
-  ipcMain.handle('SupervisorService.Evaluate', (_e, sid: string, iter: number) => supervisorService.evaluate(sid, iter))
-  ipcMain.handle('SupervisorService.CheckBudget', (_e, sid: string) => supervisorService.checkBudget(sid))
-  ipcMain.handle('SupervisorService.AssertToolAllowed', (_e, sid: string, tool: string, params: any) => supervisorService.assertToolAllowed(sid, tool, params))
-  ipcMain.handle('SupervisorService.GetStatus', (_e, sid: string) => supervisorService.getStatus(sid))
-  ipcMain.handle('SupervisorService.GetAllStatuses', () => supervisorService.getAllStatuses())
-  ipcMain.handle('SupervisorService.GetEvents', (_e, sid: string) => supervisorService.getEvents(sid))
-  ipcMain.handle('SupervisorService.SetEnabled', (_e, sid: string, enabled: boolean) => supervisorService.setEnabled(sid, enabled))
-  ipcMain.handle('SupervisorService.SetBudgetConfig', (_e, sid: string, config: any) => supervisorService.setBudgetConfig(sid, config))
-  ipcMain.handle('SupervisorService.SetPolicyConfig', (_e, sid: string, config: any) => supervisorService.setPolicyConfig(sid, config))
-  ipcMain.handle('SupervisorService.ResetSession', (_e, sid: string) => supervisorService.resetSession(sid))
-  ipcMain.handle('SupervisorService.Cleanup', () => supervisorService.cleanup())
-
-  // ==============================================================
-  // NotificationService
-  // ==============================================================
-  ipcMain.handle('NotificationService.UpdateConfig', (_e, enabled: boolean, sound: boolean, dnd: boolean, dndStart: string, dndEnd: string, types: any) =>
-    notificationService.updateConfig(enabled, sound, dnd, dndStart, dndEnd, types))
-  ipcMain.handle('NotificationService.OnConfirmationNeeded', (_e, sid: string, name: string) => notificationService.onConfirmationNeeded(sid, name))
-  ipcMain.handle('NotificationService.OnTaskCompleted', (_e, sid: string, name: string) => notificationService.onTaskCompleted(sid, name))
-  ipcMain.handle('NotificationService.OnError', (_e, sid: string, name: string, err: string) => notificationService.onError(sid, name, err))
-  ipcMain.handle('NotificationService.OnSessionStuck', (_e, sid: string, name: string) => notificationService.onSessionStuck(sid, name))
-  ipcMain.handle('NotificationService.Acknowledge', (_e, sid: string, ntype: string) => notificationService.acknowledge(sid, ntype))
-
-  // ==============================================================
   // StickerService
   // ==============================================================
   ipcMain.handle('StickerService.Initialize', () => stickerService.initialize())
@@ -583,40 +491,6 @@ export function registerAllIpcHandlers(
   ipcMain.handle('StickerService.ClearCache', () => stickerService.clearCache())
 
   // ==============================================================
-  // SuggestionService
-  // ==============================================================
-  ipcMain.handle('SuggestionService.Start', () => suggestionService.start())
-  ipcMain.handle('SuggestionService.Stop', () => suggestionService.stop())
-  ipcMain.handle('SuggestionService.OnActivity', (_e, sid: string, actType: string, detail: string) => suggestionService.onActivity(sid, actType, detail))
-  ipcMain.handle('SuggestionService.UpdateSessionInfo', (_e, sid: string, name: string, status: string, workDir: string) => suggestionService.updateSessionInfo(sid, name, status, workDir))
-  ipcMain.handle('SuggestionService.Dismiss', (_e, suggestionId: string) => suggestionService.dismiss(suggestionId))
-  ipcMain.handle('SuggestionService.GetActiveSuggestion', () => suggestionService.getActiveSuggestion())
-
-  // ==============================================================
-  // ProactiveService
-  // ==============================================================
-  ipcMain.handle('ProactiveService.GetConfig', () => proactiveService.getConfig())
-  ipcMain.handle('ProactiveService.SetConfig', (_e, config: any) => proactiveService.setConfig(config))
-  ipcMain.handle('ProactiveService.GetStatus', () => proactiveService.getStatus())
-  ipcMain.handle('ProactiveService.GetRecords', (_e, limit: number) => proactiveService.getRecords(limit))
-  ipcMain.handle('ProactiveService.Heartbeat', () => proactiveService.heartbeat())
-  ipcMain.handle('ProactiveService.ProcessUserResponse', (_e, text: string, delay: number) => proactiveService.processUserResponse(text, delay))
-  ipcMain.handle('ProactiveService.SetEnabled', (_e, enabled: boolean) => proactiveService.setEnabled(enabled))
-  ipcMain.handle('ProactiveService.Start', () => proactiveService.start())
-  ipcMain.handle('ProactiveService.Stop', () => proactiveService.stop())
-  ipcMain.handle('ProactiveService.UpdateUserInteraction', () => proactiveService.updateUserInteraction())
-
-  // ==============================================================
-  // QueueService
-  // ==============================================================
-  ipcMain.handle('QueueService.Enqueue', (_e, name: string, taskType: string, payload: any) => queueService.enqueue(name, taskType, payload))
-  ipcMain.handle('QueueService.GetByID', (_e, id: string) => queueService.getById(id))
-  ipcMain.handle('QueueService.List', (_e, status: string, limit: number) => queueService.list(status, limit))
-  ipcMain.handle('QueueService.ClaimNext', (_e, workerId: string) => queueService.claimNext(workerId))
-  ipcMain.handle('QueueService.Complete', (_e, id: string, status: any, lastError: string) => queueService.complete(id, status, lastError))
-  ipcMain.handle('QueueService.Retry', (_e, id: string, lastError: string) => queueService.retry(id, lastError))
-
-  // ==============================================================
   // FileTransferService
   // ==============================================================
   ipcMain.handle('FileTransferService.PrepareFile', (_e, filePath: string) => fileTransferService.prepareFile(filePath))
@@ -625,17 +499,8 @@ export function registerAllIpcHandlers(
   ipcMain.handle('FileTransferService.SaveDroppedFile', (_e, filename: string, base64: string) => fileTransferService.saveDroppedFile(filename, base64))
 
   // ==============================================================
-  // TrackerService
+  // FileChangeTracker (frontend TrackerService binding uses this prefix)
   // ==============================================================
-  ipcMain.handle('TrackerService.OnSessionStateChange', (_e, sid: string, status: string, workDir: string) => trackerService.onSessionStateChange(sid, status, workDir))
-  ipcMain.handle('TrackerService.GetSessionChanges', (_e, sid: string) => trackerService.getSessionChanges(sid))
-  ipcMain.handle('TrackerService.RecordWorktreeChanges', (_e, sid: string, mainRepo: string, files: string[]) => trackerService.recordWorktreeChanges(sid, mainRepo, files))
-  ipcMain.handle('TrackerService.HandleFsChange', (_e, watchedDir: string, filename: string) => trackerService.handleFsChange(watchedDir, filename))
-  ipcMain.handle('TrackerService.RemoveSession', (_e, sid: string) => trackerService.removeSession(sid))
-  ipcMain.handle('TrackerService.UpdateSessionActivity', (_e, sid: string) => trackerService.updateSessionActivity(sid))
-  ipcMain.handle('TrackerService.FindSessionIDByWorkingDir', (_e, dir: string) => trackerService.findSessionIDByWorkingDir(dir))
-
-  // FileChangeTracker.* aliases (frontend bindings use this prefix)
   ipcMain.handle('FileChangeTracker.OnSessionStateChange', (_e, sid: string, status: string, workDir: string) => trackerService.onSessionStateChange(sid, status, workDir))
   ipcMain.handle('FileChangeTracker.GetSessionChanges', (_e, sid: string) => trackerService.getSessionChanges(sid))
   ipcMain.handle('FileChangeTracker.RecordWorktreeChanges', (_e, sid: string, mainRepo: string, files: string[]) => trackerService.recordWorktreeChanges(sid, mainRepo, files))
@@ -643,15 +508,6 @@ export function registerAllIpcHandlers(
   ipcMain.handle('FileChangeTracker.RemoveSession', (_e, sid: string) => trackerService.removeSession(sid))
   ipcMain.handle('FileChangeTracker.UpdateSessionActivity', (_e, sid: string) => trackerService.updateSessionActivity(sid))
   ipcMain.handle('FileChangeTracker.FindSessionIDByWorkingDir', (_e, dir: string) => trackerService.findSessionIDByWorkingDir(dir))
-  ipcMain.handle('FileChangeTracker.Destroy', () => { /* no-op */ })
-  ipcMain.handle('FileChangeTracker.OnFilesUpdated', () => { /* event subscription - no-op */ })
-
-  // ==============================================================
-  // UsageService
-  // ==============================================================
-  ipcMain.handle('UsageService.GetSummary', () => usageService.getSummary())
-  ipcMain.handle('UsageService.GetHistory', (_e, days: number) => usageService.getHistory(days))
-  ipcMain.handle('UsageService.GetSessionMessages', (_e, sessionId: string) => usageService.getSessionMessages(sessionId))
 
   // ==============================================================
   // WorkspaceService
@@ -694,10 +550,6 @@ export function registerAllIpcHandlers(
     } catch {
       return []
     }
-  })
-
-  ipcMain.handle('QuickOpen.OpenFile', (_e, filePath: string) => {
-    if (filePath) shell.openPath(filePath)
   })
 
   return { processService }

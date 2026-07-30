@@ -23,7 +23,3 @@ export function ToggleEnabled(id: string, enabled: boolean): Promise<void> {
 export function GetRuntimeInfo(id: string): Promise<any> {
     return ipc("SkillService.GetRuntimeInfo", id)
 }
-
-export function SeedBuiltins(): Promise<void> {
-    return ipc("SkillService.SeedBuiltins")
-}

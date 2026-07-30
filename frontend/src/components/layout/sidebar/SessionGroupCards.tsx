@@ -96,6 +96,7 @@ export function TimeGroupCard({
             onRename={onRename}
             onSmartRename={onSmartRename}
             agents={agents?.[session.id]}
+            agentsByParent={agents}
           />
         </div>
       ))}
@@ -137,6 +138,7 @@ export function DirectoryGroupCard({
             onRename={onRename}
             onSmartRename={onSmartRename}
             agents={agents?.[session.id]}
+            agentsByParent={agents}
           />
         </div>
       ))}

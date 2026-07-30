@@ -34,7 +34,6 @@ const electronAPI = {
 
   quickOpen: {
     search: (rootDir, query) => ipcRenderer.invoke('QuickOpen.Search', rootDir, query),
-    openFile: (filePath) => ipcRenderer.invoke('QuickOpen.OpenFile', filePath),
   },
 }
 

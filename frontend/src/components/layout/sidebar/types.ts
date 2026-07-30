@@ -25,6 +25,8 @@ export interface SessionItemProps {
   onRename?: (id: string, name: string) => void | Promise<void>
   onSmartRename?: (id: string) => void | Promise<void>
   agents?: any[]
+  /** Full parentSessionId → agents map for nested sons under a father agent. */
+  agentsByParent?: Record<string, any[]>
 }
 
 export interface TimeGroupCardProps {

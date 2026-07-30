@@ -221,7 +221,6 @@ describe('workbench runtime', () => {
       send: vi.fn(),
       quickOpen: {
         search: vi.fn().mockResolvedValue([{ path: 'C:/repo/app.ts', name: 'app.ts', dir: '.' }]),
-        openFile: vi.fn(),
       },
     } as any
     installWorkbenchRuntime()

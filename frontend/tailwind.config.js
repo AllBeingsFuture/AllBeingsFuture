@@ -67,5 +67,6 @@ export default {
       },
     },
   },
-  plugins: [require('@tailwindcss/typography')],
+  // typography plugin dropped for size; MessageBubble uses compact .prose rules in globals.css
+  plugins: [],
 }

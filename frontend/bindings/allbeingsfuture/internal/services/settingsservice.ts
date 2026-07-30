@@ -1,8 +1,8 @@
 import { ipc, createNullable } from '../../../electron-api'
-import * as models from "../models/models.js"
+import { AppSettings } from "../models/models.js"
 
-export function GetAll(): Promise<models.AppSettings | null> {
-    return ipc("SettingsService.GetAll").then(createNullable(models.AppSettings.createFrom))
+export function GetAll(): Promise<AppSettings | null> {
+    return ipc("SettingsService.GetAll").then(createNullable(AppSettings.createFrom))
 }
 
 export function GetAutoWorktree(): Promise<boolean> {

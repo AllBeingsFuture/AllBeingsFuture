@@ -234,6 +234,16 @@ export class ProcessService {
    * Used by parent→child send_to_agent (interrupt-then-send).
    * Does NOT unregister concurrency, destroy adapter, or clean supervisor prompts.
    */
+  /** If session is a persistent child, push tracker status=running to the parent UI. */
+  private markPersistentChildRunningIfNeeded(sessionId: string): void {
+    const session = this.sessionService.getById(sessionId)
+    const parentId = session?.parentSessionId
+    if (!parentId) return
+    if (!this.agentLifecycle.isPersistentChild(parentId, sessionId)) return
+    this.agentLifecycle.setAgentIdleFlag(sessionId, false)
+    this.agentLifecycle.updatePersistentAgentStatus(parentId, sessionId, 'running')
+  }
+
   async interruptCurrentTurn(sessionId: string): Promise<void> {
     const state = this.sessionStates.get(sessionId)
     if (!state?.streaming && !this.bridgeManager.isSessionActive(sessionId)) {
@@ -251,6 +261,9 @@ export class ProcessService {
 
     appLog('info', `Interrupting current turn for session ${sessionId}`, 'process')
     state.streaming = false
+    // Mark before stopSession so a synchronous/async `done` from cancel does not
+    // finalize persistent agent → idle while parent is about to resend.
+    state.doneIsFromInterrupt = true
     const scheduler = this.schedulers.get(sessionId)
     if (scheduler) scheduler.clear()
     this.cancelPendingPermissions(sessionId)
@@ -259,7 +272,8 @@ export class ProcessService {
       const errMsg = err instanceof Error ? err.message : String(err)
       appLog('warn', `interruptCurrentTurn stopSession failed for ${sessionId}: ${errMsg}`, 'process')
     })
-    // Force idle so the next sendMessage does not queue_after_turn
+    // Force session idle so the next sendMessage does not queue_after_turn.
+    // Tracker agent status is re-set to running by sendToChild after this returns.
     state.streaming = false
     this.sessionService.updateStatus(sessionId, 'idle')
     this.emitChatUpdate(sessionId)
@@ -933,6 +947,10 @@ export class ProcessService {
 
       case 'done': {
         // The 'done' event means the current turn is complete — always clear streaming.
+        // Interrupt-then-resend: stopSession may emit done for the cancelled turn; that
+        // must not mark the persistent child tracker idle (or inject a false "turn done").
+        const fromInterrupt = !!state.doneIsFromInterrupt
+        state.doneIsFromInterrupt = false
         state.streaming = false
 
         // Check if the adapter stream is still alive for notification/idle decisions.
@@ -1017,7 +1035,14 @@ export class ProcessService {
         // If this is a child session, inject result back to parent
         const doneSessionForChild = this.sessionService.getById(sessionId)
         if (doneSessionForChild?.parentSessionId) {
-          if (this.agentLifecycle.isPersistentChild(doneSessionForChild.parentSessionId, sessionId)) {
+          if (fromInterrupt) {
+            // Cancelled turn: do not inject/idle-finalize — a resend will mark running.
+            appLog(
+              'info',
+              `Skipping persistent-child idle finalize after interrupt for ${sessionId}`,
+              'process',
+            )
+          } else if (this.agentLifecycle.isPersistentChild(doneSessionForChild.parentSessionId, sessionId)) {
             // Persistent child: resolve waiter, inject turn result, set idle, keep alive
             const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant')
             const resultText = lastAssistant?.content || '(no output)'
@@ -1262,6 +1287,8 @@ export class ProcessService {
 
     state.streaming = true
     state.error = ''
+    // Any prior interrupt's done flag is obsolete once a new turn starts.
+    state.doneIsFromInterrupt = false
 
     // Add user message
     state.messages.push({
@@ -1271,6 +1298,9 @@ export class ProcessService {
     })
 
     this.sessionService.updateStatus(sessionId, 'running')
+    // Dual insurance: persistent child tracker must show running when a turn starts
+    // (covers resend after interrupt and any path that only updated session status).
+    this.markPersistentChildRunningIfNeeded(sessionId)
     this.emitChatPatch(sessionId, {
       type: 'append',
       message: state.messages[state.messages.length - 1],

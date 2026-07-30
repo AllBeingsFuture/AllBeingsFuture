@@ -340,12 +340,13 @@ export class AgentLifecycleManager {
     if (child.parentSessionId !== parentSessionId) {
       throw new Error(`Session ${childSessionId} is not a child of ${parentSessionId}`)
     }
-    // Clear idle flag — agent entering new turn
+    // Align with sendToChildAndWait: interrupt FIRST, then mark running, then send
+    // without a second interrupt. Marking running before interrupt lets the cancelled
+    // turn's `done` handler overwrite UI status back to idle (二次派发 stuck 待命).
+    await this.callbacks.interruptTurn(childSessionId)
     this.agentIdleFlags.delete(childSessionId)
-    // Mark agent as 'running' while processing
     this.updatePersistentAgentStatus(parentSessionId, childSessionId, 'running')
-    // interrupt: true → cancel streaming turn then send (all parent→child levels)
-    await this.callbacks.sendMessage(childSessionId, message, { interrupt: true })
+    await this.callbacks.sendMessage(childSessionId, message)
   }
 
   /**

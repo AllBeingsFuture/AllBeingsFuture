@@ -1,21 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Cpu, ChevronDown, ChevronRight } from 'lucide-react'
+import type { AgentInfo } from '../../../core/chat/chatCore'
 
-interface AgentInfo {
-  agentId: string
-  name: string
-  parentSessionId: string
-  childSessionId: string
-  status: 'pending' | 'running' | 'idle' | 'completed' | 'failed' | 'cancelled'
-  workDir: string
-  createdAt: string
-  providerId?: string
-}
+export type AgentsByParent = Record<string, AgentInfo[]>
 
 interface Props {
+  /** Direct children of the current parent session / agent. */
   agents: AgentInfo[]
+  /** Full map: parentSessionId → child agents (for nested sons under a father). */
+  agentsByParent?: AgentsByParent
   onSelectSession?: (sessionId: string) => void
+  /** Nesting depth (0 = under root session). Cap at MAX_DEPTH. */
+  depth?: number
 }
+
+const MAX_DEPTH = 5
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-400',
@@ -39,10 +38,19 @@ const statusLabels: Record<string, string> = {
 const ACTIVE_STATUSES = new Set(['pending', 'running', 'idle'])
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 
-export default function AgentSubList({ agents, onSelectSession }: Props) {
-  // Only show non-terminal agents; closed/completed/failed/cancelled must not linger
-  const visibleAgents = agents.filter(
-    a => ACTIVE_STATUSES.has(a.status) && !TERMINAL_STATUSES.has(a.status),
+function isActiveAgent(agent: AgentInfo): boolean {
+  return ACTIVE_STATUSES.has(agent.status) && !TERMINAL_STATUSES.has(agent.status)
+}
+
+export default function AgentSubList({
+  agents,
+  agentsByParent,
+  onSelectSession,
+  depth = 0,
+}: Props) {
+  const visibleAgents = useMemo(
+    () => agents.filter(isActiveAgent),
+    [agents],
   )
   const hasActive = visibleAgents.length > 0
   const [expanded, setExpanded] = useState(hasActive)
@@ -51,11 +59,13 @@ export default function AgentSubList({ agents, onSelectSession }: Props) {
     if (hasActive) setExpanded(true)
   }, [hasActive])
 
+  if (depth > MAX_DEPTH) return null
   if (visibleAgents.length === 0) return null
 
   return (
-    <div className="mt-1 ml-3 border-l border-white/10 pl-2">
+    <div className={`mt-1 border-l border-white/10 pl-2 ${depth === 0 ? 'ml-3' : 'ml-2'}`}>
       <button
+        type="button"
         onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
         className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-white transition py-1 w-full"
       >
@@ -67,24 +77,37 @@ export default function AgentSubList({ agents, onSelectSession }: Props) {
 
       {expanded && (
         <div className="space-y-0.5 mt-0.5">
-          {visibleAgents.map(agent => (
-            <button
-              key={agent.agentId}
-              onClick={(e) => { e.stopPropagation(); onSelectSession?.(agent.childSessionId) }}
-              className="flex items-center gap-2 w-full rounded-lg px-2 py-1.5 text-left hover:bg-white/5 transition"
-            >
-              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusColors[agent.status] || 'bg-slate-400'}`} />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-slate-200 truncate">
-                  Agent: {agent.name || agent.agentId.slice(0, 8)}
-                </p>
-                <p className="text-[10px] text-slate-500 truncate">
-                  {statusLabels[agent.status] || agent.status}
-                  {agent.providerId && ` · ${agent.providerId}`}
-                </p>
+          {visibleAgents.map((agent) => {
+            const nested = (agentsByParent?.[agent.childSessionId] || []).filter(isActiveAgent)
+            return (
+              <div key={agent.agentId}>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onSelectSession?.(agent.childSessionId) }}
+                  className="flex items-center gap-2 w-full rounded-lg px-2 py-1.5 text-left hover:bg-white/5 transition"
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusColors[agent.status] || 'bg-slate-400'}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-slate-200 truncate">
+                      Agent: {agent.name || agent.agentId.slice(0, 8)}
+                    </p>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {statusLabels[agent.status] || agent.status}
+                      {agent.providerId && ` · ${agent.providerId}`}
+                    </p>
+                  </div>
+                </button>
+                {nested.length > 0 && depth < MAX_DEPTH && (
+                  <AgentSubList
+                    agents={nested}
+                    agentsByParent={agentsByParent}
+                    onSelectSession={onSelectSession}
+                    depth={depth + 1}
+                  />
+                )}
               </div>
-            </button>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

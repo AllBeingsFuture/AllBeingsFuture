@@ -158,8 +158,8 @@ function resolveMeasuredSize<T>(
   const fingerprint = getItemFingerprint(item, index, estimatedSize)
   const safeEstimate = Math.max(1, estimatedSize)
 
-  if (typeof entry === 'number' && entry > 0) {
-    return { fingerprint, size: entry }
+  if (typeof entry === 'number') {
+    return { fingerprint, size: entry > 0 ? entry : safeEstimate }
   }
 
   if (entry && typeof entry.size === 'number' && entry.size > 0) {

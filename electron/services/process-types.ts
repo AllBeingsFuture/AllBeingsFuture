@@ -104,4 +104,9 @@ export interface SessionState {
   streaming: boolean
   error: string
   conversationId: string
+  /**
+   * Set by interruptCurrentTurn before stopSession. The cancelled turn's `done`
+   * must not finalize a persistent child as idle when a resend is about to start.
+   */
+  doneIsFromInterrupt?: boolean
 }

@@ -9,7 +9,6 @@ type TestElectronBridge = {
   removeListener?: (...args: any[]) => unknown
   quickOpen?: {
     search?: (...args: any[]) => Promise<any>
-    openFile?: (...args: any[]) => Promise<any>
   }
 }
 
