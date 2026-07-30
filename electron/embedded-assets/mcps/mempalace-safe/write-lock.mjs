@@ -11,14 +11,16 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** Default total wall-clock budget for lock acquire (multi-agent short contention). */
-export const DEFAULT_LOCK_MAX_WAIT_MS = 90_000
-/** High safety cap on acquire attempts; deadline usually binds first. */
-export const DEFAULT_LOCK_RETRIES = 200
+/** Default total wall-clock budget for lock acquire (fail fast under contention). */
+export const DEFAULT_LOCK_MAX_WAIT_MS = 5000
+/** Safety cap on acquire attempts; wall-clock deadline usually binds first. */
+export const DEFAULT_LOCK_RETRIES = 40
 /** Minimum per-attempt backoff sleep. */
 export const DEFAULT_LOCK_BACKOFF_MIN_MS = 50
 /** Maximum per-attempt backoff sleep (not total wait). */
-export const DEFAULT_LOCK_BACKOFF_MAX_MS = 3000
+export const DEFAULT_LOCK_BACKOFF_MAX_MS = 500
+/** Stale lock age threshold (dead PID always reclaimable; aged also reclaimable). */
+export const DEFAULT_STALE_MS = 30_000
 
 /** Mutating mempalace MCP tools (align with mempalace.service.WRITE_TOOLS + maintenance writers). */
 export const WRITE_TOOLS = new Set([
@@ -87,7 +89,7 @@ function readLockMeta(lockPath) {
   }
 }
 
-function tryRemoveStale(lockPath, { staleMs = 120_000 } = {}) {
+function tryRemoveStale(lockPath, { staleMs = DEFAULT_STALE_MS } = {}) {
   const meta = readLockMeta(lockPath)
   if (!meta) return false
   const dead = meta.pid != null && !isPidAlive(meta.pid)
@@ -112,7 +114,7 @@ export async function acquireWriteLock(options = {}) {
   const minMs = options.minMs ?? DEFAULT_LOCK_BACKOFF_MIN_MS
   const maxMs = options.maxMs ?? DEFAULT_LOCK_BACKOFF_MAX_MS
   const maxWaitMs = options.maxWaitMs ?? DEFAULT_LOCK_MAX_WAIT_MS
-  const staleMs = options.staleMs ?? 120_000
+  const staleMs = options.staleMs ?? DEFAULT_STALE_MS
 
   const start = Date.now()
   // maxWaitMs === 0 → no wall-clock deadline (retries still cap); prefer both caps in normal use

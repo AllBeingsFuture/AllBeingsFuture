@@ -17,11 +17,12 @@
  *   ABF_MEMPALACE_COMMAND  — child executable (default: mempalace-mcp)
  *   ABF_MEMPALACE_ARGS     — JSON array of child args
  *   ABF_MEMPALACE_WRITE_LOCK — lock file path (optional)
- *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 200)
- *   ABF_MEMPALACE_LOCK_MAX_MS — total lock wait budget ms (default 90000)
- *   ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS — per-sleep backoff cap ms (default 3000)
- *   ABF_MEMPALACE_TOOL_RETRIES — peer-lock response retries (default 40)
- *   ABF_MEMPALACE_TOOL_MAX_MS — overall peer-retry deadline ms (default 120000)
+ *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 40)
+ *   ABF_MEMPALACE_LOCK_MAX_MS — total lock wait budget ms (default 5000)
+ *   ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS — per-sleep backoff cap ms (default 500)
+ *   ABF_MEMPALACE_TOOL_RETRIES — peer-lock response retries (default 2)
+ *   ABF_MEMPALACE_TOOL_MAX_MS — overall write tools/call deadline ms (default 12000)
+ *   ABF_MEMPALACE_CHILD_TIMEOUT_MS — per-attempt child response timeout on writes (default 10000)
  *   MEMPALACE_MCP_ALLOW_PEER_WRITER — default forced to "1" unless already set
  *
  * Argv: node proxy.mjs [--] <command> [args...]
@@ -38,6 +39,15 @@ import {
   DEFAULT_LOCK_RETRIES,
   DEFAULT_LOCK_BACKOFF_MAX_MS,
 } from './write-lock.mjs'
+
+/** Default overall write budget (peer retries + child waits). */
+const DEFAULT_TOOL_MAX_MS = 12_000
+/** Default peer-lock retries (deadline usually binds first). */
+const DEFAULT_TOOL_RETRIES = 2
+/** Default per-attempt child wait on write path. */
+const DEFAULT_CHILD_TIMEOUT_MS = 10_000
+/** Default wait for non-write child responses (reads / initialize). */
+const DEFAULT_READ_TIMEOUT_MS = 60_000
 
 function parseEnvInt(name, fallback) {
   const raw = process.env[name]
@@ -93,8 +103,9 @@ const lockPath = process.env.ABF_MEMPALACE_WRITE_LOCK || defaultLockPath()
 const lockRetries = parseEnvInt('ABF_MEMPALACE_WRITE_RETRIES', DEFAULT_LOCK_RETRIES)
 const lockMaxMs = parseEnvInt('ABF_MEMPALACE_LOCK_MAX_MS', DEFAULT_LOCK_MAX_WAIT_MS)
 const lockBackoffMaxMs = parseEnvInt('ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS', DEFAULT_LOCK_BACKOFF_MAX_MS)
-const toolRetries = parseEnvInt('ABF_MEMPALACE_TOOL_RETRIES', 40)
-const toolMaxMs = parseEnvInt('ABF_MEMPALACE_TOOL_MAX_MS', 120_000)
+const toolRetries = parseEnvInt('ABF_MEMPALACE_TOOL_RETRIES', DEFAULT_TOOL_RETRIES)
+const toolMaxMs = parseEnvInt('ABF_MEMPALACE_TOOL_MAX_MS', DEFAULT_TOOL_MAX_MS)
+const childTimeoutMs = parseEnvInt('ABF_MEMPALACE_CHILD_TIMEOUT_MS', DEFAULT_CHILD_TIMEOUT_MS)
 
 const childEnv = { ...process.env }
 if (!('MEMPALACE_MCP_ALLOW_PEER_WRITER' in childEnv) || !String(childEnv.MEMPALACE_MCP_ALLOW_PEER_WRITER || '').trim()) {
@@ -105,7 +116,7 @@ delete childEnv.ABF_MEMPALACE_COMMAND
 delete childEnv.ABF_MEMPALACE_ARGS
 
 process.stderr.write(
-  `[mempalace-safe] proxy → ${command} ${args.join(' ')} (write-lock=${lockPath}; lockRetries=${lockRetries}; lockMaxMs=${lockMaxMs}; toolRetries=${toolRetries}; toolMaxMs=${toolMaxMs})\n`,
+  `[mempalace-safe] proxy → ${command} ${args.join(' ')} (write-lock=${lockPath}; lockRetries=${lockRetries}; lockMaxMs=${lockMaxMs}; toolRetries=${toolRetries}; toolMaxMs=${toolMaxMs}; childTimeoutMs=${childTimeoutMs})\n`,
 )
 
 const child = spawn(command, args, {
@@ -137,12 +148,16 @@ function sendToChild(obj) {
   child.stdin.write(JSON.stringify(obj) + '\n')
 }
 
-function waitChildResponse(id, timeoutMs = 600_000) {
+function waitChildResponse(id, timeoutMs = DEFAULT_READ_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
+    const ms = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_READ_TIMEOUT_MS
     const timer = setTimeout(() => {
       pendingChild.delete(id)
-      reject(new Error(`mempalace-safe: timeout waiting for child response id=${id}`))
-    }, timeoutMs)
+      const err = new Error(`mempalace tools/call timeout after ${ms}ms`)
+      err.code = 'ABF_CHILD_TIMEOUT'
+      err.timeoutMs = ms
+      reject(err)
+    }, ms)
 
     pendingChild.set(id, {
       resolve: (msg) => {
@@ -186,8 +201,8 @@ function forwardToClient(msg) {
 }
 
 function peerRetryBackoffMs(attempt) {
-  // longer sleeps than lock jitter so peer process-lease can clear
-  return Math.min(5000, 100 * 2 ** attempt)
+  // Cap at 1s so peer retries stay within the overall write budget
+  return Math.min(1000, 80 * 2 ** attempt)
 }
 
 async function handleWriteCall(req) {
@@ -229,8 +244,51 @@ async function handleWriteCall(req) {
 
     let response
     try {
+      const remainingBudget = toolDeadline - Date.now()
+      if (remainingBudget <= 0) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: {
+            code: -32002,
+            message: `mempalace tools/call timeout after ${toolMaxMs}ms`,
+            data: { tool: toolNameFromRequest(req), reason: 'tool_budget_exhausted' },
+          },
+        }
+      }
+      // Per-attempt child wait: never exceed remaining overall write budget
+      const waitMs =
+        childTimeoutMs > 0
+          ? Math.min(childTimeoutMs, remainingBudget)
+          : remainingBudget
       sendToChild(req)
-      response = await waitChildResponse(req.id)
+      response = await waitChildResponse(req.id, waitMs)
+    } catch (err) {
+      if (err && (err.code === 'ABF_CHILD_TIMEOUT' || /timeout/i.test(String(err?.message || '')))) {
+        const waited = err.timeoutMs || childTimeoutMs || toolMaxMs
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: {
+            code: -32002,
+            message: `mempalace tools/call timeout after ${waited}ms`,
+            data: {
+              tool: toolNameFromRequest(req),
+              attempt,
+              hint: 'Underlying mempalace did not respond in time; lock released',
+            },
+          },
+        }
+      }
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: {
+          code: -32000,
+          message: `mempalace-safe proxy error: ${err?.message || err}`,
+          data: { tool: toolNameFromRequest(req) },
+        },
+      }
     } finally {
       // always release before peer-lock backoff so other writers can proceed
       lock.release()
@@ -284,15 +342,19 @@ stdinRl.on('line', (line) => {
   const needsWriteGate = name && isWriteTool(name) && req.id !== undefined && req.id !== null
 
   if (!needsWriteGate) {
-    // reads / initialize / notifications: transparent
+    // reads / initialize / notifications: transparent (bounded wait, not 10min)
     if (req.id !== undefined && req.id !== null) {
-      waitChildResponse(req.id)
+      waitChildResponse(req.id, DEFAULT_READ_TIMEOUT_MS)
         .then(forwardToClient)
         .catch((err) => {
+          const isTimeout = err && (err.code === 'ABF_CHILD_TIMEOUT' || /timeout/i.test(String(err?.message || '')))
           forwardToClient({
             jsonrpc: '2.0',
             id: req.id,
-            error: { code: -32000, message: String(err?.message || err) },
+            error: {
+              code: isTimeout ? -32002 : -32000,
+              message: String(err?.message || err),
+            },
           })
         })
     }

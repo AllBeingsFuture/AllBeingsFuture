@@ -101,6 +101,17 @@ export function wrapMempalaceConfigIfNeeded(
   if (!isMempalaceServer(key, command, args)) return config
   if (isMempalaceSafeWrapped(command, args)) return config
 
+  // Inject bounded timeout defaults only when unset (user/env wins).
+  const withTimeoutDefaults = (keyName: string, value: string) => {
+    if (env[keyName] !== undefined && String(env[keyName]).trim() !== '') return
+    if (process.env[keyName] !== undefined && String(process.env[keyName]).trim() !== '') return
+    env[keyName] = value
+  }
+  withTimeoutDefaults('ABF_MEMPALACE_LOCK_MAX_MS', '5000')
+  withTimeoutDefaults('ABF_MEMPALACE_TOOL_MAX_MS', '12000')
+  withTimeoutDefaults('ABF_MEMPALACE_TOOL_RETRIES', '2')
+  withTimeoutDefaults('ABF_MEMPALACE_CHILD_TIMEOUT_MS', '10000')
+
   return {
     ...config,
     command: 'node',
