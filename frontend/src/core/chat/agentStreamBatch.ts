@@ -14,12 +14,26 @@ export interface AgentStreamBatcherOptions {
   onFlush: (sessionId: string, events: AgentStreamEvent[]) => void
   schedule?: AgentStreamBatchSchedule
   cancelSchedule?: AgentStreamBatchCancelSchedule
+  /**
+   * Max wait before flush if the frame schedule is delayed (e.g. Electron
+   * background rAF throttle). Whichever fires first (schedule vs timer) flushes.
+   * Default 48ms. Set to 0 or negative to disable.
+   */
+  maxWaitMs?: number
 }
 
 export interface AgentStreamBatcher {
   push(event: AgentStreamEvent): void
   flush(sessionId?: string): void
   dispose(): void
+}
+
+/** Default max-wait so text_delta still lands when rAF is starved. */
+export const AGENT_STREAM_BATCH_MAX_WAIT_MS = 48
+
+interface SessionScheduleEntry {
+  scheduleHandle: AgentStreamBatchScheduleHandle
+  maxWaitId?: ReturnType<typeof setTimeout>
 }
 
 /**
@@ -118,15 +132,18 @@ function defaultCancelSchedule(handle: AgentStreamBatchScheduleHandle): void {
 export function createAgentStreamBatcher(options: AgentStreamBatcherOptions): AgentStreamBatcher {
   const schedule = options.schedule ?? defaultSchedule
   const cancelSchedule = options.cancelSchedule ?? defaultCancelSchedule
+  const maxWaitMs = options.maxWaitMs ?? AGENT_STREAM_BATCH_MAX_WAIT_MS
   const pending = new Map<string, AgentStreamEvent[]>()
-  const scheduled = new Map<string, AgentStreamBatchScheduleHandle>()
+  const scheduled = new Map<string, SessionScheduleEntry>()
   let disposed = false
 
   const clearSchedule = (sessionId: string) => {
-    const handle = scheduled.get(sessionId)
-    if (handle !== undefined) {
-      cancelSchedule(handle)
-      scheduled.delete(sessionId)
+    const entry = scheduled.get(sessionId)
+    if (entry === undefined) return
+    scheduled.delete(sessionId)
+    cancelSchedule(entry.scheduleHandle)
+    if (entry.maxWaitId !== undefined) {
+      clearTimeout(entry.maxWaitId)
     }
   }
 
@@ -140,6 +157,23 @@ export function createAgentStreamBatcher(options: AgentStreamBatcherOptions): Ag
     pending.delete(sessionId)
     const coalesced = coalesceAgentStreamEvents(events)
     options.onFlush(sessionId, coalesced)
+  }
+
+  const armSchedule = (sessionId: string) => {
+    if (scheduled.has(sessionId)) return
+
+    const run = () => {
+      if (disposed) return
+      // clearSchedule inside flushSession cancels the peer (rAF or max-wait)
+      flushSession(sessionId)
+    }
+
+    const scheduleHandle = schedule(run)
+    let maxWaitId: ReturnType<typeof setTimeout> | undefined
+    if (maxWaitMs > 0) {
+      maxWaitId = setTimeout(run, maxWaitMs)
+    }
+    scheduled.set(sessionId, { scheduleHandle, maxWaitId })
   }
 
   return {
@@ -158,14 +192,7 @@ export function createAgentStreamBatcher(options: AgentStreamBatcherOptions): Ag
         return
       }
 
-      if (!scheduled.has(sessionId)) {
-        const handle = schedule(() => {
-          if (disposed) return
-          scheduled.delete(sessionId)
-          flushSession(sessionId)
-        })
-        scheduled.set(sessionId, handle)
-      }
+      armSchedule(sessionId)
     },
 
     flush(sessionId?: string) {
@@ -182,7 +209,7 @@ export function createAgentStreamBatcher(options: AgentStreamBatcherOptions): Ag
     dispose() {
       if (disposed) return
       disposed = true
-      for (const id of scheduled.keys()) {
+      for (const id of [...scheduled.keys()]) {
         clearSchedule(id)
       }
       pending.clear()

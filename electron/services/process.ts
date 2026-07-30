@@ -1178,6 +1178,23 @@ export class ProcessService {
             if (event.name) existingTool.toolName = event.name
             if (event.input) existingTool.toolInput = event.input
             this.emitChatUpdate(sessionId)
+
+            // Mirror tool status/output increments to the active child session.
+            // New tools already call mirrorToChildSession; updates must too or
+            // the child UI freezes on "running" without output.
+            if (childInfoTool) {
+              const childState = this.getOrCreateState(childInfoTool.id)
+              const childTool = [...childState.messages].reverse().find(
+                message => message.role === 'tool_use' && message.toolCallId === event.toolCallId
+              )
+              if (childTool) {
+                childTool.toolStatus = event.toolStatus
+                childTool.toolOutput = event.output
+                if (event.name) childTool.toolName = event.name
+                if (event.input) childTool.toolInput = event.input
+                this.emitChatUpdate(childInfoTool.id)
+              }
+            }
             break
           }
         }

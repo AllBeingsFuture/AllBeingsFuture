@@ -1020,7 +1020,7 @@ export default function ConversationView({ session }: Props) {
         providerId={session.providerId}
       />
     ))
-  }, [groupedMessagesSource.length, session.providerId, shouldRenderLiveMessages])
+  }, [groupedMessagesSource, session.providerId, shouldRenderLiveMessages])
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="conversation-view">

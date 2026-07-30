@@ -110,13 +110,16 @@ describe('createAgentStreamBatcher', () => {
 
   afterEach(() => {
     scheduled = []
+    vi.useRealTimers()
   })
 
-  function createTestBatcher() {
+  function createTestBatcher(overrides?: { maxWaitMs?: number }) {
     onFlush = vi.fn()
     scheduled = []
     return createAgentStreamBatcher({
       onFlush,
+      // Disable max-wait by default so existing tests control flush via schedule only.
+      maxWaitMs: 0,
       schedule: (flush) => {
         scheduled.push(flush)
         return scheduled.length - 1
@@ -125,6 +128,7 @@ describe('createAgentStreamBatcher', () => {
         const idx = handle as number
         scheduled[idx] = () => {}
       },
+      ...overrides,
     })
   }
 
@@ -228,5 +232,44 @@ describe('createAgentStreamBatcher', () => {
     expect(onFlush).not.toHaveBeenCalled()
     batcher.push(textDelta('s1', 2, 'a', 'B'))
     expect(onFlush).not.toHaveBeenCalled()
+  })
+
+  it('flushes via maxWait when frame schedule is delayed (rAF starved)', () => {
+    vi.useFakeTimers()
+    const batcher = createTestBatcher({ maxWaitMs: 40 })
+    batcher.push(textDelta('s1', 1, 'reply-1', 'Hello '))
+    batcher.push(textDelta('s1', 2, 'reply-1', 'world'))
+
+    expect(onFlush).not.toHaveBeenCalled()
+    expect(scheduled).toHaveLength(1)
+
+    // Simulate Electron background: rAF never fires, max-wait wins
+    vi.advanceTimersByTime(39)
+    expect(onFlush).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(onFlush).toHaveBeenCalledWith('s1', [
+      textDelta('s1', 2, 'reply-1', 'Hello world'),
+    ])
+
+    // Late rAF must be a no-op (cancelled when max-wait flushed)
+    scheduled[0]()
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    batcher.dispose()
+  })
+
+  it('cancel on schedule flush also clears maxWait so timer does not double-flush', () => {
+    vi.useFakeTimers()
+    const batcher = createTestBatcher({ maxWaitMs: 40 })
+    batcher.push(textDelta('s1', 1, 'reply-1', 'Hi'))
+
+    // Frame schedule wins first
+    scheduled[0]()
+    expect(onFlush).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(100)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    batcher.dispose()
   })
 })
