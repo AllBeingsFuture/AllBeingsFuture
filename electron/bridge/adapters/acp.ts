@@ -272,7 +272,7 @@ export class AcpAdapter implements ProviderAdapter {
           this.connection.agent.request(methods.agent.initialize, {
             protocolVersion: PROTOCOL_VERSION,
             clientCapabilities: { plan: {} },
-            clientInfo: { name: 'AllBeingsFuture', version: '1.5.0' },
+            clientInfo: { name: 'AllBeingsFuture', version: '1.5.1' },
           }),
           startupFailure,
         ]),

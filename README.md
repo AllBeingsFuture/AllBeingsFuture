@@ -2,7 +2,7 @@
 
 **本地多 Agent 编程工作台** — Electron + React 桌面应用，在统一 UI 中管理多 AI Provider 会话、MCP、Skills、Git Worktree 与父子 Agent 编排。
 
-- **版本：** 1.5.0  
+- **版本：** 1.5.1  
 - **仓库：** [github.com/AllBeingsFuture/AllBeingsFuture](https://github.com/AllBeingsFuture/AllBeingsFuture)  
 - **许可：** [PolyForm Noncommercial License 1.0.0](./LICENSE)  
 - **appId：** `com.allbeingsfuture.app`
@@ -44,7 +44,7 @@ AllBeingsFuture 不是单一聊天客户端，而是面向「主 Agent（Supervi
 
 ## 3. 技术栈
 
-对照根目录与 `frontend/package.json`（当前 **1.5.0**）：
+对照根目录与 `frontend/package.json`（当前 **1.5.1**）：
 
 | 层 | 技术 |
 |----|------|
@@ -276,7 +276,7 @@ npm run pack:mac:x64
 
 ```text
 .
-├── package.json                 # 应用 1.5.0、脚本、electron-builder
+├── package.json                 # 应用 1.5.1、脚本、electron-builder
 ├── LICENSE                      # PolyForm Noncommercial 1.0.0
 ├── AGENTS.md                    # Worker 侧产品/协作规则入口
 ├── appicon.icns / appicon.ico
@@ -379,7 +379,7 @@ npm run pack:mac:x64
 | 项 | 值 |
 |----|-----|
 | 名称 | `allbeingsfuture` |
-| 版本 | **1.5.0** |
+| 版本 | **1.5.1** |
 | 仓库 | https://github.com/AllBeingsFuture/AllBeingsFuture |
 | Electron | ^39（勿按旧文档写 33） |
 | 协议主路径 | 内置 CLI → **ACP v1 stdio**；兼容 HTTP → **openai-api** |
