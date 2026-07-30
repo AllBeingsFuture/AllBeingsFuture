@@ -5,9 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Session } from '../../../bindings/allbeingsfuture/internal/models/models'
 import type { ChatMessage } from '../../../bindings/allbeingsfuture/internal/models/models'
 import { workbenchApi } from '../../app/api/workbench'
-import { useSessionStore, type ChatUpdateEvent, type ChatPatchEvent } from '../../stores/sessionStore'
-import { useIpcEvent } from '../../hooks/useIpcEvent'
-import { parseAgentStreamEvent } from '../../hooks/agentStreamIpc'
+import { useSessionStore } from '../../stores/sessionStore'
 import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
 import SessionToolbar from './SessionToolbar'
@@ -773,9 +771,6 @@ export default function ConversationView({ session }: Props) {
     streaming,
     chatError,
     pollChat,
-    handleChatUpdate,
-    handleChatPatch,
-    handleAgentStreamEvent,
     respondToPermission,
     agentStream,
     childToParent,
@@ -784,9 +779,6 @@ export default function ConversationView({ session }: Props) {
     streaming: state.streaming,
     chatError: state.chatError,
     pollChat: state.pollChat,
-    handleChatUpdate: state.handleChatUpdate,
-    handleChatPatch: state.handleChatPatch,
-    handleAgentStreamEvent: state.handleAgentStreamEvent,
     respondToPermission: state.respondToPermission,
     agentStream: state.agentStreams?.[session.id],
     childToParent: state.childToParent,
@@ -799,7 +791,6 @@ export default function ConversationView({ session }: Props) {
   const [composerHeight, setComposerHeight] = useState(0)
   const [preferLiveMessages, setPreferLiveMessages] = useState(streaming)
   const composerRef = useRef<HTMLDivElement | null>(null)
-  const lastEventTimeRef = useRef(0)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
   const hasComposer = !isEnded || isChildSession
   const composerClearance = hasComposer
@@ -852,24 +843,9 @@ export default function ConversationView({ session }: Props) {
     setComposerHeight((prev) => (prev === nextHeight ? prev : nextHeight))
   }, [])
 
-  useIpcEvent<ChatUpdateEvent>('chat:update', (event) => {
-    lastEventTimeRef.current = Date.now()
-    handleChatUpdate(event)
-  })
-
-  useIpcEvent<ChatPatchEvent>('chat:patch', (event) => {
-    lastEventTimeRef.current = Date.now()
-    handleChatPatch(event)
-  })
-
-  // agent:update is subscribed globally in installWorkbenchRuntime so the
-  // sidebar updates immediately even when ConversationView is not mounted.
-  useIpcEvent<unknown>('agent:stream', (payload) => {
-    const event = parseAgentStreamEvent(payload)
-    if (!event) return
-    lastEventTimeRef.current = Date.now()
-    handleAgentStreamEvent(event)
-  })
+  // agent:stream / chat:update / chat:patch / agent:update are owned by
+  // installWorkbenchRuntime (global IPC → session store). This view only
+  // consumes store state so unmounting does not drop live streams.
 
   // Hydrate chat history on first mount / session switch.
   // Do NOT auto-init the agent process here: after app restart/reinstall that
@@ -894,8 +870,8 @@ export default function ConversationView({ session }: Props) {
 
   useEffect(() => {
     void pollChat(session.id)
+    // Safety poll when IPC is quiet; active agent streams short-circuit in pollChat.
     const timer = setInterval(() => {
-      if (Date.now() - lastEventTimeRef.current < 5000) return
       void pollChat(session.id)
     }, 3000)
     return () => clearInterval(timer)

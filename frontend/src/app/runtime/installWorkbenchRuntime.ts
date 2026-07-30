@@ -1,9 +1,15 @@
 import { onIpc } from '../../../bindings/electron-api'
+import { parseAgentStreamEvent } from '../../hooks/agentStreamIpc'
 import { useFileTabStore } from '../../stores/fileTabStore'
 import { useFileManagerStore } from '../../stores/fileManagerStore'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { usePanelStore } from '../../stores/panelStore'
-import { useSessionStore, type AgentUpdateEvent } from '../../stores/sessionStore'
+import {
+  useSessionStore,
+  type AgentUpdateEvent,
+  type ChatPatchEvent,
+  type ChatUpdateEvent,
+} from '../../stores/sessionStore'
 import { useTaskStore } from '../../stores/taskStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -17,6 +23,9 @@ type QuickOpenBridge = {
 let runtimeInstalled = false
 let commandBusUnsub: (() => void) | null = null
 let agentUpdateUnsub: (() => void) | null = null
+let agentStreamUnsub: (() => void) | null = null
+let chatUpdateUnsub: (() => void) | null = null
+let chatPatchUnsub: (() => void) | null = null
 
 function ensureFilesPaneVisible() {
   const { layoutMode, primaryPane, setPaneContent } = useLayoutStore.getState()
@@ -315,31 +324,47 @@ export function installWorkbenchRuntime() {
 
   commandBusUnsub = workbenchCommandBus.subscribe(handleCommand)
 
-  // Global agent lifecycle: sidebar must drop closed children immediately,
-  // even when ConversationView is not mounted (sessions list / other panes).
+  // Global IPC: stream/chat must keep flowing when ConversationView unmounts
+  // (pane switch / session list). agent:update also drives sidebar immediately.
   try {
     agentUpdateUnsub = onIpc('agent:update', (data: AgentUpdateEvent) => {
       useSessionStore.getState().handleAgentUpdate(data)
     })
+    agentStreamUnsub = onIpc('agent:stream', (payload: unknown) => {
+      const event = parseAgentStreamEvent(payload)
+      if (!event) return
+      useSessionStore.getState().handleAgentStreamEvent(event)
+    })
+    chatUpdateUnsub = onIpc('chat:update', (data: ChatUpdateEvent) => {
+      useSessionStore.getState().handleChatUpdate(data)
+    })
+    chatPatchUnsub = onIpc('chat:patch', (data: ChatPatchEvent) => {
+      useSessionStore.getState().handleChatPatch(data)
+    })
   } catch {
     // Non-electron / partial test harnesses may not expose electronAPI.on
     agentUpdateUnsub = null
+    agentStreamUnsub = null
+    chatUpdateUnsub = null
+    chatPatchUnsub = null
   }
+}
+
+function safeUnsub(unsub: (() => void) | null) {
+  try {
+    unsub?.()
+  } catch {
+    // ignore
+  }
+  return null
 }
 
 /** @internal test-only — reset once-guard so install can re-bind IPC listeners */
 export function __resetWorkbenchRuntimeForTests() {
   runtimeInstalled = false
-  try {
-    commandBusUnsub?.()
-  } catch {
-    // ignore
-  }
-  commandBusUnsub = null
-  try {
-    agentUpdateUnsub?.()
-  } catch {
-    // ignore
-  }
-  agentUpdateUnsub = null
+  commandBusUnsub = safeUnsub(commandBusUnsub)
+  agentUpdateUnsub = safeUnsub(agentUpdateUnsub)
+  agentStreamUnsub = safeUnsub(agentStreamUnsub)
+  chatUpdateUnsub = safeUnsub(chatUpdateUnsub)
+  chatPatchUnsub = safeUnsub(chatPatchUnsub)
 }

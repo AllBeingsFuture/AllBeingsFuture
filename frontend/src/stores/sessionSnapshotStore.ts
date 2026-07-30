@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { ChatMessage, Session, SessionConfig } from '../../bindings/allbeingsfuture/internal/models/models'
 import {
   chatCore,
+  collectSessionSubtreeIds,
   type AgentInfo,
   type ParentBinding,
   type ChatUpdateEvent,
@@ -95,26 +96,27 @@ export const useSessionStore = create<SessionState>((set, get) => {
   applyAgentStreamBatch = (sessionId, events) => {
     if (events.length === 0) return
 
-    const state = get()
-    let currentStream = state.agentStreams[sessionId]
-    const selected = state.selectedId === sessionId
-    let messages = state.agentStreamMessages[sessionId] || (selected ? state.messages : [])
-    let lastApplied: ReturnType<typeof reduceAgentStreamEvent> | null = null
-
-    for (const event of events) {
-      const reduction = reduceAgentStreamEvent(messages, currentStream, event)
-      if (reduction.ignored) continue
-      messages = reduction.messages
-      currentStream = reduction.stream
-      lastApplied = reduction
-    }
-
-    if (!lastApplied) return
-
-    const applied = lastApplied
-    // Re-check selection inside set so a mid-frame session switch does not clobber UI.
+    // Reduce inside set() so a concurrent handleChatPatch (user append) that
+    // lands mid-batch is visible in `current` and not overwritten.
+    let shouldFlushPending = false
     set(current => {
       const isSelected = current.selectedId === sessionId
+      let currentStream = current.agentStreams[sessionId]
+      let messages = current.agentStreamMessages[sessionId] || (isSelected ? current.messages : [])
+      let lastApplied: ReturnType<typeof reduceAgentStreamEvent> | null = null
+
+      for (const event of events) {
+        const reduction = reduceAgentStreamEvent(messages, currentStream, event)
+        if (reduction.ignored) continue
+        messages = reduction.messages
+        currentStream = reduction.stream
+        lastApplied = reduction
+      }
+
+      if (!lastApplied) return current
+
+      const applied = lastApplied
+      shouldFlushPending = !applied.streaming
       return {
         agentStreams: { ...current.agentStreams, [sessionId]: applied.stream },
         agentStreamMessages: { ...current.agentStreamMessages, [sessionId]: applied.messages },
@@ -127,7 +129,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       }
     })
 
-    if (!applied.streaming) {
+    if (shouldFlushPending) {
       void get().flushPendingMessages(sessionId)
     }
   }
@@ -204,12 +206,39 @@ export const useSessionStore = create<SessionState>((set, get) => {
   },
 
   remove: async (id) => {
-    set(await chatCore.remove(snapshotOf(get()), id))
+    const before = get()
+    const targetIds = collectSessionSubtreeIds(before.sessions, id)
+    const patch = await chatCore.remove(snapshotOf(before), id)
+    set(current => {
+      const agentStreams = { ...current.agentStreams }
+      const agentStreamMessages = { ...current.agentStreamMessages }
+      for (const sessionId of targetIds) {
+        delete agentStreams[sessionId]
+        delete agentStreamMessages[sessionId]
+      }
+      return {
+        ...patch,
+        agentStreams,
+        agentStreamMessages,
+      }
+    })
   },
 
   end: async (id) => {
     await chatCore.end(id)
     await get().load()
+    // Only drop stream buffers if the session disappeared after end/load.
+    set(current => {
+      if (current.sessions.some(session => session.id === id)) return current
+      if (!(id in current.agentStreams) && !(id in current.agentStreamMessages)) {
+        return current
+      }
+      const agentStreams = { ...current.agentStreams }
+      const agentStreamMessages = { ...current.agentStreamMessages }
+      delete agentStreams[id]
+      delete agentStreamMessages[id]
+      return { agentStreams, agentStreamMessages }
+    })
   },
 
   initProcess: async (id) => {

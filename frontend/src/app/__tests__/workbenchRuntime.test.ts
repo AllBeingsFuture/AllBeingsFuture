@@ -107,6 +107,9 @@ const runtimeMocks = vi.hoisted(() => {
     rename: vi.fn().mockResolvedValue(undefined),
     smartRename: vi.fn().mockResolvedValue('next-name'),
     handleAgentUpdate: vi.fn(),
+    handleAgentStreamEvent: vi.fn(),
+    handleChatUpdate: vi.fn(),
+    handleChatPatch: vi.fn(),
   }
 
   const uiState = {
@@ -248,6 +251,52 @@ describe('workbench runtime', () => {
     }
     handler?.(payload)
     expect(sessionState.handleAgentUpdate).toHaveBeenCalledWith(payload)
+  })
+
+  it('subscribes agent:stream / chat:update / chat:patch globally and forwards to session store', () => {
+    const on = vi.mocked(window.electronAPI.on)
+    for (const channel of ['agent:stream', 'chat:update', 'chat:patch'] as const) {
+      expect(on).toHaveBeenCalledWith(channel, expect.any(Function))
+    }
+
+    const streamHandler = on.mock.calls.find((call) => call[0] === 'agent:stream')?.[1]
+    const updateHandler = on.mock.calls.find((call) => call[0] === 'chat:update')?.[1]
+    const patchHandler = on.mock.calls.find((call) => call[0] === 'chat:patch')?.[1]
+    expect(streamHandler).toBeTypeOf('function')
+    expect(updateHandler).toBeTypeOf('function')
+    expect(patchHandler).toBeTypeOf('function')
+
+    const streamEvent = {
+      type: 'text_delta',
+      sessionId: 'session-1',
+      sequence: 1,
+      itemId: 'reply-1',
+      delta: 'hi',
+    }
+    streamHandler?.(streamEvent)
+    expect(sessionState.handleAgentStreamEvent).toHaveBeenCalledWith(streamEvent)
+
+    streamHandler?.({ type: 'not_a_stream_event' })
+    expect(sessionState.handleAgentStreamEvent).toHaveBeenCalledTimes(1)
+
+    const updatePayload = {
+      sessionId: 'session-1',
+      messages: [{ role: 'assistant', content: 'full' }],
+      streaming: false,
+      error: '',
+    }
+    updateHandler?.(updatePayload)
+    expect(sessionState.handleChatUpdate).toHaveBeenCalledWith(updatePayload)
+
+    const patchPayload = {
+      sessionId: 'session-1',
+      type: 'append',
+      message: { role: 'user', content: 'hello' },
+      streaming: true,
+      error: '',
+    }
+    patchHandler?.(patchPayload)
+    expect(sessionState.handleChatPatch).toHaveBeenCalledWith(patchPayload)
   })
 
   it('dispatches chat commands through the runtime', async () => {

@@ -891,6 +891,82 @@ describe('sessionStore runtime status sync', () => {
     expect(state.chatError).toBe('')
   })
 
+  it('clears agentStreams and agentStreamMessages for the removed session subtree', async () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [
+        makeSession({ id: 'session-1', name: 'Parent' }),
+        makeSession({ id: 'child-1', name: 'Child', parentSessionId: 'session-1' }),
+        makeSession({ id: 'other-1', name: 'Other' }),
+      ],
+      agentStreams: {
+        'session-1': { phase: 'running', lastSequence: 2 },
+        'child-1': { phase: 'done', lastSequence: 1 },
+        'other-1': { phase: 'idle', lastSequence: -1 },
+      },
+      agentStreamMessages: {
+        'session-1': [{ role: 'assistant', content: 'parent stream' } as never],
+        'child-1': [{ role: 'assistant', content: 'child stream' } as never],
+        'other-1': [{ role: 'assistant', content: 'keep me' } as never],
+      },
+    })
+
+    serviceMocks.processService.StopProcess.mockResolvedValue(undefined)
+    serviceMocks.sessionService.Delete.mockResolvedValue(undefined)
+
+    await useSessionStore.getState().remove('session-1')
+
+    const state = useSessionStore.getState()
+    expect(state.agentStreams['session-1']).toBeUndefined()
+    expect(state.agentStreams['child-1']).toBeUndefined()
+    expect(state.agentStreamMessages['session-1']).toBeUndefined()
+    expect(state.agentStreamMessages['child-1']).toBeUndefined()
+    expect(state.agentStreams['other-1']?.phase).toBe('idle')
+    expect(state.agentStreamMessages['other-1']).toEqual([
+      { role: 'assistant', content: 'keep me' },
+    ])
+  })
+
+  it('preserves a concurrent user append when stream batch flush reduces inside set()', () => {
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [makeSession({ status: 'running' })],
+      messages: [{ role: 'user', content: 'hello' } as never],
+      agentStreamMessages: {
+        'session-1': [{ role: 'user', content: 'hello' } as never],
+      },
+      agentStreams: {
+        'session-1': { phase: 'running', lastSequence: 0 },
+      },
+    })
+
+    // Queue a stream delta without flushing yet.
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta',
+      sessionId: 'session-1',
+      sequence: 1,
+      itemId: 'reply-1',
+      delta: 'partial',
+    })
+
+    // User append lands while the batch is still pending (simulates mid-batch race).
+    useSessionStore.getState().handleChatPatch({
+      sessionId: 'session-1',
+      type: 'append',
+      message: { role: 'user', content: 'follow up', timestamp: 'user-2' } as never,
+      streaming: true,
+      error: '',
+    })
+
+    flushAgentStreamBatches('session-1')
+
+    const state = useSessionStore.getState()
+    const contents = state.messages.map(message => message.content)
+    expect(contents).toContain('follow up')
+    expect(contents).toContain('partial')
+    expect(state.agentStreamMessages['session-1']?.map(m => m.content)).toEqual(contents)
+  })
+
   it('renames sessions and can generate a smart name from stored messages', async () => {
     useSessionStore.setState({
       sessions: [
