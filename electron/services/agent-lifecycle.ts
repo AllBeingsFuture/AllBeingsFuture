@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { SessionService, Session } from './session.js'
 import type { BridgeManager } from '../bridge/bridge.js'
 import type { ConcurrencyGuard } from './concurrency-guard.js'
-import type { GitService } from './git.js'
+import { isManagedAbfWorktreePath, type GitService } from './git.js'
 import type { SettingsService } from './settings.js'
 import { AgentTracker, type TrackedAgent } from './agent-tracker.js'
 import {
@@ -24,18 +24,6 @@ import type { BrowserWindow } from 'electron'
 function normalizeSessionPath(target: string): string {
   if (!target) return ''
   return path.resolve(target).replace(/\\/g, '/').replace(/\/+$/, '')
-}
-
-/**
- * True only for ABF-managed worktrees under the repo's isolation root.
- * Parent main checkout / arbitrary dirs are never "managed child" paths.
- */
-function isManagedAbfWorktreePath(sourceRepo: string, worktreePath: string): boolean {
-  const repoRoot = normalizeSessionPath(sourceRepo)
-  const candidate = normalizeSessionPath(worktreePath)
-  if (!repoRoot || !candidate) return false
-  return candidate.startsWith(`${repoRoot}/.allbeingsfuture-worktrees/`)
-    || candidate.startsWith(`${repoRoot}/.abf-worktrees/`)
 }
 
 /**
