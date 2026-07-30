@@ -462,4 +462,63 @@ describe('useConversationScroll', () => {
 
     expect(el.scrollTop).toBe(520)
   })
+
+  it('stickToBottomNow re-attaches after detach and follows later content growth', () => {
+    // Mirrors user-send: had scrolled up to read history, then explicitly sends.
+    // Passive message growth must stay detached; stickToBottomNow must re-stick.
+    const { el, metrics } = createScrollContainer({ scrollHeight: 1000, clientHeight: 280 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 2, streaming: true },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(720)
+
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      result.current.handleWheel({ deltaY: -40 } as WheelEvent)
+      el.scrollTop = 100
+      result.current.handleScroll()
+    })
+    expect(el.scrollTop).toBe(100)
+    expect(result.current.shouldSuppressPositiveScrollCompensation()).toBe(true)
+
+    // Passive new messages while still detached must not pull to bottom.
+    act(() => {
+      rerender({ sessionId: 's1', length: 4, streaming: true })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(100)
+
+    // Explicit send re-attach.
+    act(() => {
+      result.current.stickToBottomNow()
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(720)
+    expect(result.current.shouldSuppressPositiveScrollCompensation()).toBe(false)
+
+    // Streaming ResizeObserver growth after re-attach must stick.
+    metrics.scrollHeight = 1400
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(1120)
+
+    // Subsequent message length growth also sticks.
+    metrics.scrollHeight = 1600
+    act(() => {
+      rerender({ sessionId: 's1', length: 5, streaming: true })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(1320)
+  })
 })

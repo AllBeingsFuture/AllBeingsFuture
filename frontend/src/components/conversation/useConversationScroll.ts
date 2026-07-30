@@ -209,6 +209,21 @@ export function useConversationScroll({
   }, [applyScrollToBottom, cancelPendingAutoScroll, queueFollowUpAutoScroll])
 
   /**
+   * User intentionally sent a message: re-attach stick-to-bottom and scroll now.
+   * Must clear detach / upward intent BEFORE scroll — applyScrollToBottom deliberately
+   * does not clear userDetachedRef (avoids racing with wheel-up).
+   */
+  const stickToBottomNow = useCallback(() => {
+    userDetachedRef.current = false
+    lastUserScrollIntentRef.current = 'down'
+    userInputActiveRef.current = false
+    isNearBottomRef.current = true
+    // Short force window so early streaming ResizeObserver growth still sticks.
+    forceScrollUntilRef.current = Date.now() + FORCE_SCROLL_WINDOW_MS
+    scrollToBottom(true)
+  }, [scrollToBottom])
+
+  /**
    * 内容尺寸变化时的滚动策略：
    * - 贴底跟随：继续 scrollToBottom
    * - 已脱离：绝不自动滚到底；仅在 scrollHeight 变矮导致超出可滚范围时夹紧
@@ -416,6 +431,11 @@ export function useConversationScroll({
     handlePointerDown,
     scrollMetrics,
     scrollToBottom,
+    /**
+     * Explicit user-send re-attach: clear detach/up intent, then scroll to bottom.
+     * Call from handleSend so streaming growth sticks after the user had scrolled up.
+     */
+    stickToBottomNow,
     /** Mark scrollTop writes from virtual-list remeasure so they do not re-stick. */
     markProgrammaticScroll,
     /**

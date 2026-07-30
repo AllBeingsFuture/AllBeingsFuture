@@ -823,6 +823,7 @@ export default function ConversationView({ session }: Props) {
     scrollMetrics,
     markProgrammaticScroll,
     shouldSuppressPositiveScrollCompensation,
+    stickToBottomNow,
   } = useConversationScroll({
     sessionId: session.id,
     messagesLength: messages.length,
@@ -915,8 +916,11 @@ export default function ConversationView({ session }: Props) {
     shouldPreferGrowingEstimate: messageGroupHasPartial,
   })
   const handleSend = useCallback(async (text: string, images?: Array<{data: string; mimeType: string}>) => {
+    // Re-attach before append so subsequent streaming ResizeObserver growth sticks.
+    // Passive message growth alone does not clear userDetached — only explicit send does.
+    stickToBottomNow()
     await workbenchApi.chat.appendMessage(session.id, text, images)
-  }, [session.id])
+  }, [session.id, stickToBottomNow])
   const handleStop = useCallback(() => {
     void workbenchApi.chat.stop(session.id)
   }, [session.id])
