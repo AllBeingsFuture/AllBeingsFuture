@@ -4,6 +4,30 @@ import { ACTIVE_STATUSES } from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+type SessionParentLike = { id: string; parentSessionId?: string }
+type ChildToParentLike = Record<string, { parentSessionId?: string } | undefined>
+
+/** Resolve parent from childToParent map first, then session.parentSessionId. */
+export function getSessionParentId(
+  session: SessionParentLike,
+  childToParent?: ChildToParentLike,
+): string {
+  const fromMap = (childToParent?.[session.id]?.parentSessionId || '').trim()
+  if (fromMap) return fromMap
+  return (session.parentSessionId || '').trim()
+}
+
+/**
+ * Top-level rows only: any non-empty parent means nested (including orphans
+ * whose parent was already deleted and is absent from the session list).
+ */
+export function isTopLevelSession(
+  session: SessionParentLike,
+  childToParent?: ChildToParentLike,
+): boolean {
+  return !getSessionParentId(session, childToParent)
+}
+
 export function getSessionTimestamp(session: Session) {
   const raw = session.endedAt || session.startedAt
   return raw ? new Date(raw as any).getTime() : 0
