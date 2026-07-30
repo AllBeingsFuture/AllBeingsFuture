@@ -221,6 +221,15 @@ test('resolveExecutable finds grok under ~/.grok/bin even when PATH is minimal',
   }
 })
 
+test('Claude / Codex defaults document host-CLI packaging (no packed natives)', () => {
+  const claude = getBuiltinProviderDefaultById('claude-code')!
+  const codex = getBuiltinProviderDefaultById('codex')!
+  assert.match(claude.acpVerification || '', /CLAUDE_CODE_EXECUTABLE|host Claude|PATH/i)
+  assert.match(claude.acpVerification || '', /no packed|host/i)
+  assert.match(codex.acpVerification || '', /CODEX_PATH|host codex|PATH/i)
+  assert.match(codex.acpVerification || '', /no packed|@openai\/codex/i)
+})
+
 test('no private per-model runtime adapter strings remain in defaults', () => {
   for (const entry of BUILTIN_PROVIDER_DEFAULTS) {
     assert.equal(entry.adapterType, 'acp')

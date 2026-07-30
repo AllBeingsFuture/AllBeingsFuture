@@ -606,7 +606,7 @@ Verified from npm registry / package metadata (not from vendored copies of unrel
 | --- | --- | --- | --- |
 | `@agentclientprotocol/sdk@1.3.0` | **Apache-2.0** | Official ACP TypeScript SDK (runtime commit dependency) | Safe to depend on in main process; retain Apache notice when redistributing SDK code; pin exact version in lockfile |
 | ACP schema repository artifacts | Apache-2.0 (upstream project license) | Protocol definition | Spec reference only in this doc; no code copy required |
-| `@anthropic-ai/claude-agent-sdk` | (existing product dependency; leave as currently declared in tree) | Legacy Claude path | Unchanged by ACP native profile |
+| `@anthropic-ai/claude-agent-sdk` | **Not** a direct product dependency; optional platform natives excluded from pack | Host Claude CLI + thin `claude-agent-acp` | See `docs/size-packaging.md` |
 | Electron / React / Vite stack | existing project deps | App shell | Unchanged |
 
 **Product license note:** this repository’s root `LICENSE` is **PolyForm Noncommercial 1.0.0**. Apache-2.0 dependencies are usable under typical open-source dependency practice, but distribution of the combined work remains subject to AllBeingsFuture’s own license terms. Integration should not relicense the ACP SDK.

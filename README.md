@@ -49,7 +49,7 @@ AllBeingsFuture 不是单一聊天客户端，而是面向「主 Agent（Supervi
 | 层 | 技术 |
 |----|------|
 | 桌面壳 | **Electron ^39**、`electron-builder` ^25 |
-| 主进程 | TypeScript 5.7、`@agentclientprotocol/sdk` 1.3.0、ACP wrapper 包、`zod`、`uuid` |
+| 主进程 | TypeScript 5.7、`@agentclientprotocol/sdk` 1.3.0、薄 ACP wrapper 包（不含 Codex/Claude 平台二进制）、`zod`、`uuid` |
 | 渲染层 | React 18、Vite 6、Zustand 5、Tailwind 3、allotment、react-markdown |
 | 测试 | 后端：`node --test`（`npm run test:backend`）；前端：Vitest 3 + Testing Library（`cd frontend && npm test`） |
 | 协议 | 内置 CLI：**ACP v1 stdio（NDJSON JSON-RPC）**；兼容 API：HTTP Chat Completions |
@@ -165,9 +165,9 @@ Worktree 路径（`autoWorktree` + 父目录为 git 仓）：
 
 | id | 名称 | adapter | command | 默认 args | 备注 |
 |----|------|---------|---------|-----------|------|
-| `grok-build` | Grok Build | `acp` | `grok` | `agent stdio` | 默认 sortOrder 第一；可设 `GROK_PATH` |
-| `claude-code` | Claude Code | `acp` | `claude-agent-acp` | （空） | 官方包 `@agentclientprotocol/claude-agent-acp`，应用依赖 + asarUnpack |
-| `codex` | Codex CLI | `acp` | `codex-acp` | （空） | 官方包 `@agentclientprotocol/codex-acp`；本地 `codex` 可经 `CODEX_PATH` 供 wrapper |
+| `grok-build` | Grok Build | `acp` | `grok` | `agent stdio` | 默认 sortOrder 第一；可设 `GROK_PATH` / executable path |
+| `claude-code` | Claude Code | `acp` | `claude-agent-acp` | （空） | 薄 JS ACP 包装可随应用；**本机 Claude Code CLI** 经 `CLAUDE_CODE_EXECUTABLE` / `CLAUDE_PATH` / PATH（不打包平台二进制） |
+| `codex` | Codex CLI | `acp` | `codex-acp` | （空） | 薄 JS ACP 包装可随应用；**本机 `codex`** 经 `CODEX_PATH` / PATH（不打包 `@openai/codex-*`） |
 | `gemini-cli` | Gemini CLI | `acp` | `gemini` | `--acp` | 原生 ACP |
 | `opencode` | OpenCode | `acp` | `opencode` | `acp` | 子命令，不是 `--acp` |
 | `qwen-code` | Qwen Code | `acp` | `qwen` | `--acp --experimental-skills` | |
@@ -182,7 +182,9 @@ Worktree 路径（`autoWorktree` + 父目录为 git 仓）：
 
 说明：
 
-- Claude / Codex **不是**「随便装全局 `claude`/`codex` 就等于内置预设」——内置启动命令是 **`claude-agent-acp` / `codex-acp`**
+- 内置 Claude / Codex 的 **启动入口** 是 ACP 包装命令 **`claude-agent-acp` / `codex-acp`**（JS）；**平台原生 CLI 本体不打进安装包**，与 Grok 一样依赖本机安装
+- 配置路径：Provider **executable path**，或环境变量 `GROK_PATH` / `CODEX_PATH` / `CLAUDE_CODE_EXECUTABLE`（亦接受 `CLAUDE_PATH`）
+- 体积策略详见 [`docs/size-packaging.md`](./docs/size-packaging.md)
 - UI 徽章：ACP 显示 **「ACP v1 / stdio」**；OpenAI 显示 **「OpenAI API」**
 - `iflow` 等仅作展示/能力兼容，**不在**内置 seed 表
 
@@ -194,7 +196,7 @@ Worktree 路径（`autoWorktree` + 父目录为 git 仓）：
 |----|------|
 | 操作系统 | macOS / Windows 桌面（Electron 39；有 mac arm64/x64 与 Windows NSIS 打包脚本） |
 | Node.js | 建议 **20 或 22+**（仓库未写死 `engines`；`@types/node` ^22） |
-| 外置 CLI | 按所用 Provider 安装对应 CLI（如 `grok`、`gemini`、`opencode`、`qwen`、`kimi`、`copilot` 等）并保证在 PATH 中 |
+| 外置 CLI | 按所用 Provider 安装对应 CLI（`grok`、**本机 `codex` / Claude Code**、`gemini`、`opencode`、`qwen`、`kimi`、`copilot` 等）并保证在 PATH 中；安装包**不**内嵌 Codex/Claude 平台二进制 |
 | 打包 macOS | `electron-builder` 可能需要本机 Python（脚本中设置 `PYTHON_PATH=/usr/bin/python3`） |
 
 ---
