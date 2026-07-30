@@ -113,8 +113,16 @@ function getOperationSummary(operation: ToolOperationCardData): string {
     ...(operation.liveResult?.toolInput || {}),
     ...(operation.result?.toolInput || {}),
   }
-  const live = Boolean(operation.liveResult && !operation.result)
-    || Boolean(operation.toolUse && !operation.result && !operation.liveResult)
+  // Align with group isActive: only treat open tool_use as "执行中" when the
+  // row is still marked live (isDelta/partial). Bare tool_use without a result
+  // in settled history is "已发起", not a frozen mid-turn spinner label.
+  const toolUseLive = Boolean(
+    operation.toolUse
+    && !operation.result
+    && !operation.liveResult
+    && operation.toolUse.isDelta,
+  )
+  const live = Boolean(operation.liveResult && !operation.result) || toolUseLive
   const prefix = live
     ? '执行中'
     : operation.result?.isError

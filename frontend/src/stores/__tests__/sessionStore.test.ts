@@ -763,6 +763,12 @@ describe('sessionStore runtime status sync', () => {
       'hello',
       'recovered via patch',
     ])
+    // Silence fail-open re-stamps trailing narrative as partial so later stream
+    // deltas keep merging into the live bubble.
+    expect(useSessionStore.getState().messages[1]).toEqual(expect.objectContaining({
+      content: 'recovered via patch',
+      partial: true,
+    }))
     expect(useSessionStore.getState().streaming).toBe(true)
     // Still active phase after streaming:true recovery; silence only unblocks legacy.
     expect(useSessionStore.getState().agentStreams['session-1']?.phase).toBe('running')
@@ -780,6 +786,10 @@ describe('sessionStore runtime status sync', () => {
       'hello',
       'final from update',
     ])
+    expect(useSessionStore.getState().messages[1]).toEqual(expect.objectContaining({
+      content: 'final from update',
+      partial: true,
+    }))
 
     serviceMocks.processService.GetChatState.mockResolvedValue({
       messages: [

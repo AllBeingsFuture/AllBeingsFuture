@@ -20,6 +20,7 @@ const liveTools: ConversationMessage[] = [
     toolName: 'Bash',
     toolInput: { command: 'ls frontend' },
     content: 'ls frontend',
+    isDelta: true,
   }),
   toolMsg({
     id: 'result-1',
@@ -37,6 +38,7 @@ const liveTools: ConversationMessage[] = [
     toolName: 'Grep',
     toolInput: { pattern: 'expanded' },
     content: 'grep expanded',
+    isDelta: true,
   }),
 ]
 
@@ -47,9 +49,26 @@ describe('ToolOperationGroup', () => {
     const toggle = screen.getByTestId('tool-operation-group-toggle')
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText(/正在执行/)).toBeInTheDocument()
-    expect(screen.getByText(/最近：/)).toBeInTheDocument()
+    expect(screen.getByText(/最近：执行中/)).toBeInTheDocument()
     expect(screen.queryByText('Bash')).not.toBeInTheDocument()
     expect(screen.queryByText('Grep')).not.toBeInTheDocument()
+  })
+
+  it('does not label settled tool-only history as 执行中 without isDelta', () => {
+    const settledOpen = [
+      toolMsg({
+        id: 'use-1',
+        role: 'tool_use',
+        toolUseId: 'call-1',
+        toolName: 'Bash',
+        toolInput: { command: 'ls' },
+        content: 'ls',
+      }),
+    ]
+    renderWithProviders(<ToolOperationGroup messages={settledOpen} isActive={false} />)
+    expect(screen.getByText(/执行了/)).toBeInTheDocument()
+    expect(screen.getByText(/最近：已发起/)).toBeInTheDocument()
+    expect(screen.queryByText(/最近：执行中/)).not.toBeInTheDocument()
   })
 
   it('stays collapsed for finished history groups by default', () => {

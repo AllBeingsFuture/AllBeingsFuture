@@ -1077,12 +1077,16 @@ export class ProcessService {
           }
         }
 
-        // Finalize assistant messages emitted during this turn without
+        // Finalize assistant + tool messages emitted during this turn without
         // overwriting segmented commentary / final-answer boundaries.
         let lastAssistantMsg: ChatMessage | undefined
         for (let index = state.messages.length - 1; index >= 0; index -= 1) {
           const candidate = state.messages[index]
           if (candidate.role === 'user') break
+          if (candidate.role === 'tool_use' && candidate.partial) {
+            candidate.partial = false
+            continue
+          }
           if (candidate.role !== 'assistant') continue
           candidate.partial = false
           if (!lastAssistantMsg) lastAssistantMsg = candidate
@@ -1250,6 +1254,9 @@ export class ProcessService {
             existingTool.toolOutput = event.output
             if (event.name) existingTool.toolName = event.name
             if (event.input) existingTool.toolInput = event.input
+            // Keep partial in sync so silence fail-open snapshots do not look settled.
+            const terminal = event.toolStatus === 'completed' || event.toolStatus === 'failed'
+            existingTool.partial = !terminal
             this.emitChatUpdate(sessionId)
 
             // Mirror tool status/output increments to the active child session.
@@ -1266,6 +1273,7 @@ export class ProcessService {
                 childTool.toolOutput = event.output
                 if (event.name) childTool.toolName = event.name
                 if (event.input) childTool.toolInput = event.input
+                childTool.partial = !terminal
                 this.emitChatUpdate(childInfoTool.id)
               }
             }
@@ -1284,6 +1292,7 @@ export class ProcessService {
         }
 
         // Create a separate tool_use message for each tool invocation
+        const toolTerminal = event.toolStatus === 'completed' || event.toolStatus === 'failed'
         const toolMsg: ChatMessage = {
           role: 'tool_use',
           content: '',
@@ -1293,6 +1302,8 @@ export class ProcessService {
           toolCallId: event.toolCallId,
           toolStatus: event.toolStatus,
           toolOutput: event.output,
+          // Live flag for renderer groupIsLive / tool summary when stream is silent.
+          partial: !toolTerminal,
         }
         if (childInfoTool) {
           toolMsg.childSessionId = childInfoTool.id

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../../../../bindings/allbeingsfuture/internal/models/models'
 import {
   AGENT_STREAM_SILENCE_MS,
+  annotateLivePartialFlags,
   convergeAgentStreamOnLegacyEnd,
   createAgentSessionStreamState,
   isAgentStreamActive,
@@ -267,5 +268,107 @@ describe('agentStreamCore', () => {
     expect(idle.stream.plan).toBeUndefined()
     expect(idle.stream.statusMessage).toBeUndefined()
     expect(idle.stream.phase).toBe('idle')
+  })
+
+  it('matches legacy toolCallId rows on tool_update so stream output keeps flowing after fail-open', () => {
+    // Silence fail-open may replace stream messages with process.ts rows that
+    // only carry toolCallId (no toolUseId / partial).
+    const legacyMessages = [
+      {
+        role: 'tool_use',
+        content: '',
+        toolCallId: 'call-legacy',
+        toolName: 'Bash',
+        toolInput: { command: 'sleep 1' },
+      } as unknown as ChatMessage,
+    ]
+    const updated = reduceAgentStreamEvent(legacyMessages, {
+      phase: 'running',
+      lastSequence: 0,
+      lastEventAt: Date.now(),
+    }, {
+      type: 'tool_update',
+      sessionId: 'session-1',
+      sequence: 1,
+      toolCallId: 'call-legacy',
+      status: 'in_progress',
+      resultDelta: 'tick\n',
+    })
+
+    expect(updated.messages).toHaveLength(2)
+    expect(updated.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use',
+      toolUseId: 'call-legacy',
+      partial: true,
+    }))
+    expect(updated.messages[1]).toEqual(expect.objectContaining({
+      role: 'tool_result',
+      toolUseId: 'call-legacy',
+      toolResult: 'tick\n',
+      partial: true,
+      isDelta: true,
+    }))
+  })
+
+  it('merges text_delta into a trailing partial assistant that lacks streamItemId', () => {
+    const legacyPartial = [
+      {
+        role: 'assistant',
+        content: 'legacy head ',
+        partial: true,
+      } as ChatMessage,
+    ]
+    const next = reduceAgentStreamEvent(legacyPartial, {
+      phase: 'running',
+      lastSequence: 0,
+      lastEventAt: Date.now(),
+    }, {
+      type: 'text_delta',
+      sessionId: 'session-1',
+      sequence: 1,
+      itemId: 'assistant-text',
+      delta: 'stream tail',
+    })
+
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0]).toEqual(expect.objectContaining({
+      role: 'assistant',
+      content: 'legacy head stream tail',
+      partial: true,
+      streamItemId: 'assistant-text',
+    }))
+  })
+
+  it('annotateLivePartialFlags re-stamps open tools and trailing narrative while streaming', () => {
+    const messages = [
+      { role: 'thinking', content: 'done thought', partial: false, isThinking: true } as unknown as ChatMessage,
+      {
+        role: 'tool_use',
+        content: '',
+        toolCallId: 't1',
+        toolName: 'Grep',
+        partial: false,
+      } as unknown as ChatMessage,
+      { role: 'assistant', content: 'reply so far', partial: false } as ChatMessage,
+    ]
+
+    const annotated = annotateLivePartialFlags(messages, true)
+    expect(annotated[1]).toEqual(expect.objectContaining({
+      role: 'tool_use',
+      partial: true,
+      toolUseId: 't1',
+    }))
+    expect(annotated[2]).toEqual(expect.objectContaining({
+      role: 'assistant',
+      content: 'reply so far',
+      partial: true,
+    }))
+    // Earlier sealed thinking stays sealed.
+    expect(annotated[0]).toEqual(expect.objectContaining({
+      role: 'thinking',
+      partial: false,
+    }))
+
+    expect(annotateLivePartialFlags(messages, false)).toBe(messages)
   })
 })

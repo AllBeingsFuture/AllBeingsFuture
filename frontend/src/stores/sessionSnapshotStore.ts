@@ -13,6 +13,7 @@ import {
 } from '../core/chat/chatCore'
 import { createAgentStreamBatcher } from '../core/chat/agentStreamBatch'
 import {
+  annotateLivePartialFlags,
   convergeAgentStreamOnLegacyEnd,
   createAgentSessionStreamState,
   isAgentStreamActive,
@@ -366,17 +367,26 @@ export const useSessionStore = create<SessionState>((set, get) => {
       const patch = await chatCore.poll(snapshotOf(get()), id)
       if (patch) {
         set(state => {
+          const stream = state.agentStreams[id]
           const converged = patch.streaming === false
-            ? convergeAgentStreamOnLegacyEnd(state.agentStreams[id])
+            ? convergeAgentStreamOnLegacyEnd(stream)
+            : undefined
+          // Only re-stamp partials while an agent stream turn is still open
+          // (silence fail-open). Plain legacy sessions keep raw poll snapshots.
+          const messages = patch.messages
+            ? (isAgentStreamActive(stream)
+              ? annotateLivePartialFlags(patch.messages, Boolean(patch.streaming))
+              : patch.messages)
             : undefined
           return {
             ...patch,
+            ...(messages ? { messages } : {}),
             ...(converged
               ? { agentStreams: { ...state.agentStreams, [id]: converged } }
               : {}),
             // Always keep the per-session buffer warm, even for background sessions.
-            ...(patch.messages
-              ? { agentStreamMessages: { ...state.agentStreamMessages, [id]: patch.messages } }
+            ...(messages
+              ? { agentStreamMessages: { ...state.agentStreamMessages, [id]: messages } }
               : {}),
           }
         })
@@ -395,12 +405,21 @@ export const useSessionStore = create<SessionState>((set, get) => {
     if (shouldPreferAgentStream(stream) && data.streaming !== false) return
 
     const patch = chatCore.applyChatUpdate(snapshotOf(state), data)
-    const messages = data.messages ?? []
+    // Silence fail-open can replace the stream transcript with a legacy snapshot
+    // that omits partial flags. Re-stamp live tails so the UI keeps refreshing
+    // until a real terminal event arrives. Only while stream phase is active.
+    const rawMessages = data.messages ?? []
+    const messages = isAgentStreamActive(stream)
+      ? annotateLivePartialFlags(rawMessages, data.streaming)
+      : rawMessages
     const converged = data.streaming === false
       ? convergeAgentStreamOnLegacyEnd(stream)
       : undefined
+    const selectedPatch = patch && state.selectedId === data.sessionId
+      ? { ...patch, messages }
+      : patch
     set({
-      ...(patch || {}),
+      ...(selectedPatch || {}),
       agentStreamMessages: {
         ...state.agentStreamMessages,
         [data.sessionId]: messages,
@@ -435,7 +454,10 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const baseMessages = selected
       ? state.messages
       : (state.agentStreamMessages[data.sessionId] || [])
-    const nextMessages = chatCore.applyMessagePatch(baseMessages, data)
+    const patched = chatCore.applyMessagePatch(baseMessages, data)
+    const nextMessages = isAgentStreamActive(stream)
+      ? annotateLivePartialFlags(patched, data.streaming)
+      : patched
     const sessions = chatCore.syncRuntimeStatus(state.sessions, data.sessionId, data.streaming)
     const converged = legacyEnded ? convergeAgentStreamOnLegacyEnd(stream) : undefined
 

@@ -13,11 +13,24 @@ type StreamChatMessage = ChatMessage & {
   toolResult?: string
   toolOutputs?: Array<{ stream: 'stdout' | 'stderr'; text: string }>
   toolUseId?: string
+  /** Legacy process path id; treated as an alias of toolUseId for stream reduce. */
+  toolCallId?: string
+  toolStatus?: string
   isDelta?: boolean
   isError?: boolean
   isThinking?: boolean
   streamItemId?: string
+  /** Legacy process path item id for assistant bubbles. */
+  sourceItemId?: string
   partial?: boolean
+}
+
+function toolIdOf(message: StreamChatMessage): string | undefined {
+  return message.toolUseId || message.toolCallId
+}
+
+function matchesToolCall(message: StreamChatMessage, toolCallId: string): boolean {
+  return toolIdOf(message) === toolCallId
 }
 
 export interface AgentStreamReduction {
@@ -125,17 +138,25 @@ function appendTextDelta(messages: ChatMessage[], event: Extract<AgentStreamEven
   // Only extend the *trailing* open assistant bubble with the same stream item.
   // Never reopen an earlier partial bubble after tools / other messages have
   // been appended — that is what forces multi-round replies into one box.
+  //
+  // Legacy fail-open snapshots often omit streamItemId/sourceItemId while still
+  // marking the last assistant partial=true. Merge into that trailing bubble so
+  // post-silence agent:stream deltas keep growing the live reply instead of
+  // spawning a frozen second box with only the latest fragment.
   const last = messages[messages.length - 1] as StreamChatMessage | undefined
-  if (
+  const lastItemId = last?.streamItemId || last?.sourceItemId
+  const canMergeTrailing = Boolean(
     last?.role === 'assistant'
     && last.partial === true
-    && last.streamItemId === event.itemId
-  ) {
+    && (lastItemId == null || lastItemId === event.itemId),
+  )
+  if (canMergeTrailing && last) {
     const next = messages.slice()
     next[next.length - 1] = {
       ...last,
       content: `${last.content || ''}${event.delta}`,
       partial: true,
+      streamItemId: last.streamItemId || event.itemId,
     } as ChatMessage
     return next
   }
@@ -154,17 +175,20 @@ function updateThinking(messages: ChatMessage[], event: Extract<AgentStreamEvent
   // Same trailing-only rule as text: a thinking block closed by tools must not
   // absorb later thought chunks into the earlier bubble.
   const last = messages[messages.length - 1] as StreamChatMessage | undefined
-  if (
+  const lastItemId = last?.streamItemId || last?.sourceItemId
+  const canMergeTrailing = Boolean(
     last
     && Boolean(last.isThinking)
     && last.partial === true
-    && last.streamItemId === event.itemId
-  ) {
+    && (lastItemId == null || lastItemId === event.itemId),
+  )
+  if (canMergeTrailing && last) {
     const next = messages.slice()
     next[next.length - 1] = {
       ...last,
       content: event.mode === 'replace' ? event.text : `${last.content || ''}${event.text}`,
       partial: true,
+      streamItemId: last.streamItemId || event.itemId,
     } as ChatMessage
     return next
   }
@@ -183,12 +207,15 @@ function updateThinking(messages: ChatMessage[], event: Extract<AgentStreamEvent
 function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent, { type: 'tool_call' }>) {
   const patched = patchMessage(
     messages,
-    message => message.role === 'tool_use' && message.toolUseId === event.toolCallId,
+    message => message.role === 'tool_use' && matchesToolCall(message, event.toolCallId),
     message => ({
       ...message,
       toolName: event.name || message.toolName || event.title,
       toolInput: event.input || message.toolInput,
       content: event.title || message.content,
+      // Normalize legacy toolCallId rows so later stream updates keep matching.
+      toolUseId: message.toolUseId || event.toolCallId,
+      toolCallId: message.toolCallId || event.toolCallId,
       partial: true,
     }),
   )
@@ -201,6 +228,7 @@ function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     partial: true,
     id: `tool-${event.toolCallId}`,
     toolUseId: event.toolCallId,
+    toolCallId: event.toolCallId,
     toolName: event.name || event.title,
     toolInput: event.input || {},
     timestamp: timestampOf(event),
@@ -210,7 +238,7 @@ function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
 function ensureToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent, { type: 'tool_update' }>) {
   const exists = messages.some(message => (
     (message as StreamChatMessage).role === 'tool_use'
-    && (message as StreamChatMessage).toolUseId === event.toolCallId
+    && matchesToolCall(message as StreamChatMessage, event.toolCallId)
   ))
   if (exists) return messages
   const sealed = sealOpenNarrativeMessages(messages)
@@ -220,6 +248,7 @@ function ensureToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     partial: true,
     id: `tool-${event.toolCallId}`,
     toolUseId: event.toolCallId,
+    toolCallId: event.toolCallId,
     toolName: event.name || 'Tool',
     toolInput: event.input || {},
     timestamp: timestampOf(event),
@@ -230,12 +259,14 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
   let next = ensureToolCall(messages, event)
   const callPatch = patchMessage(
     next,
-    message => message.role === 'tool_use' && message.toolUseId === event.toolCallId,
+    message => message.role === 'tool_use' && matchesToolCall(message, event.toolCallId),
     message => ({
       ...message,
       toolName: event.name || message.toolName,
       toolInput: event.input || message.toolInput,
       content: event.title || message.content,
+      toolUseId: message.toolUseId || event.toolCallId,
+      toolCallId: message.toolCallId || event.toolCallId,
       partial: event.status !== 'completed' && event.status !== 'failed',
     }),
   )
@@ -245,7 +276,7 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
   const outputText = event.resultDelta || event.output?.text || (event.status === 'failed' ? event.error || '' : '')
   const resultPatch = patchMessage(
     next,
-    message => message.role === 'tool_result' && message.toolUseId === event.toolCallId,
+    message => message.role === 'tool_result' && matchesToolCall(message, event.toolCallId),
     message => ({
       ...message,
       toolName: event.name || message.toolName,
@@ -255,6 +286,7 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
       toolOutputs: event.output
         ? [...(message.toolOutputs || []), event.output]
         : message.toolOutputs,
+      toolUseId: message.toolUseId || event.toolCallId,
       isDelta: !terminal,
       partial: !terminal,
       isError: event.status === 'failed',
@@ -268,6 +300,7 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
     partial: !terminal,
     id: `tool-result-${event.toolCallId}`,
     toolUseId: event.toolCallId,
+    toolCallId: event.toolCallId,
     toolName: event.name,
     toolInput: event.input,
     toolResult: outputText,
@@ -281,8 +314,8 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
 function finalizeMessages(messages: ChatMessage[], error?: string): ChatMessage[] {
   const resultIds = new Set(messages
     .filter(message => message.role === 'tool_result')
-    .map(message => (message as StreamChatMessage).toolUseId)
-    .filter(Boolean))
+    .map(message => toolIdOf(message as StreamChatMessage))
+    .filter((id): id is string => Boolean(id)))
   const finalized = messages.map(message => {
     const streamMessage = message as StreamChatMessage
     if (!streamMessage.partial && !streamMessage.isDelta) return message
@@ -296,13 +329,15 @@ function finalizeMessages(messages: ChatMessage[], error?: string): ChatMessage[
 
   for (const message of messages) {
     const tool = message as StreamChatMessage
-    if (tool.role !== 'tool_use' || !tool.toolUseId || resultIds.has(tool.toolUseId)) continue
+    const toolId = toolIdOf(tool)
+    if (tool.role !== 'tool_use' || !toolId || resultIds.has(toolId)) continue
     finalized.push({
       role: 'tool_result',
       content: error || '',
       partial: false,
-      id: `tool-result-${tool.toolUseId}`,
-      toolUseId: tool.toolUseId,
+      id: `tool-result-${toolId}`,
+      toolUseId: toolId,
+      toolCallId: tool.toolCallId || toolId,
       toolName: tool.toolName,
       toolResult: error || '',
       isDelta: false,
@@ -311,6 +346,66 @@ function finalizeMessages(messages: ChatMessage[], error?: string): ChatMessage[
     } as unknown as ChatMessage)
   }
   return finalized
+}
+
+/**
+ * After silence fail-open applies a legacy chat snapshot mid-turn, re-stamp
+ * live partial flags so the UI does not freeze as "执行了 / 思考完成" while the
+ * turn is still streaming. Safe no-op when streaming is false.
+ */
+export function annotateLivePartialFlags(
+  messages: ChatMessage[],
+  streaming: boolean,
+): ChatMessage[] {
+  if (!streaming || messages.length === 0) return messages
+
+  const completedToolIds = new Set(
+    messages
+      .filter(message => {
+        const m = message as StreamChatMessage
+        return m.role === 'tool_result' && !m.partial && !m.isDelta
+      })
+      .map(message => toolIdOf(message as StreamChatMessage))
+      .filter((id): id is string => Boolean(id)),
+  )
+
+  let changed = false
+  const next = messages.map((message, index) => {
+    const m = message as StreamChatMessage
+    if (m.role === 'tool_use') {
+      const id = toolIdOf(m)
+      const terminalStatus = m.toolStatus === 'completed' || m.toolStatus === 'failed'
+      const open = !terminalStatus && (!id || !completedToolIds.has(id))
+      if (open && !m.partial) {
+        changed = true
+        return {
+          ...m,
+          partial: true,
+          toolUseId: m.toolUseId || m.toolCallId,
+        } as ChatMessage
+      }
+      if (open && !m.toolUseId && m.toolCallId) {
+        changed = true
+        return { ...m, toolUseId: m.toolCallId } as ChatMessage
+      }
+      return message
+    }
+
+    // Keep the trailing narrative bubble live while the turn is still open so
+    // subsequent agent:stream deltas can merge instead of forking a new box.
+    if (index === messages.length - 1) {
+      const isNarrative = m.role === 'assistant'
+        || m.role === 'thinking'
+        || Boolean(m.isThinking)
+      if (isNarrative && !m.partial) {
+        changed = true
+        return { ...m, partial: true } as ChatMessage
+      }
+    }
+    return message
+  })
+
+  return changed ? next : messages
 }
 
 export function reduceAgentStreamEvent(

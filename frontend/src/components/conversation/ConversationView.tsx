@@ -225,6 +225,42 @@ export function messageGroupHasPartial(group: MessageGroup): boolean {
   })
 }
 
+/**
+ * Open tool_use rows without a completed tool_result are still in-flight.
+ * Legacy process snapshots often omit partial flags; during a live turn the
+ * tool group must stay "正在执行" so the UI does not look finished mid-tool.
+ * History estimates intentionally ignore this (see messageGroupHasPartial only).
+ */
+export function toolGroupHasOpenOperations(group: MessageGroup): boolean {
+  if (group.type !== 'tool_group') return false
+  const completed = new Set<string>()
+  for (const message of group.messages) {
+    const m = message as {
+      role?: string
+      toolUseId?: string
+      toolCallId?: string
+      partial?: boolean
+      isDelta?: boolean
+    }
+    if (m.role !== 'tool_result') continue
+    if (m.partial || m.isDelta) continue
+    const id = m.toolUseId || m.toolCallId
+    if (id) completed.add(id)
+  }
+  return group.messages.some((message) => {
+    const m = message as {
+      role?: string
+      toolUseId?: string
+      toolCallId?: string
+      toolStatus?: string
+    }
+    if (m.role !== 'tool_use') return false
+    if (m.toolStatus === 'completed' || m.toolStatus === 'failed') return false
+    const id = m.toolUseId || m.toolCallId
+    return !id || !completed.has(id)
+  })
+}
+
 /** Exported for unit tests; used by virtual list estimateSize. */
 export function estimateMessageGroupHeight(group: MessageGroup): number {
   const totalContentLength = group.messages.reduce((sum, message) => sum + (message.content?.length || 0), 0)
@@ -1037,13 +1073,14 @@ export default function ConversationView({ session }: Props) {
 
   const renderMessageGroup = useCallback((group: MessageGroup) => {
     const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
-    // Tool groups: live only while a row is still partial/delta — do NOT treat
-    // "last group during a turn" as live, or finished "执行了 N 个操作" stays expanded.
+    // Tool groups: live while partial/delta OR open tool_use without a completed
+    // result. Do NOT treat "last group during a turn" alone as live, or finished
+    // "执行了 N 个操作" stays expanded after tools settle.
     // Thinking / child / message groups: still treat last group as live so the
     // active tail keeps streaming UI when partial flags lag.
     const groupIsLive = shouldRenderLiveMessages && (
       group.type === 'tool_group'
-        ? messageGroupHasPartial(group)
+        ? (messageGroupHasPartial(group) || toolGroupHasOpenOperations(group))
         : (isLastGroup || messageGroupHasPartial(group))
     )
 
