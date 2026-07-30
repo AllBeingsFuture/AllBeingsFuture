@@ -41,7 +41,13 @@ The app also has Mission / Workflow / Team / Kanban UI features; **in-session or
 
 The host may also inject other MCP servers (e.g. mempalace) and Skills when enabled; **only call tools that are actually available in the current session**. Do not assume unlisted MCPs exist.
 
-**mempalace writes:** the host serializes multi-agent palace writes. If a write fails with peer lock / busy after retries, wait and retry once; avoid many parallel writers for the same palace.
+## Memory (mempalace)
+
+If this session has **mempalace** MCP: for **important conclusions / decisions / facts the user asked to remember**, you **must** call `mempalace_checkpoint` with `items: [{ wing, room, content }]`.
+- `wing`: project name (default `allbeingsfuture` if unknown); `room`: short topic; `content`: concrete durable points — not vague summaries.
+- **Orchestration sessions still file reusable conclusions** (accept criteria, key decisions, merge outcomes, user-stated facts). Do **not** file every spawn/status/close chatter.
+- Host serializes multi-agent palace writes. If a write fails with **peer lock / busy**, wait briefly and **retry once**; avoid many parallel writers for the same palace.
+- Do not claim a write that did not happen. If MCP is unavailable, skip.
 
 ## Hard rules
 

@@ -418,6 +418,61 @@ test('process.ts only injects worker files for direct child isolated worktree (n
   assert.match(source, /injectWorkerPromptFiles/)
 })
 
+test('wrapWorkerTaskPrompt appends mempalace checkpoint reminder for every child task', async () => {
+  const {
+    wrapWorkerTaskPrompt,
+    WORKER_TASK_MEMPALACE_HINT,
+    NESTED_CHILD_MEMPALACE_MEMORY_PROMPT,
+    enabledMcpsIncludeMempalace,
+  } = await loadSupervisorPrompt()
+
+  const wrapped = wrapWorkerTaskPrompt('Implement feature X in foo.ts')
+  assert.match(wrapped, /Implement feature X/)
+  assert.match(wrapped, /mempalace_checkpoint/)
+  assert.match(wrapped, /wing.*room.*content|items:.*wing/i)
+  assert.match(wrapped, /peer lock|retry once/i)
+  assert.ok(wrapped.includes(WORKER_TASK_MEMPALACE_HINT) || wrapped.includes('## Memory (if mempalace MCP is available)'))
+
+  // Idempotent: do not double-append the fixed hint
+  const twice = wrapWorkerTaskPrompt(wrapped)
+  assert.equal(twice, wrapped)
+
+  // Empty task still gets the memory path
+  const emptyWrapped = wrapWorkerTaskPrompt('  ')
+  assert.match(emptyWrapped, /mempalace_checkpoint/)
+
+  // Nested-child short system prompt is present and strong (must / before finishing)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /mempalace_checkpoint/)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /must|Before finishing/i)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /wing|room|content/i)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /peer lock|retry once/i)
+  // Must NOT look like full abf-worker handbook
+  assert.doesNotMatch(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /agent-control|spawn_agent|ABF Worker/)
+
+  assert.equal(enabledMcpsIncludeMempalace({ mempalace: { command: 'node', args: [] } }), true)
+  assert.equal(enabledMcpsIncludeMempalace({ custom: { command: 'npx', args: ['-y', 'mempalace'] } }), true)
+  assert.equal(enabledMcpsIncludeMempalace({ other: { command: 'echo', args: [] } }), false)
+  assert.equal(enabledMcpsIncludeMempalace({}), false)
+  assert.equal(enabledMcpsIncludeMempalace(null), false)
+})
+
+test('process.ts injects nested-child short Memory prompt when mempalace enabled (no full worker)', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  assert.match(source, /NESTED_CHILD_MEMPALACE_MEMORY_PROMPT/)
+  assert.match(source, /enabledMcpsIncludeMempalace/)
+  assert.match(source, /mempalaceEnabled/)
+  assert.match(source, /Injected short mempalace Memory prompt for nested child/)
+  // Still skips full worker + agent-control for sons
+  assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
+  // Nested memory inject is gated on mempalaceEnabled, not unconditional full worker
+  assert.match(source, /if \(mempalaceEnabled\)/)
+  // Must not inject full worker rules content into nested-child arm
+  const nestedArm = source.match(/\} else if \(isChild\) \{[\s\S]*?\} else \{/)
+  assert.ok(nestedArm, 'expected nested-child branch')
+  assert.doesNotMatch(nestedArm[0], /buildWorkerRulesContent\s*\(/)
+  assert.doesNotMatch(nestedArm[0], /injectWorkerPromptFiles/)
+})
+
 test('hasSupervisorPromptFiles detects missing AGENTS block and re-inject restores it', async () => {
   const tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'abf-ensure-prompt-'))
   const worktree = path.join(tmpRoot, '.allbeingsfuture-worktrees', 'main-session')

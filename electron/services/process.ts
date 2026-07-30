@@ -31,6 +31,8 @@ import {
   buildWorkerRulesContent,
   hasSupervisorPromptFiles,
   hasWorkerPromptFiles,
+  enabledMcpsIncludeMempalace,
+  NESTED_CHILD_MEMPALACE_MEMORY_PROMPT,
 } from './supervisor-prompt.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
@@ -644,8 +646,9 @@ export class ProcessService {
       ProviderCapabilityRegistry.supportsNativeMcp(provider.id) || this.isAcpAdapter(provider.adapterType)
 
     // Global enabled MCPs (settings) → every session init; not bound to grandpa only.
+    const enabledUserMcps = this.mcpService.getEnabledServerConfigs() as Record<string, McpServerConfig>
+    const mempalaceEnabled = enabledMcpsIncludeMempalace(enabledUserMcps)
     if (supportsMcpInjection) {
-      const enabledUserMcps = this.mcpService.getEnabledServerConfigs() as Record<string, McpServerConfig>
       let agentControl: McpServerConfig | null = null
       if (shouldInjectAgentControl(sessionRole)) {
         agentControl = await this.buildAgentControlMcpConfig(sessionId, provider, isAcp)
@@ -746,7 +749,24 @@ export class ProcessService {
         appLog('warn', `Failed to inject worker prompt files for child: ${errMsg}`, 'process')
       }
     } else if (isChild) {
-      // Son: skip worker software prompt (and agent-control was not merged into mcpServers)
+      // Son: skip full worker software prompt + agent-control; still inject short Memory when mempalace is on.
+      if (mempalaceEnabled) {
+        try {
+          const memoryPrompt = NESTED_CHILD_MEMPALACE_MEMORY_PROMPT.trim()
+          const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
+          config.appendSystemPrompt = existingPrompt
+            ? `${memoryPrompt}\n\n${existingPrompt}`
+            : memoryPrompt
+          appLog(
+            'info',
+            `Injected short mempalace Memory prompt for nested child ${sessionId}`,
+            'process',
+          )
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          appLog('warn', `Failed to inject nested-child Memory prompt: ${errMsg}`, 'process')
+        }
+      }
       appLog(
         'info',
         `Skipped worker prompt + agent-control for nested child session ${sessionId}`,

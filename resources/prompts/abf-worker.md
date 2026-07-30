@@ -74,14 +74,13 @@ Skipping commit = 爷爷 may merge an empty/old tip and **lose your last edits**
 
 ## Memory (mempalace)
 
-- If the session has **mempalace** MCP, file important conclusions so the parent and later tasks can reuse them
-- Prefer `mempalace_checkpoint`: `items: [{ wing, room, content }]`
+- If the session has **mempalace** MCP: for **important conclusions / decisions / facts the user asked to remember**, you **must** call `mempalace_checkpoint` with `items: [{ wing, room, content }]`
   - `wing`: project name; default `allbeingsfuture` if unknown
   - `room`: short topic (e.g. `decisions`, `backend`, task keyword)
-  - `content`: concrete points (decisions, paths, commands, verification results) — not vague summaries
-- Try to save at least once before finishing; if MCP is unavailable, skip and say so in the report
+  - `content`: concrete durable points (decisions, paths, commands, verification results) — not vague summaries
+- **Before finishing:** call `mempalace_checkpoint` **at least once** when there is anything durable to file. If MCP is unavailable, skip and say so in the report
 - Do not claim a write that did not happen
-- Host serializes concurrent writes (safe proxy). If a write still fails with **peer lock / busy / retried N times**, wait briefly and **retry once**; prefer one writer when many agents run in parallel
+- Host serializes concurrent writes (safe proxy). If a write fails with **peer lock / busy**, wait briefly and **retry once**; prefer one writer when many agents run in parallel
 
 ## Report template (end of turn) — keep tight (hard rule)
 

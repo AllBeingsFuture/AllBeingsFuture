@@ -83,6 +83,16 @@ test('abf-supervisor prompt documents async spawn, parent idle, close safety', (
   assert.match(source, /git push origin <base>|push origin <base>/i)
 })
 
+test('abf-supervisor Memory requires mempalace_checkpoint for important conclusions', () => {
+  const source = read('resources/prompts/abf-supervisor.md')
+  assert.match(source, /## Memory \(mempalace\)/)
+  assert.match(source, /mempalace_checkpoint/)
+  assert.match(source, /items:.*wing.*room.*content|wing.*room.*content/i)
+  assert.match(source, /must.*call|you \*\*must\*\* call/i)
+  assert.match(source, /Orchestration sessions still file|reusable conclusions/i)
+  assert.match(source, /peer lock|retry once/i)
+})
+
 test('abf-worker prompt documents worktree isolation, commit, mempalace, must close sons', () => {
   const source = read('resources/prompts/abf-worker.md')
   assert.match(source, /worktree/i)
@@ -92,6 +102,9 @@ test('abf-worker prompt documents worktree isolation, commit, mempalace, must cl
   assert.match(source, /workDir/)
   assert.match(source, /MUST `close_agent`|MUST close_agent/)
   assert.match(source, /Never `git push` isolation branches|Never git push isolation/i)
+  // Finish-gate: at least one checkpoint before done
+  assert.match(source, /Before finishing.*mempalace_checkpoint|at least once/i)
+  assert.match(source, /peer lock|retry once/i)
 })
 
 test('git service deletes remote isolation branches on worktree cleanup', () => {
