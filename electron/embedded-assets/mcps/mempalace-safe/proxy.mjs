@@ -17,8 +17,11 @@
  *   ABF_MEMPALACE_COMMAND  — child executable (default: mempalace-mcp)
  *   ABF_MEMPALACE_ARGS     — JSON array of child args
  *   ABF_MEMPALACE_WRITE_LOCK — lock file path (optional)
- *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 10)
- *   ABF_MEMPALACE_TOOL_RETRIES — peer-lock response retries (default 5)
+ *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 200)
+ *   ABF_MEMPALACE_LOCK_MAX_MS — total lock wait budget ms (default 90000)
+ *   ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS — per-sleep backoff cap ms (default 3000)
+ *   ABF_MEMPALACE_TOOL_RETRIES — peer-lock response retries (default 40)
+ *   ABF_MEMPALACE_TOOL_MAX_MS — overall peer-retry deadline ms (default 120000)
  *   MEMPALACE_MCP_ALLOW_PEER_WRITER — default forced to "1" unless already set
  *
  * Argv: node proxy.mjs [--] <command> [args...]
@@ -27,7 +30,21 @@
 
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { acquireWriteLock, isWriteTool, defaultLockPath } from './write-lock.mjs'
+import {
+  acquireWriteLock,
+  isWriteTool,
+  defaultLockPath,
+  DEFAULT_LOCK_MAX_WAIT_MS,
+  DEFAULT_LOCK_RETRIES,
+  DEFAULT_LOCK_BACKOFF_MAX_MS,
+} from './write-lock.mjs'
+
+function parseEnvInt(name, fallback) {
+  const raw = process.env[name]
+  if (raw === undefined || raw === null || String(raw).trim() === '') return fallback
+  const n = parseInt(raw, 10)
+  return Number.isFinite(n) ? Math.max(0, n) : fallback
+}
 
 function parseChildLaunch() {
   const argv = process.argv.slice(2)
@@ -73,8 +90,11 @@ function toolNameFromRequest(req) {
 
 const { command, args } = parseChildLaunch()
 const lockPath = process.env.ABF_MEMPALACE_WRITE_LOCK || defaultLockPath()
-const lockRetries = Math.max(0, parseInt(process.env.ABF_MEMPALACE_WRITE_RETRIES || '10', 10) || 10)
-const toolRetries = Math.max(0, parseInt(process.env.ABF_MEMPALACE_TOOL_RETRIES || '5', 10) || 5)
+const lockRetries = parseEnvInt('ABF_MEMPALACE_WRITE_RETRIES', DEFAULT_LOCK_RETRIES)
+const lockMaxMs = parseEnvInt('ABF_MEMPALACE_LOCK_MAX_MS', DEFAULT_LOCK_MAX_WAIT_MS)
+const lockBackoffMaxMs = parseEnvInt('ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS', DEFAULT_LOCK_BACKOFF_MAX_MS)
+const toolRetries = parseEnvInt('ABF_MEMPALACE_TOOL_RETRIES', 40)
+const toolMaxMs = parseEnvInt('ABF_MEMPALACE_TOOL_MAX_MS', 120_000)
 
 const childEnv = { ...process.env }
 if (!('MEMPALACE_MCP_ALLOW_PEER_WRITER' in childEnv) || !String(childEnv.MEMPALACE_MCP_ALLOW_PEER_WRITER || '').trim()) {
@@ -85,7 +105,7 @@ delete childEnv.ABF_MEMPALACE_COMMAND
 delete childEnv.ABF_MEMPALACE_ARGS
 
 process.stderr.write(
-  `[mempalace-safe] proxy → ${command} ${args.join(' ')} (write-lock=${lockPath})\n`,
+  `[mempalace-safe] proxy → ${command} ${args.join(' ')} (write-lock=${lockPath}; lockRetries=${lockRetries}; lockMaxMs=${lockMaxMs}; toolRetries=${toolRetries}; toolMaxMs=${toolMaxMs})\n`,
 )
 
 const child = spawn(command, args, {
@@ -165,16 +185,27 @@ function forwardToClient(msg) {
   process.stdout.write(JSON.stringify(msg) + '\n')
 }
 
+function peerRetryBackoffMs(attempt) {
+  // longer sleeps than lock jitter so peer process-lease can clear
+  return Math.min(5000, 100 * 2 ** attempt)
+}
+
 async function handleWriteCall(req) {
   let lastPeerErr = null
+  const toolStart = Date.now()
+  const toolDeadline = toolMaxMs > 0 ? toolStart + toolMaxMs : Number.POSITIVE_INFINITY
+
   for (let attempt = 0; attempt <= toolRetries; attempt++) {
+    if (attempt > 0 && Date.now() >= toolDeadline) break
+
     let lock
     try {
       lock = await acquireWriteLock({
         lockPath,
         retries: lockRetries,
+        maxWaitMs: lockMaxMs,
         minMs: 50,
-        maxMs: 2000,
+        maxMs: lockBackoffMaxMs,
       })
     } catch (err) {
       const message =
@@ -196,22 +227,33 @@ async function handleWriteCall(req) {
       }
     }
 
+    let response
     try {
       sendToChild(req)
-      const response = await waitChildResponse(req.id)
-      if (isPeerLockResponse(response) && attempt < toolRetries) {
-        lastPeerErr = response
-        // brief pause so peer can release process-lifetime lease or finish write
-        await new Promise((r) => setTimeout(r, 50 * 2 ** attempt))
-        continue
-      }
-      return response
+      response = await waitChildResponse(req.id)
     } finally {
+      // always release before peer-lock backoff so other writers can proceed
       lock.release()
     }
+
+    if (!isPeerLockResponse(response)) {
+      return response
+    }
+
+    lastPeerErr = response
+    const canRetry = attempt < toolRetries && Date.now() < toolDeadline
+    if (!canRetry) {
+      return response
+    }
+    const sleepFor = peerRetryBackoffMs(attempt)
+    const remaining = toolDeadline - Date.now()
+    if (remaining <= 0) {
+      return response
+    }
+    await new Promise((r) => setTimeout(r, Math.min(sleepFor, remaining)))
   }
 
-  // Exhausted peer retries — return last child error (never invent success)
+  // Exhausted peer retries / deadline — return last child error (never invent success)
   if (lastPeerErr) return lastPeerErr
   return {
     jsonrpc: '2.0',

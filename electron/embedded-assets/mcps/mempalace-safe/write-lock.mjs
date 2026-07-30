@@ -11,6 +11,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+/** Default total wall-clock budget for lock acquire (multi-agent short contention). */
+export const DEFAULT_LOCK_MAX_WAIT_MS = 90_000
+/** High safety cap on acquire attempts; deadline usually binds first. */
+export const DEFAULT_LOCK_RETRIES = 200
+/** Minimum per-attempt backoff sleep. */
+export const DEFAULT_LOCK_BACKOFF_MIN_MS = 50
+/** Maximum per-attempt backoff sleep (not total wait). */
+export const DEFAULT_LOCK_BACKOFF_MAX_MS = 3000
+
 /** Mutating mempalace MCP tools (align with mempalace.service.WRITE_TOOLS + maintenance writers). */
 export const WRITE_TOOLS = new Set([
   'mempalace_add_drawer',
@@ -50,7 +59,7 @@ export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export function backoffMs(attempt, { minMs = 50, maxMs = 2000 } = {}) {
+export function backoffMs(attempt, { minMs = DEFAULT_LOCK_BACKOFF_MIN_MS, maxMs = DEFAULT_LOCK_BACKOFF_MAX_MS } = {}) {
   const exp = Math.min(maxMs, minMs * 2 ** attempt)
   // full jitter
   return Math.floor(Math.random() * exp)
@@ -94,19 +103,27 @@ function tryRemoveStale(lockPath, { staleMs = 120_000 } = {}) {
 
 /**
  * Acquire exclusive write lock.
+ * Retries until retries exhausted or wall-clock deadline (maxWaitMs) is hit.
  * @returns {{ release: () => void, attempts: number, lockPath: string }}
  */
 export async function acquireWriteLock(options = {}) {
   const lockPath = options.lockPath || defaultLockPath()
-  const retries = options.retries ?? 10
-  const minMs = options.minMs ?? 50
-  const maxMs = options.maxMs ?? 2000
+  const retries = options.retries ?? DEFAULT_LOCK_RETRIES
+  const minMs = options.minMs ?? DEFAULT_LOCK_BACKOFF_MIN_MS
+  const maxMs = options.maxMs ?? DEFAULT_LOCK_BACKOFF_MAX_MS
+  const maxWaitMs = options.maxWaitMs ?? DEFAULT_LOCK_MAX_WAIT_MS
   const staleMs = options.staleMs ?? 120_000
+
+  const start = Date.now()
+  // maxWaitMs === 0 → no wall-clock deadline (retries still cap); prefer both caps in normal use
+  const deadline = maxWaitMs > 0 ? start + maxWaitMs : Number.POSITIVE_INFINITY
 
   fs.mkdirSync(path.dirname(lockPath), { recursive: true })
 
   let lastErr = null
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  let attempts = 0
+  for (let attempt = 0; attempt <= retries && Date.now() < deadline; attempt++) {
+    attempts = attempt + 1
     try {
       const fd = fs.openSync(lockPath, 'wx', 0o600)
       try {
@@ -129,22 +146,32 @@ export async function acquireWriteLock(options = {}) {
           /* ignore */
         }
       }
-      return { release, attempts: attempt + 1, lockPath }
+      return { release, attempts, lockPath }
     } catch (err) {
       lastErr = err
       if (!err || err.code !== 'EEXIST') {
         throw err
       }
       tryRemoveStale(lockPath, { staleMs })
-      if (attempt >= retries) break
-      await sleep(backoffMs(attempt, { minMs, maxMs }))
+      // stop if next attempt would exceed retries or we are at/after deadline
+      if (attempt >= retries || Date.now() >= deadline) break
+      const sleepFor = backoffMs(attempt, { minMs, maxMs })
+      // do not sleep past deadline when maxWaitMs is finite
+      if (maxWaitMs > 0) {
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) break
+        await sleep(Math.min(sleepFor, remaining))
+      } else {
+        await sleep(sleepFor)
+      }
     }
   }
 
+  const waitedMs = Date.now() - start
   const meta = readLockMeta(lockPath)
   const holder = meta?.pid != null ? `pid ${meta.pid}` : 'unknown holder'
   const err = new Error(
-    `mempalace write lock busy (${holder}), retried ${retries + 1} times: ${lockPath}`,
+    `mempalace write lock busy (${holder}), retried ${attempts} times over ${waitedMs}ms: ${lockPath}`,
   )
   err.code = 'ABF_WRITE_LOCK_BUSY'
   err.cause = lastErr
