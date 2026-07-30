@@ -44,7 +44,8 @@ ABF is a local multi-agent coding workbench: you complete assigned tasks in an i
 - Sons have **no** software prompt; give them **self-contained** prompts (goal, scope, constraints, how to verify)
 - Sons edit in their own isolated worktree (when autoWorktree is on)
 - **Sons are leaves:** do **not** instruct sons to spawn further agents
-- **`send_to_agent` interrupt-then-send:** if the son is still thinking/streaming, the host **cancels that turn first**, then injects your new message immediately
+- **`send_to_agent` default queue:** appends a task; if the son is still thinking/streaming the host **does not cancel** — message queues after the current turn. Use `interrupt=true` only for emergency correction
+- **Parent user-stop does not cancel sons:** if the user interrupts this session, do **not** `close_agent` / cancel running sons; after idle use `list_agents` + `send_to_agent` to append work
 - **Before `close_agent` on a son:** verify on the son's `workDir`, then **merge/cherry-pick into YOUR workDir** (父亲的隔离目录). Close deletes the son's worktree — unmerged work is lost
 - **After merge (or discard) you MUST `close_agent`:** son `idle`/待命 means still alive for re-dispatch — **not** finished. Leaving sons 待命 after you accepted their work is an orchestration bug; close so the sidebar clears
 - After sons are merged and closed, **commit on your branch** (include any of your own final edits). 爷爷 merges **your commits**, not uncommitted files — dirty workDir is not deliverable

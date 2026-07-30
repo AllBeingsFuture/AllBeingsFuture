@@ -135,7 +135,7 @@ Adapter BridgeEvent
 | 工具 | 作用 |
 |------|------|
 | `spawn_agent` | 异步创建持久子 Agent（默认 `wait=false`） |
-| `send_to_agent` | interrupt-then-send 投递消息 |
+| `send_to_agent` | 默认 queue 追加任务；`interrupt=true` 才打断当前回合 |
 | `list_agents` / `get_agent_status` / `get_agent_output` | 列表与状态/输出 |
 | `wait_agent_idle` | 等待当前 turn 结束 |
 | `close_agent` | 终止子 Agent 并清理其隔离 worktree（**关闭前须合并成果**） |

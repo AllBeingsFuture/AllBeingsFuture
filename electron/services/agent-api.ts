@@ -205,6 +205,10 @@ export class AgentApi {
     if (!childSessionId) throw new Error('childSessionId required')
     if (!message) throw new Error('message required')
 
+    // Only explicit interrupt=true cancels the child's current turn.
+    const interrupt = body.interrupt === true
+    const sendOpts = { interrupt }
+
     // Default: deliver only (parent stays free). wait=true blocks for the turn result.
     if (wait === true) {
       const timeoutMs = typeof timeout === 'number' && timeout > 0 ? timeout : 300_000
@@ -213,11 +217,12 @@ export class AgentApi {
         childSessionId,
         message,
         timeoutMs,
+        sendOpts,
       )
       return { success: true, result, waited: true }
     }
 
-    await this.processService.sendToChild(parentSessionId, childSessionId, message)
+    await this.processService.sendToChild(parentSessionId, childSessionId, message, sendOpts)
     return { success: true, delivered: true, waited: false }
   }
 

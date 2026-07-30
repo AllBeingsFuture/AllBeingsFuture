@@ -249,7 +249,7 @@ export class ProcessService {
 
   /**
    * Cancel the active turn without destroying the session adapter.
-   * Used by parent→child send_to_agent (interrupt-then-send).
+   * Used by parent→child send_to_agent only when interrupt=true (opt-in).
    * Does NOT unregister concurrency, destroy adapter, or clean supervisor prompts.
    */
   /** If session is a persistent child, push tracker status=running to the parent UI. */
@@ -1325,9 +1325,10 @@ export class ProcessService {
   }
 
   /**
-   * @param opts.interrupt When true (parent→child send_to_agent path): if the
-   *   session is streaming, cancel the current turn first, then send immediately.
-   *   Does not use queue_after_turn. UI self-messages leave this false (default).
+   * @param opts.interrupt When true: cancel the current turn first, then send
+   *   immediately (no queue_after_turn). Default false: idle → send now;
+   *   streaming → MessageScheduler queue_after_turn. Used by send_to_agent only
+   *   when callers pass interrupt=true (emergency correction).
    */
   async sendMessage(
     sessionId: string,
@@ -1337,7 +1338,7 @@ export class ProcessService {
     const state = this.getOrCreateState(sessionId)
     const scheduler = this.getOrCreateScheduler(sessionId)
 
-    // Parent→child: interrupt-then-send (never queue behind an active turn)
+    // Optional interrupt-then-send (explicit only)
     if (opts?.interrupt) {
       await this.interruptCurrentTurn(sessionId)
     }
@@ -1528,8 +1529,9 @@ export class ProcessService {
     this.stateInference.removeSession(sessionId)
     // Keep stream sequence counters for the session lifetime so the renderer
     // continues to accept later turns (sequences must stay strictly increasing).
-    // Cancel all sub-agents when parent is stopped (including persistent)
-    this.agentLifecycle.finalizeChildAgents(sessionId, 'cancelled', false)
+    // Do NOT cascade-cancel sub-agents on ordinary stop / user interrupt.
+    // Children keep running; parent can list_agents / send_to_agent after idle.
+    // True teardown (disposeSession / session delete) still finalizes children.
     // Do not remove software-prompt files here — stop only cancels the turn;
     // adapter/session may be reused and CLI agents re-read AGENTS.md from disk.
   }
@@ -1617,8 +1619,9 @@ export class ProcessService {
     parentSessionId: string,
     childSessionId: string,
     message: string,
+    opts?: { interrupt?: boolean },
   ): Promise<void> {
-    return this.agentLifecycle.sendToChild(parentSessionId, childSessionId, message)
+    return this.agentLifecycle.sendToChild(parentSessionId, childSessionId, message, opts)
   }
 
   async sendToChildAndWait(
@@ -1626,8 +1629,15 @@ export class ProcessService {
     childSessionId: string,
     message: string,
     timeoutMs = 300_000,
+    opts?: { interrupt?: boolean },
   ): Promise<string> {
-    return this.agentLifecycle.sendToChildAndWait(parentSessionId, childSessionId, message, timeoutMs)
+    return this.agentLifecycle.sendToChildAndWait(
+      parentSessionId,
+      childSessionId,
+      message,
+      timeoutMs,
+      opts,
+    )
   }
 
   async closeChildSession(parentSessionId: string, childSessionId: string): Promise<void> {

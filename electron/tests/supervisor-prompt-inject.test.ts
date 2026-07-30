@@ -172,19 +172,29 @@ test('process.ts persistent child done injects result to parent (not only non-pe
   assert.match(block, /Skipping persistent-child idle finalize after interrupt|doneIsFromInterrupt/)
 })
 
-test('sendToChild: interrupt then running then send (no interrupt on send) for 二次派发 status', () => {
+test('sendToChild: default queue (no forced interrupt); optional interrupt then running then send', () => {
   const lifecyclePath = path.join(electronRoot, 'services/agent-lifecycle.ts')
   const lifecycle = readFileSync(lifecyclePath, 'utf8')
   const block = lifecycle.match(/async sendToChild\([\s\S]*?async sendToChildAndWait/)
   assert.ok(block, 'expected sendToChild body')
   const body = block[0]
-  const interruptAt = body.indexOf('interruptTurn')
+  assert.match(body, /opts\?\.interrupt === true/)
+  assert.match(body, /if \(interrupt\)/)
   const runningAt = body.indexOf('updatePersistentAgentStatus')
   const sendAt = body.lastIndexOf('sendMessage')
-  assert.ok(interruptAt >= 0, 'must interrupt first')
-  assert.ok(runningAt > interruptAt, 'running after interrupt')
+  assert.ok(runningAt >= 0, 'running status')
   assert.ok(sendAt > runningAt, 'send after running')
   assert.doesNotMatch(body, /sendMessage\([^)]*interrupt:\s*true/)
+})
+
+test('stopProcess must not finalizeChildAgents cancelled; dispose still finalizes', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  const stopMatch = source.match(
+    /async stopProcess\(sessionId: string\): Promise<void> \{[\s\S]*?\n  \}/,
+  )
+  assert.ok(stopMatch, 'expected stopProcess method')
+  assert.doesNotMatch(stopMatch[0], /finalizeChildAgents/)
+  assert.match(source, /async disposeSession[\s\S]*?finalizeChildAgents\(sessionId, 'cancelled'/)
 })
 
 test('sendMessage dual-insurance marks persistent child running when turn starts', () => {
