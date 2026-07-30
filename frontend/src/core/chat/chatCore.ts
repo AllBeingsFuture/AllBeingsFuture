@@ -89,7 +89,8 @@ function resolveWorktreePath(worktree: WorktreeCreateResult | null | undefined) 
   return worktree.worktreePath || worktree.path || ''
 }
 
-function mergeLoadedSessions(existing: Session[], incoming: Session[]) {
+/** Merge GetAll results with local runtime status (starting/running). Store applies this with latest state. */
+export function mergeLoadedSessions(existing: Session[], incoming: Session[]) {
   const runtimeStatuses = new Map<string, Session['status']>()
   for (const session of existing) {
     if (ACTIVE_RUNTIME_STATUSES.has(session.status)) runtimeStatuses.set(session.id, session.status)
@@ -436,14 +437,16 @@ export const chatCore = {
     return changed ? nextSessions : sessions
   },
 
-  async load(snapshot: ChatSnapshot) {
+  /** Fetch sessions from backend. Caller merges with latest store state (see mergeLoadedSessions). */
+  async load() {
     const sessions = await SessionService.GetAll()
-    return { sessions: mergeLoadedSessions(snapshot.sessions, sessions ?? []) }
+    return sessions ?? []
   },
 
-  async create(snapshot: ChatSnapshot, config: SessionConfig) {
+  /** Create a session. Caller applies functional store update — do not splice from a stale snapshot. */
+  async create(_snapshot: ChatSnapshot, config: SessionConfig) {
     const session = config.worktreeEnabled ? await createSessionWithWorktree(config) : await SessionService.Create(config)
-    return session ? { session, patch: { sessions: [session, ...snapshot.sessions] } } : { session: null, patch: null }
+    return { session: session ?? null }
   },
 
   select(snapshot: ChatSnapshot, id: string | null) {

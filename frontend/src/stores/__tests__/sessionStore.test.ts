@@ -44,7 +44,12 @@ vi.mock('../../../bindings/allbeingsfuture/internal/services/processservice', ()
   ListAllAgents: serviceMocks.processApi.ListAllAgents,
 }))
 
-import { disposeAgentStreamBatches, flushAgentStreamBatches, useSessionStore } from '../sessionSnapshotStore'
+import {
+  disposeAgentStreamBatches,
+  flushAgentStreamBatches,
+  resetSessionsEpochForTests,
+  useSessionStore,
+} from '../sessionSnapshotStore'
 import { useGitStore } from '../gitStore'
 import { useDraftStore } from '../draftStore'
 
@@ -79,6 +84,7 @@ function makeSession(overrides: Partial<Session> & { messagesJson?: string; pare
 
 function resetStore() {
   disposeAgentStreamBatches()
+  resetSessionsEpochForTests()
   useSessionStore.setState({
     sessions: [],
     selectedId: null,
@@ -1031,5 +1037,84 @@ describe('sessionStore runtime status sync', () => {
     expect(serviceMocks.sessionService.GetAll).toHaveBeenCalled()
     expect(result?.success).toBe(true)
     expect(useSessionStore.getState().sessions[0]).toEqual(mergedSession)
+  })
+})
+
+describe('sessionStore load/create race', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
+    resetStore()
+    resetGitStore()
+  })
+
+  it('does not drop sessions created while load GetAll is in flight', async () => {
+    const existing = makeSession({ id: 'old', name: 'Old' })
+    const created = makeSession({ id: 'new', name: 'New' })
+    useSessionStore.setState({ sessions: [existing] })
+
+    let resolveGetAll!: (value: Session[]) => void
+    serviceMocks.sessionService.GetAll.mockReturnValue(
+      new Promise<Session[]>(resolve => {
+        resolveGetAll = resolve
+      }),
+    )
+    serviceMocks.sessionService.Create.mockResolvedValue(created)
+
+    const loadPromise = useSessionStore.getState().load()
+    const createdSession = await useSessionStore.getState().create({
+      name: 'New',
+      workingDirectory: 'C:/repo',
+      providerId: 'codex',
+    } as any)
+
+    expect(createdSession?.id).toBe('new')
+    expect(useSessionStore.getState().sessions.some(s => s.id === 'new')).toBe(true)
+
+    // Stale GetAll: server list still missing the newly created session.
+    resolveGetAll([existing])
+    await loadPromise
+
+    const ids = useSessionStore.getState().sessions.map(s => s.id)
+    expect(ids).toContain('new')
+    expect(ids).toContain('old')
+    expect(useSessionStore.getState().loading).toBe(false)
+  })
+
+  it('create functional update keeps other sessions already in the store', async () => {
+    const keepA = makeSession({ id: 'keep-a', name: 'Keep A' })
+    const keepB = makeSession({ id: 'keep-b', name: 'Keep B' })
+    const created = makeSession({ id: 'created', name: 'Created' })
+    useSessionStore.setState({ sessions: [keepA, keepB] })
+
+    // Simulate create await window where store already has concurrent sessions.
+    let resolveCreate!: (value: Session) => void
+    serviceMocks.sessionService.Create.mockReturnValue(
+      new Promise<Session>(resolve => {
+        resolveCreate = resolve
+      }),
+    )
+
+    const createPromise = useSessionStore.getState().create({
+      name: 'Created',
+      workingDirectory: 'C:/repo',
+      providerId: 'codex',
+    } as any)
+
+    // Another session appears while Create is in flight (e.g. agent child load path).
+    const concurrent = makeSession({ id: 'concurrent', name: 'Concurrent' })
+    useSessionStore.setState(state => ({
+      sessions: [concurrent, ...state.sessions],
+    }))
+
+    resolveCreate(created)
+    const result = await createPromise
+
+    expect(result?.id).toBe('created')
+    const ids = useSessionStore.getState().sessions.map(s => s.id)
+    expect(ids).toContain('created')
+    expect(ids).toContain('keep-a')
+    expect(ids).toContain('keep-b')
+    expect(ids).toContain('concurrent')
   })
 })

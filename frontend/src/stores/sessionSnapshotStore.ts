@@ -3,6 +3,7 @@ import type { ChatMessage, Session, SessionConfig } from '../../bindings/allbein
 import {
   chatCore,
   collectSessionSubtreeIds,
+  mergeLoadedSessions,
   type AgentInfo,
   type ParentBinding,
   type ChatUpdateEvent,
@@ -81,6 +82,12 @@ function createStoreAgentStreamBatcher() {
 
 let agentStreamBatcher = createStoreAgentStreamBatcher()
 
+/**
+ * Bumped on local sessions-set mutations (create/remove) so in-flight load()
+ * that started with a stale GetAll cannot overwrite newer local state.
+ */
+let sessionsEpoch = 0
+
 /** Drain pending stream batches (tests / teardown). */
 export function flushAgentStreamBatches(sessionId?: string): void {
   agentStreamBatcher.flush(sessionId)
@@ -90,6 +97,11 @@ export function flushAgentStreamBatches(sessionId?: string): void {
 export function disposeAgentStreamBatches(): void {
   agentStreamBatcher.dispose()
   agentStreamBatcher = createStoreAgentStreamBatcher()
+}
+
+/** Reset sessions epoch (tests only). */
+export function resetSessionsEpochForTests(): void {
+  sessionsEpoch = 0
 }
 
 export const useSessionStore = create<SessionState>((set, get) => {
@@ -148,9 +160,15 @@ export const useSessionStore = create<SessionState>((set, get) => {
   pendingFlushInFlight: {},
 
   load: async () => {
+    const epochAtStart = sessionsEpoch
     set({ loading: true })
     try {
-      set(await chatCore.load(snapshotOf(get())))
+      const incoming = await chatCore.load()
+      // Discard stale GetAll if create/remove mutated sessions while we awaited.
+      if (epochAtStart !== sessionsEpoch) return
+      set(current => ({
+        sessions: mergeLoadedSessions(current.sessions, incoming),
+      }))
     } finally {
       set({ loading: false })
     }
@@ -159,7 +177,13 @@ export const useSessionStore = create<SessionState>((set, get) => {
   create: async (config) => {
     try {
       const result = await chatCore.create(snapshotOf(get()), config)
-      if (result.patch) set(result.patch)
+      if (result.session) {
+        const session = result.session
+        sessionsEpoch++
+        set(current => ({
+          sessions: [session, ...current.sessions.filter(s => s.id !== session.id)],
+        }))
+      }
       return result.session
     } catch (err) {
       console.error('SessionService.Create failed:', err)
@@ -209,6 +233,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const before = get()
     const targetIds = collectSessionSubtreeIds(before.sessions, id)
     const patch = await chatCore.remove(snapshotOf(before), id)
+    sessionsEpoch++
     set(current => {
       const agentStreams = { ...current.agentStreams }
       const agentStreamMessages = { ...current.agentStreamMessages }
@@ -216,10 +241,16 @@ export const useSessionStore = create<SessionState>((set, get) => {
         delete agentStreams[sessionId]
         delete agentStreamMessages[sessionId]
       }
+      // Prefer current sessions filtered by targetIds so concurrent creates are not dropped.
+      const sessions = current.sessions.filter(session => !targetIds.has(session.id))
+      const resetSelection = current.selectedId != null && targetIds.has(current.selectedId)
       return {
         ...patch,
+        sessions,
+        selectedId: resetSelection ? null : current.selectedId,
         agentStreams,
         agentStreamMessages,
+        ...(resetSelection ? { messages: [], streaming: false, chatError: '' } : {}),
       }
     })
   },
