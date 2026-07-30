@@ -1,391 +1,399 @@
-# AllBeingsFuture
+# AllBeingsFuture (ABF)
 
-AllBeingsFuture 是一个面向多 Agent 协作场景的桌面 AI 工作台，基于 Electron + React 构建，聚焦于把不同 AI Provider、会话、子 Agent、MCP、Skill、Git Worktree 和本地开发环境整合到同一个应用里。
+**本地多 Agent 编程工作台** — Electron + React 桌面应用，在统一 UI 中管理多 AI Provider 会话、MCP、Skills、Git Worktree 与父子 Agent 编排。
 
-当前版本：`v1.5.0`
+- **版本：** 1.5.0  
+- **仓库：** [github.com/AllBeingsFuture/AllBeingsFuture](https://github.com/AllBeingsFuture/AllBeingsFuture)  
+- **许可：** [PolyForm Noncommercial License 1.0.0](./LICENSE)  
+- **appId：** `com.allbeingsfuture.app`
 
-仓库地址：
+---
 
-- GitHub: `https://github.com/AllBeingsFuture/AllBeingsFuture`
-- Gitee: `https://gitee.com/AllBeingsFuture/AllBeingsFuture`
+## 1. 项目定位
 
-## 项目定位
+AllBeingsFuture 不是单一聊天客户端，而是面向「主 Agent（Supervisor）编排 + Worker 实现」的本地工作台：
 
-这个项目不是单纯的聊天壳子，而是一个偏工程化的 AI 协作桌面端，目标是解决下面几类问题：
+- 统一接入多种 **CLI Agent（ACP v1 / stdio）** 与 **OpenAI 兼容 HTTP API**
+- 会话、消息、Provider、MCP、Skills 等状态落在本地 SQLite
+- 子 Agent 可走 **Git Worktree 隔离**，并通过内置 **`agent-control` MCP** 完成 spawn / send / close 编排
+- 前端对流式输出做 **协议归一化后的统一渲染**（不按厂商分 UI）
 
-- 同时管理多个 AI Provider，不在不同 CLI、网页和窗口之间来回切换
-- 让主 Agent 可以派生子 Agent，并把执行过程、消息和工具调用收敛到统一界面
-- 把 MCP、Skill、Prompt 注入、会话持久化和工作区隔离做成内建能力
-- 面向真实代码仓库工作，支持 Git Worktree、文件浏览、Diff、终端和会话恢复
+角色分层（与 `resources/prompts/`、运行时 MCP 策略一致）：
 
-## 核心能力
+```
+爷爷 (Supervisor / top-level)  — 调度、验收、合并
+  └─ 父亲 (Worker / direct-child) — 编排儿子 + 必要时实现
+       └─ 儿子 (nested-child)     — 叶子实现者，不再 spawn
+```
 
-- 多 Provider 统一调度：内置 `Claude Code`、`Codex CLI`、`Gemini CLI`、`OpenCode`
-- 多 Agent 协作：支持 Supervisor 派生子 Agent，会话关系持久化
-- Provider 适配层：不同 CLI/SDK 输出统一解析为结构化事件和 UI 活动流
-- MCP 集成：内置 `agent-control`、`web-search`、`chrome-devtools` 等 MCP Server
-- Skill 系统：项目自带大量 Skill 模板，支持 Prompt 模板、变量和兼容 Provider 控制
-- Git Worktree 隔离：适合多任务并行开发，减少不同 Agent 修改同一工作区的冲突
-- 会话持久化：Provider、Session、Task、Workflow、Mission、Team、Skill、MCP 配置全部本地保存
-- 开发工具链：内置终端、文件浏览、Monaco 编辑/查看、消息流、活动时间线、搜索和历史面板
-- 数据可追踪：支持会话状态、子 Agent 生命周期、文件变更和使用量统计
+---
 
-## 技术栈
+## 2. 核心能力
 
-| 层级 | 技术 |
-| --- | --- |
-| 桌面运行时 | Electron 33 |
-| 前端 | React 18 + TypeScript 5.7 + Vite 6 |
-| 状态管理 | Zustand 5 |
-| UI 能力 | TailwindCSS 3 + Framer Motion + Allotment + Monaco |
-| 本地数据 | better-sqlite3（SQLite） + electron-store |
-| 进程 | Node.js child_process（ACP Agent/Provider CLI stdio） |
-| Provider 接入 | Claude Agent SDK、CLI subprocess、JSON-RPC app server |
-| 打包 | electron-builder |
-| 测试 | Vitest + JSDOM + Testing Library |
+| 能力 | 说明 |
+|------|------|
+| 多 Provider | 内置 8 个 CLI Agent 预设（全部 ACP）；另支持用户配置 `openai-api` |
+| 统一流式 | 后端 `AgentStreamNormalizer` → IPC `agent:stream` → 前端统一消息/工具/权限 UI |
+| 多 Agent | `agent-control` MCP：`spawn_agent` / `send_to_agent` / `list_agents` / `close_agent` 等 |
+| Worktree | `autoWorktree` 开启时子 Agent 在 `.allbeingsfuture-worktrees/` 下隔离 |
+| MCP | 用户自配 MCP；会话策略按三代角色注入；mempalace 类 server 可自动经 safe proxy |
+| Skills | 应用内安装 / 自定义（非内置 seed）；斜杠命令与模板展开 |
+| 会话工作台 | 会话列表、对话区、Provider 管理、工作区设置、日志与反馈等 |
 
-## 支持的 Provider
+---
 
-ABF 通过 `BridgeManager` 管理不同 Provider 适配器。当前内置 Provider 与通信方式如下：
+## 3. 技术栈
 
-| Provider | 内置 ID | Adapter | 通信方式 | MCP 支持 | 典型用途 |
-| --- | --- | --- | --- | --- | --- |
-| Claude Code | `claude-code` | `claude-sdk` | in-process SDK | 原生支持 | 复杂任务、Supervisor 调度、多文件重构 |
-| Codex CLI | `codex` | `codex-appserver` | subprocess JSON-RPC | 通过 Prompt 降级注入 | 写代码、修 bug、实现功能 |
-| Gemini CLI | `gemini-cli` | `gemini-headless` | CLI subprocess | 通过 Prompt 降级注入 | 大文件分析、代码审查、总结 |
-| OpenCode | `opencode` | `opencode-sdk` | CLI / SDK | 原生支持 | 代码生成与补全 |
+对照根目录与 `frontend/package.json`（当前 **1.5.0**）：
+
+| 层 | 技术 |
+|----|------|
+| 桌面壳 | **Electron ^39**、`electron-builder` ^25 |
+| 主进程 | TypeScript 5.7、`@agentclientprotocol/sdk` 1.3.0、ACP wrapper 包、`zod`、`uuid` |
+| 渲染层 | React 18、Vite 6、Zustand 5、Tailwind 3、allotment、react-markdown |
+| 测试 | 后端：`node --test`（`npm run test:backend`）；前端：Vitest 3 + Testing Library（`cd frontend && npm test`） |
+| 协议 | 内置 CLI：**ACP v1 stdio（NDJSON JSON-RPC）**；兼容 API：HTTP Chat Completions |
+
+主进程入口：`electron/main.ts` → 编译产物 `electron/dist/main.js`。  
+打包产物目录：`release/`（Windows NSIS / macOS DMG）。
+
+---
+
+## 4. 架构
+
+### 4.1 主链路
+
+```
+Renderer (React)
+  window.electronAPI.invoke / on
+        │
+        ▼
+Preload (contextIsolation)
+        │
+        ▼
+ipc/handlers + 各 *Service
+        │
+        ├─ SessionService     会话元数据、父子关系、worktree 字段
+        ├─ ProcessService     启停、消息、流、权限、多 Agent 编排
+        ├─ ProviderService    Provider CRUD / 内置 seed
+        ├─ BridgeManager      按 adapterType 创建适配器
+        │       ├─ AcpAdapter      （stdio ACP v1）
+        │       └─ OpenAIAdapter   （HTTP，无 CLI）
+        └─ 其它：MCP / Skill / Git / Mission / Workflow / Team …
+```
+
+启动要点（`electron/main.ts`）：
+
+1. 单实例锁 → `Database` → `BridgeManager`
+2. 注册 IPC handlers（Session / Process / Provider / …）
+3. 创建 BrowserWindow（preload：`preload.cjs` / dev 下编译后的 preload）
+4. 开发加载 `http://localhost:5173`，生产加载打包后的 frontend
+
+### 4.2 适配器（现役 vs 已退休）
+
+**磁盘上现役适配器只有两个：**
+
+| adapterType | 实现 | 用途 |
+|-------------|------|------|
+| `acp` | `electron/bridge/adapters/acp.ts` | 全部内置 CLI Agent + 自定义 ACP |
+| `openai-api` | `electron/bridge/adapters/openai.ts` | OpenAI 兼容 HTTP（非 agent 工具循环） |
+
+**已退休（迁移/别名到 `acp`，不要当现役架构写）：**
+
+- `claude-sdk`
+- `codex-appserver`
+- `gemini-headless`
+- `opencode-sdk`
+
+启动时会对历史内置行做幂等升级（`adapter_type=acp` + 规范 command/args）。
+
+### 4.3 流式归一
+
+```
+Adapter BridgeEvent
+  → ProcessService
+  → AgentStreamNormalizer.normalize(sessionId, event)   # 单调 sequence
+  → webContents.send('agent:stream', AgentStreamEvent)
+  → frontend agentStreamIpc / agentStreamCore
+  → ConversationView 统一渲染
+```
+
+主要事件类型：`text_delta`、`thinking_update`、`tool_call` / `tool_update`、`plan`、`status`、`permission_request`、`done` / `error` / `cancelled`。
+
+要点：
+
+- 前端 **不** 依赖 ACP SDK，**不** 按厂商分 UI
+- 并存遗留通道 `chat:update` / `chat:patch`；归一流活跃时以前端 snapshot 规则为准
+- 子 Agent 侧栏状态走 `agent:update`（与 `agent:stream` 分离）
+
+### 4.4 子 Agent 与 agent-control
+
+内置 runtime MCP：`electron/embedded-assets/mcps/agent-control/`（打包到 `resources/mcps/agent-control`）。
+
+工具（经本地 `AgentApi` HTTP，仅 `127.0.0.1`）：
+
+| 工具 | 作用 |
+|------|------|
+| `spawn_agent` | 异步创建持久子 Agent（默认 `wait=false`） |
+| `send_to_agent` | interrupt-then-send 投递消息 |
+| `list_agents` / `get_agent_status` / `get_agent_output` | 列表与状态/输出 |
+| `wait_agent_idle` | 等待当前 turn 结束 |
+| `close_agent` | 终止子 Agent 并清理其隔离 worktree（**关闭前须合并成果**） |
+| `list_sessions` / `get_session_summary` / `search_sessions` | 跨会话感知 |
+
+**会话 MCP 策略（`session-mcp-policy.ts`）：**
+
+| 角色 | agent-control |
+|------|----------------|
+| top-level（爷爷） | 可注入 |
+| direct-child（父亲） | 可注入 |
+| nested-child（儿子） | **永不**注入（叶子） |
+
+Worktree 路径（`autoWorktree` + 父目录为 git 仓）：
+
+```text
+{repoRoot}/.allbeingsfuture-worktrees/{safeName}
+```
+
+兼容清理旧前缀 `.abf-worktrees/`。`close_agent` 仅删除 managed 子 worktree，不碰父目录与主仓。
+
+---
+
+## 5. 支持的 Provider
+
+内置 seed 以 `BUILTIN_PROVIDER_DEFAULTS`（`electron/services/provider-defaults.ts`）为准。**全部 `adapterType: acp`**，经共享 `AcpAdapter`。
+
+| id | 名称 | adapter | command | 默认 args | 备注 |
+|----|------|---------|---------|-----------|------|
+| `grok-build` | Grok Build | `acp` | `grok` | `agent stdio` | 默认 sortOrder 第一；可设 `GROK_PATH` |
+| `claude-code` | Claude Code | `acp` | `claude-agent-acp` | （空） | 官方包 `@agentclientprotocol/claude-agent-acp`，应用依赖 + asarUnpack |
+| `codex` | Codex CLI | `acp` | `codex-acp` | （空） | 官方包 `@agentclientprotocol/codex-acp`；本地 `codex` 可经 `CODEX_PATH` 供 wrapper |
+| `gemini-cli` | Gemini CLI | `acp` | `gemini` | `--acp` | 原生 ACP |
+| `opencode` | OpenCode | `acp` | `opencode` | `acp` | 子命令，不是 `--acp` |
+| `qwen-code` | Qwen Code | `acp` | `qwen` | `--acp --experimental-skills` | |
+| `kimi-cli` | Kimi CLI | `acp` | `kimi` | `acp` | 子命令 `kimi acp` |
+| `github-copilot` | GitHub Copilot CLI | `acp` | `copilot` | `--acp` | |
+
+**非内置 seed、运行时支持：**
+
+| 类型 | 说明 |
+|------|------|
+| `openai-api` | 用户自定义 HTTP；`OPENAI_API_KEY` / `OPENAI_BASE_URL` 等；当前实现为非流式 Chat Completions，无 native MCP |
 
 说明：
 
-- 内置 Provider 只是默认适配配置，不代表应用自带所有外部 CLI 的登录态和可执行文件
-- `Claude Code`、`Codex CLI`、`Gemini CLI`、`OpenCode` 需要你本机对应命令可用，或在设置里显式填写可执行路径
-- Provider 配置保存在本地 SQLite 的 `providers` 表中，可在应用内开启/禁用、调整命令、模型、参数和环境变量
+- Claude / Codex **不是**「随便装全局 `claude`/`codex` 就等于内置预设」——内置启动命令是 **`claude-agent-acp` / `codex-acp`**
+- UI 徽章：ACP 显示 **「ACP v1 / stdio」**；OpenAI 显示 **「OpenAI API」**
+- `iflow` 等仅作展示/能力兼容，**不在**内置 seed 表
 
-## 系统要求
+---
 
-推荐环境：
+## 6. 系统要求
 
-- Windows 10 / 11
-- Node.js `20` 或 `22`
-- npm
-- Git
+| 项 | 说明 |
+|----|------|
+| 操作系统 | macOS / Windows 桌面（Electron 39；有 mac arm64/x64 与 Windows NSIS 打包脚本） |
+| Node.js | 建议 **20 或 22+**（仓库未写死 `engines`；`@types/node` ^22） |
+| 外置 CLI | 按所用 Provider 安装对应 CLI（如 `grok`、`gemini`、`opencode`、`qwen`、`kimi`、`copilot` 等）并保证在 PATH 中 |
+| 打包 macOS | `electron-builder` 可能需要本机 Python（脚本中设置 `PYTHON_PATH=/usr/bin/python3`） |
 
-可选但常见的额外依赖：
+---
 
-- `claude`
-- `codex`
-- `gemini`
-- `opencode`
+## 7. 安装与开发
 
-如果你不是从源码运行，而是直接使用安装包，仍然建议确保对应 Provider 的 CLI 已安装并完成认证，否则应用启动后可以打开界面，但相关 Provider 无法真正执行任务。
-
-## 快速开始
-
-### 方式一：直接使用安装包
-
-1. 从 GitHub Releases 或预发布页面下载 Windows 安装包
-2. 安装后启动应用
-3. 在设置页检查 Provider 命令或可执行路径
-4. 创建新会话，选择工作目录并开始使用
-
-### 方式二：从源码运行
+### 7.1 安装依赖
 
 ```bash
-npm install
+# 仓库根目录
+npm install          # postinstall 会自动 frontend npm install
+# 或手动
+cd frontend && npm install && cd ..
+```
+
+### 7.2 开发
+
+```bash
+# 同时启动 Electron 主进程 + Vite 渲染层
 npm run dev
+
+# 仅渲染 / 仅主进程
+npm run dev:renderer
+npm run dev:electron
 ```
 
-常用命令：
+开发时渲染层默认：`http://localhost:5173`。
+
+### 7.3 构建
 
 ```bash
-npm run build      # 构建 renderer + electron
-npm run pack       # 打包 Windows NSIS 安装包
-npm run pack:mac   # 本地打包 macOS（仓库已配置目标，但当前 CI 主要产出 Windows 包）
+npm run build                 # renderer + electron
+npm run build:renderer        # frontend: tsc && vite build
+npm run build:electron        # electron tsc + scripts/minify-electron.mjs
 ```
 
-前端单测：
+### 7.4 测试
 
 ```bash
-cd frontend
-npm test
+# 后端（主进程）测试
+npm run test:backend
+
+# 前端测试
+cd frontend && npm test
+# 或监听模式
+cd frontend && npm run test:watch
 ```
 
-## 首次使用建议流程
+### 7.5 打包
 
-1. 安装并登录你需要的 Provider CLI
-2. 打开应用，在设置页检查 Provider 列表
-3. 对每个 Provider 视情况配置：
-   - `Command`
-   - `Executable Path`
-   - `Default Model`
-   - `Reasoning Effort`
-   - `Environment Overrides`
-4. 创建会话时选择工作目录，并指定 Provider
-5. 如果是代码仓库任务，建议启用 Git Worktree 隔离
-6. 如果需要子 Agent、网页搜索或浏览器自动化，确认对应 MCP 已启用
+```bash
+npm run pack                  # Windows NSIS → release/
+npm run pack:mac              # macOS arm64 + x64 DMG
+npm run pack:mac:arm64
+npm run pack:mac:x64
+```
 
-## 应用内主要模块
+`electron-builder` 会把 frontend 产物、`agent-control`、`mempalace-safe`、`resources/prompts` 等写入 extraResources。
 
-前端主要由以下几个功能域组成：
+---
 
-- `conversation`：聊天界面、消息气泡、流式输出、工具调用展示
-- `layout`：三栏布局、活动栏、历史面板、搜索面板、状态栏
-- `sessions`：会话创建、会话列表、当前会话工作区
-- `file-manager` / `files`：文件浏览、快速打开、Monaco 查看器、Diff
-- `terminal`：集成终端
-- `dashboard` / `usage`：使用量与统计视图
-- `kanban`：任务看板
-- `workflow`：多步骤工作流
-- `mission`：任务编排与执行
-- `teams`：团队模板与 Agent Team 模式
-- `settings`：Provider、通知、代理、语言、Worktree、更新等设置
+## 8. 首次使用
 
-## MCP 与 Skill
+1. **启动应用**（开发：`npm run dev`；或安装打包产物）。
+2. **设置 → AI Provider**：确认要用的内置 Provider 已启用；CLI 类需本机可执行文件可用（必要时填可执行路径 / 环境变量）。
+3. **设置 → 工作区**：选择默认工作目录；按需开启 **autoWorktree**（默认倾向开启）。
+4. **新建会话**：在会话侧栏创建会话，选择 Provider 与工作目录。
+5. **对话**：发送任务；工具调用、思考、权限请求在统一对话 UI 中展示。
+6. **多 Agent**：在支持 agent-control 注入的会话（爷爷/父亲）中，由 Agent 通过 MCP 工具 spawn 子 Agent；验收后合并 worktree 再 `close_agent`。
+7. **MCP / Skills**：在应用内配置用户 MCP 与 Skills（非 Settings 内旧 catalog 页；侧栏/能力选择器路径以当前 UI 为准）。
 
-### 内置 MCP
+默认设置倾向（DB 缺省）：`autoWorktree=true`、中文回复偏好、深色主题等——以 `SettingsService` / 库内 `settings` 为准。
 
-仓库自带 MCP 配置目录：
+---
+
+## 9. 项目目录结构
 
 ```text
-mcps/
-├── agent-control/
-├── chrome-devtools/
-└── web-search/
+.
+├── package.json                 # 应用 1.5.0、脚本、electron-builder
+├── LICENSE                      # PolyForm Noncommercial 1.0.0
+├── AGENTS.md                    # Worker 侧产品/协作规则入口
+├── appicon.icns / appicon.ico
+├── docs/
+│   └── acp-architecture.md      # ACP 架构说明（若与代码冲突以代码为准）
+├── resources/prompts/
+│   ├── abf-supervisor.md        # 爷爷角色提示
+│   └── abf-worker.md            # 父亲角色提示
+├── scripts/
+│   └── minify-electron.mjs
+├── electron/
+│   ├── main.ts                  # 主进程入口
+│   ├── preload.ts / preload.cjs
+│   ├── bridge/                  # BridgeManager、AcpAdapter、OpenAIAdapter、runtime
+│   ├── ipc/handlers.ts
+│   ├── parser/                  # 输出解析 / 状态推断
+│   ├── services/                # session、process、provider、mcp、skill、git…
+│   ├── tracker/
+│   ├── embedded-assets/
+│   │   ├── mcps/
+│   │   │   ├── agent-control/   # 子 Agent 编排 MCP
+│   │   │   └── mempalace-safe/  # mempalace 写锁代理
+│   │   └── skills/              # 仅说明；无内置 SKILL seed
+│   └── tests/
+└── frontend/
+    ├── package.json             # React / Vite / Vitest
+    ├── bindings/                # IPC 服务绑定类型
+    ├── docs/
+    │   └── acp-renderer-streaming.md
+    └── src/
+        ├── App.tsx
+        ├── components/          # conversation、layout、settings、kanban…
+        ├── stores/
+        ├── core/chat/           # agentStreamCore 等
+        ├── hooks/               # agentStreamIpc
+        └── utils/providerDisplay.ts
 ```
 
-作用概览：
-
-- `agent-control`：子 Agent 生命周期管理，是多 Agent 编排链路中的核心部分
-- `web-search`：网页搜索
-- `chrome-devtools`：浏览器自动化
-
-MCP 加载优先级：
-
-1. 项目本地 `mcps/`
-2. Cursor 项目级 MCP
-3. Cursor 全局 MCP
-
-### Skill 系统
-
-应用**不**自带内置 Skill 目录；用户可在应用内安装或自定义添加 Skill。Skill 体系主要用于：
-
-- 统一可复用的 Prompt 模板
-- 输入变量展开
-- 兼容 Provider 控制
-- slash command 或 system prompt 注入
-
-## 架构概览
-
-### 主链路
+### 当前主 UI（以代码为准）
 
-```text
-React Renderer
-  -> preload 暴露的 IPC bridge
-    -> electron/ipc/handlers.ts
-      -> services/*
-        -> BridgeManager
-          -> Provider Adapter
-            -> Claude SDK / Codex / Gemini / OpenCode
-```
+- **ActivityBar：** 会话管理、Agent Teams 入口、设置
+- **主区默认：** 会话 + `ConversationView`
+- **设置 Tabs：** 通用、主题与外观、AI Provider、工作区、反馈、日志
+- 代码中仍存在 Kanban / Mission / Workflow / Team 等面板实现；**ActivityBar 并非全部挂入口**。勿写已删除的独立 Shell 终端、静态 tools catalog、IM Bot（Telegram/QQ）等。
 
-### 子 Agent 链路
+---
 
-```text
-Supervisor / 主会话
-  -> agent-control MCP
-    -> AgentApi
-      -> ProcessService
-        -> SessionService + BridgeManager
-          -> 新建子会话并绑定 Provider
-```
+## 10. 本地数据位置
 
-### 数据持久化
+基目录：用户主目录下的 **`~/.allbeingsfuture/`**（Windows 为 `%USERPROFILE%\.allbeingsfuture\`）。
 
-核心数据保存在本地 SQLite 中，包括但不限于：
+| 用途 | 路径 |
+|------|------|
+| SQLite 主库 | `~/.allbeingsfuture/allbeingsfuture.db` |
+| 应用日志 | `~/.allbeingsfuture/logs/app-YYYY-MM-DD.log` |
+| 启动日志 | `~/.allbeingsfuture/startup.log` |
+| 贴纸缓存 | `~/.allbeingsfuture/stickers/` |
+| 自定义解析规则 | `~/.allbeingsfuture/custom-rules.json` |
+| Settings | 存于 DB `settings` 表（无独立 settings 文件） |
+| 会话 Worktree | `{repo}/.allbeingsfuture-worktrees/...` |
+| MemPalace 写锁（safe proxy） | `~/.mempalace/locks/abf_write.lock`（可由环境变量调整） |
 
-- Provider 配置
-- Session 与消息
-- Settings
-- Task / Workflow / Mission
-- Team 定义与实例
-- Skill
-- MCP Server
-- 文件变更记录
+---
 
-## 项目结构
+## 11. MCP / Skill / Supervisor 规则
 
-```text
-electron/
-├── main.ts                     # Electron 主进程入口
-├── preload.ts                 # 安全 IPC bridge
-├── ipc/
-│   └── handlers.ts            # IPC 路由注册
-├── bridge/
-│   ├── bridge.ts              # BridgeManager
-│   ├── ProviderCapabilityRegistry.ts
-│   ├── runtime.ts             # 子进程命令 / 环境解析
-│   └── adapters/
-│       ├── acp.ts             # 内置 CLI 共享 ACP v1 适配器
-│       └── openai.ts          # OpenAI 兼容 HTTP API
-├── parser/                    # 输出解析 / 状态推断
-└── services/                  # 会话、Provider、MCP、Git、通知、Agent 生命周期等服务
+### 11.1 内置 runtime（非用户 MCP 市场 catalog）
 
-frontend/
-├── src/
-│   ├── components/
-│   ├── stores/
-│   ├── hooks/
-│   ├── constants/
-│   ├── styles/
-│   └── test/
-└── package.json
+| 名称 | 路径 | 作用 |
+|------|------|------|
+| **agent-control** | `electron/embedded-assets/mcps/agent-control` | 多 Agent 编排；会话按角色注入 |
+| **mempalace-safe** | `electron/embedded-assets/mcps/mempalace-safe` | 用户启用的 mempalace 类 MCP 透明代理（写锁 + 重试） |
 
-electron/embedded-assets/
-├── mcps/agent-control/        # 子 Agent 控制用内部 MCP（打包注入）
-└── skills/                    # 空目录占位（不自动播种 Skill）
+**没有** 内置的用户可见 MCP 列表（如已移除的 `web-search`、`chrome-devtools` 等 **不要** 再当作功能写）。  
+`MCPService` 启动会 purge 历史 `builtin-*` 伪内置项。
 
-resources/
-└── prompts/                   # ABF Supervisor / Worker 规则
+### 11.2 Skills
 
-release/                       # 打包产物输出目录
-```
+- `BUILTIN_SKILLS = []`：不预装、不 seed 内置 Skill 文件
+- 用户通过应用安装 / 自定义写入 DB（`marketplace` / `custom`）
+- 运行期：斜杠命令、模板变量、参数展开（`SkillEngine`）
 
-## 本地数据与文件位置
+### 11.3 Supervisor / Worker 提示注入
 
-应用运行后，关键数据默认位于以下位置：
+模板：`resources/prompts/abf-supervisor.md`、`abf-worker.md`。
 
-- 数据库：`~/.allbeingsfuture/allbeingsfuture.db`
-- 启动日志：`~/.allbeingsfuture/startup.log`
-- 仓库内 Worktree：`<repo>/.allbeingsfuture-worktrees/`
-- 打包输出：`release/`
+| 场景 | 行为概要 |
+|------|----------|
+| 爷爷 + Claude 类 | 写入工作区 `.claude/rules/abf-supervisor.md` |
+| 父亲 + Claude 类 | 写入 `.claude/rules/abf-worker.md` |
+| 其它 CLI | 维护工作区 `AGENTS.md` 中 `<!-- ABF:CODEX-RULES:... -->` 块；部分 Provider 另写 `GEMINI.md` / `QWEN.md` |
+| 儿子 | **默认不**注入软件 Worker 提示词 |
 
-说明：
+已不再注入旧 common / providers / git / codex 长手册。
 
-- 数据库启用 SQLite WAL 模式
-- `@anthropic-ai/claude-agent-sdk` 等 native/vendor 资源打包时通过 `asarUnpack` 处理
-- `agent-control` MCP、`resources/prompts` 与图标会作为 `extraResources` 打包
+---
 
-## 开发说明
+## 12. 仓库与版本
 
-### 安装依赖
+| 项 | 值 |
+|----|-----|
+| 名称 | `allbeingsfuture` |
+| 版本 | **1.5.0** |
+| 仓库 | https://github.com/AllBeingsFuture/AllBeingsFuture |
+| Electron | ^39（勿按旧文档写 33） |
+| 协议主路径 | 内置 CLI → **ACP v1 stdio**；兼容 HTTP → **openai-api** |
 
-```bash
-npm install
-```
+---
 
-根目录安装后会自动执行 `frontend` 的依赖安装。
+## 贡献提示
 
-### 启动开发环境
+1. 改 Provider 预设时只信 `provider-defaults.ts` 与官方 ACP registry / CLI help，勿臆造 command。  
+2. 架构描述以 `electron/bridge/`、`process.ts`、`agent-stream-*` 与前端 `agentStream*` 为准；历史文档可能滞后。  
+3. 提交前跑：`npm run test:backend` 与 `cd frontend && npm test`。  
+4. 不要恢复已删除的 Bot 集成、Shell 终端面板、内置 web-search/chrome-devtools MCP 等。
 
-```bash
-npm run dev
-```
+---
 
-该命令会并行启动：
+## License
 
-- Electron 主进程编译并启动
-- Vite 开发服务器
-
-### 只构建指定部分
-
-```bash
-npm run build:renderer
-npm run build:electron
-```
-
-### 测试
-
-```bash
-cd frontend
-npm test
-```
-
-当前测试重点主要覆盖前端组件、Hook 和 Zustand store。Electron 主进程暂无完整自动化测试框架，相关改动更依赖构建验证与手动联调。
-
-## Git Worktree 工作流
-
-这个项目把 Git Worktree 视为多 Agent 并行开发的重要能力，而不是额外插件。应用和仓库规则都围绕这个能力设计。
-
-典型流程：
-
-1. 基于主仓库创建独立 Worktree
-2. 在隔离目录中让不同 Agent 各自工作
-3. 单独提交改动
-4. 合并回主分支
-5. 清理 Worktree
-
-仓库默认忽略以下目录：
-
-```text
-.allbeingsfuture-worktrees/
-.abf-worktrees/
-release/
-frontend/dist/
-electron/dist/
-```
-
-## 构建与发布
-
-### 本地打包
-
-Windows：
-
-```bash
-npm run pack
-```
-
-默认输出：
-
-```text
-release/AllBeingsFuture Setup <version>.exe
-```
-
-### 预发布工作流
-
-仓库内置 GitHub Actions 预发布流程：
-
-- 工作流文件：`.github/workflows/pre-release.yml`
-- 运行环境：`windows-latest`
-- Node 版本：`20`
-- 触发方式：任意分支 push 或手动触发
-- 产物：Windows 安装包
-
-版本策略：
-
-- `package.json` 中维护稳定版本，例如 `1.5.0`
-- CI 预发布标签自动生成类似 `betaV1.5.x`
-
-## 常见问题
-
-### 1. 应用能打开，但 Provider 无法工作
-
-通常不是界面问题，而是 Provider 运行环境没准备好。优先检查：
-
-- 对应 CLI 是否已安装
-- 命令是否在 `PATH`
-- 是否已完成登录/认证
-- 设置页里的 `Command` 或 `Executable Path` 是否正确
-
-### 2. 为什么 Windows 是当前主发布目标
-
-仓库当前打包脚本同时包含 Windows 和 macOS 目标，但 CI 预发布流程实际产出的是 Windows NSIS 安装包，因此项目目前更偏向 Windows 优先。
-
-### 3. 为什么安装包没有签名
-
-如果没有配置代码签名证书，`electron-builder` 会跳过签名步骤。这不影响本地构建，但会影响发行体验和系统信任提示。
-
-### 4. 数据存在哪里
-
-默认在用户目录下的 `~/.allbeingsfuture/`，包括数据库和启动日志。
-
-## 适合什么场景
-
-- 让一个主 Agent 协调多个子 Agent 并行做任务
-- 在单个桌面应用内切换不同 AI Provider
-- 面向代码仓库的真实开发任务，而不是纯聊天
-- 需要 Git Worktree 隔离、文件查看、终端和任务编排
-- 想把 MCP、Skill 和 Provider 统一纳入本地桌面工作流
-
-## 许可证
-
-本项目采用 [BSD 3-Clause](LICENSE) 许可证。
+[PolyForm Noncommercial License 1.0.0](./LICENSE)  
+Required Notice: Copyright 2026 AllBeingsFuture
