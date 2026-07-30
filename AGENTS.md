@@ -60,7 +60,7 @@ The host may also inject other MCP servers (e.g. mempalace) and Skills when enab
 If this session has **mempalace** MCP: for **important conclusions / decisions / facts the user asked to remember**, you **must** call `mempalace_checkpoint` with `items: [{ wing, room, content }]`.
 - `wing`: project name (default `allbeingsfuture` if unknown); `room`: short topic; `content`: concrete durable points — not vague summaries.
 - **Orchestration sessions still file reusable conclusions** (accept criteria, key decisions, merge outcomes, user-stated facts). Do **not** file every spawn/status/close chatter.
-- Host serializes multi-agent palace writes (safe proxy also queues/retries). On **peer lock / write lock busy / 未写入**: exponential backoff and **retry until success or ~2 minute deadline**; do not give up after one failure; avoid many parallel writers for the same palace. **Never claim a write succeeded if the tool did not return success**.
+- Host serializes multi-agent palace writes (safe proxy also queues/retries). On **peer lock / write lock busy / 未写入 / timeout**: retry at most **1–2 times** within ~**15–20s** total; if still failing, **skip checkpoint** and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts. Avoid many parallel writers for the same palace.
 - Do not claim a write that did not happen. If MCP is unavailable, skip.
 
 ## Hard rules

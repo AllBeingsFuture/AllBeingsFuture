@@ -105,7 +105,7 @@ export function buildWorkerRulesContent(): string {
  */
 export const WORKER_TASK_MEMPALACE_HINT = [
   '## Memory (if mempalace MCP is available)',
-  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. On **peer lock / write lock busy / 未写入**: exponential backoff and retry until success or ~2min deadline (host safe proxy also queues/retries; do not give up after one failure). Never claim a write succeeded if the tool did not return success.',
+  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. On **peer lock / write lock busy / 未写入 / timeout**: retry at most 1–2 times within ~15–20s total; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
 ].join('\n')
 
 /**
@@ -115,7 +115,7 @@ export const WORKER_TASK_MEMPALACE_HINT = [
  */
 export const NESTED_CHILD_MEMPALACE_MEMORY_PROMPT = [
   '## Memory (mempalace)',
-  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. On **peer lock / write lock busy / 未写入**: exponential backoff and retry until success or ~2min deadline (host safe proxy also queues/retries; do not give up after one failure). Never claim a write succeeded if the tool did not return success.',
+  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. On **peer lock / write lock busy / 未写入 / timeout**: retry at most 1–2 times within ~15–20s total; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
 ].join('\n')
 
 /** True when enabled user MCP configs look like mempalace (by key/command/args). */

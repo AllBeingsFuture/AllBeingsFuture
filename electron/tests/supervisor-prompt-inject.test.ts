@@ -444,8 +444,9 @@ test('wrapWorkerTaskPrompt appends mempalace checkpoint reminder for every child
   assert.match(wrapped, /mempalace_checkpoint/)
   assert.match(wrapped, /wing.*room.*content|items:.*wing/i)
   assert.match(wrapped, /peer lock|write lock busy/i)
-  assert.match(wrapped, /2\s*min|deadline|exponential backoff/i)
-  assert.doesNotMatch(wrapped, /retry once/i)
+  assert.match(wrapped, /1\s*[–-]\s*2\s*times|15\s*[–-]\s*20s|retry at most/i)
+  assert.match(wrapped, /skip.*report|report skipped|skip and report/i)
+  assert.doesNotMatch(wrapped, /2\s*min(?:ute)?(?:\s*deadline)?|retry until success or\s*~?2/i)
   assert.ok(wrapped.includes(WORKER_TASK_MEMPALACE_HINT) || wrapped.includes('## Memory (if mempalace MCP is available)'))
 
   // Idempotent: do not double-append the fixed hint
@@ -461,8 +462,9 @@ test('wrapWorkerTaskPrompt appends mempalace checkpoint reminder for every child
   assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /must|Before finishing/i)
   assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /wing|room|content/i)
   assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /peer lock|write lock busy/i)
-  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /2\s*min|deadline|exponential backoff/i)
-  assert.doesNotMatch(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /retry once/i)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /1\s*[–-]\s*2\s*times|15\s*[–-]\s*20s|retry at most/i)
+  assert.match(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /skip.*report|report skipped|skip and report/i)
+  assert.doesNotMatch(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /2\s*min(?:ute)?(?:\s*deadline)?|retry until success or\s*~?2/i)
   // Must NOT look like full abf-worker handbook
   assert.doesNotMatch(NESTED_CHILD_MEMPALACE_MEMORY_PROMPT, /agent-control|spawn_agent|ABF Worker/)
 
