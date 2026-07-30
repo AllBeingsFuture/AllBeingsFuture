@@ -355,9 +355,7 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SettingsService.Update', (_e, key: string, value: string) => settingsService.update(key, value))
   ipcMain.handle('SettingsService.UpdateBatch', (_e, settings: any) => settingsService.updateBatch(settings))
   ipcMain.handle('SettingsService.GetAutoWorktree', () => settingsService.getAutoWorktree())
-  ipcMain.handle('SettingsService.SetAutoWorktree', (_e, enabled: boolean) => settingsService.setAutoWorktree(enabled))
-  ipcMain.handle('SettingsService.SetAutoLaunch', (_e, enabled: boolean) => settingsService.setAutoLaunch(enabled))
-  ipcMain.handle('SettingsService.GetProxyEnv', () => settingsService.getProxyEnv())
+  // Removed with General settings UI: SetAutoWorktree, SetAutoLaunch, GetProxyEnv
   ipcMain.handle('SettingsService.SendNotification', (_e, title: string, body: string) => settingsService.sendNotification(title, body))
 
   // ==============================================================
@@ -526,14 +524,11 @@ export function registerAllIpcHandlers(
 
   // ==============================================================
   // WorkspaceService
+  // Settings Workspace manager UI removed; keep List for SessionCreator
+  // and main-process GC (workspaceService.list() in cleanupManagedWorktrees).
   // ==============================================================
   ipcMain.handle('WorkspaceService.List', () => workspaceService.list())
-  ipcMain.handle('WorkspaceService.Create', (_e, data: any) => workspaceService.create(data))
-  ipcMain.handle('WorkspaceService.Update', (_e, id: string, data: any) => workspaceService.update(id, data))
-  ipcMain.handle('WorkspaceService.Delete', (_e, id: string) => workspaceService.delete(id))
-  ipcMain.handle('WorkspaceService.ScanRepos', (_e, dir: string) => workspaceService.scanRepos(dir))
-  ipcMain.handle('WorkspaceService.ImportVscode', (_e, filePath: string) => workspaceService.importVscode(filePath))
-  ipcMain.handle('WorkspaceService.IsGitRepo', (_e, dir: string) => workspaceService.isGitRepo(dir))
+  // Removed: Create, Update, Delete, ScanRepos, ImportVscode, IsGitRepo
 
   // ==============================================================
   // QuickOpen - file fuzzy search

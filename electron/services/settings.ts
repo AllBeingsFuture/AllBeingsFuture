@@ -1,9 +1,13 @@
 /**
  * SettingsService - manages application settings
  * Replaces Go internal/services/settings.go
+ *
+ * Note: General / theme / workspace manager UI settings were removed from the
+ * settings surface. Runtime still exposes getAll defaults (theme, fontSize,
+ * legacy rows) for remaining consumers. Child-agent worktree isolation is
+ * always on: getAutoWorktree() hardcodes true (user write path removed).
  */
 
-import { app } from 'electron'
 import type { Database } from './database.js'
 
 export interface AppSettings {
@@ -44,7 +48,6 @@ export class SettingsService {
     return {
       theme: settings.theme || 'dark',
       fontSize: settings.fontSize || 14,
-      autoWorktree: settings.autoWorktree ?? true,
       alwaysReplyInChinese: settings.alwaysReplyInChinese ?? true,
       autoLaunch: settings.autoLaunch ?? false,
       notificationEnabled: settings.notificationEnabled ?? true,
@@ -56,6 +59,8 @@ export class SettingsService {
       voiceTranscriptionMode: settings.voiceTranscriptionMode || 'openai',
       voiceTranscriptionProviderId: settings.voiceTranscriptionProviderId || '',
       ...settings,
+      // Always on for child isolation; UI toggle removed (force after spread)
+      autoWorktree: true,
     }
   }
 
@@ -78,36 +83,12 @@ export class SettingsService {
     tx()
   }
 
+  /**
+   * Child agent worktree isolation is always enabled.
+   * User-facing SetAutoWorktree was removed with General settings UI.
+   */
   getAutoWorktree(): boolean {
-    const row = this.db.raw.prepare("SELECT value FROM settings WHERE key = 'autoWorktree'").get() as any
-    return row?.value === 'true'
-  }
-
-  setAutoWorktree(enabled: boolean): void {
-    this.update('autoWorktree', String(enabled))
-    this.update('autoWorktreeUserConfigured', 'true')
-  }
-
-  setAutoLaunch(enabled: boolean): void {
-    this.update('autoLaunch', String(enabled))
-    app.setLoginItemSettings({ openAtLogin: enabled })
-  }
-
-  getAutoLaunch(): boolean {
-    const settings = app.getLoginItemSettings()
-    return settings.openAtLogin
-  }
-
-  getProxyEnv(): [string, string] {
-    const settings = this.getAll()
-    if (settings.proxyType === 'none' || !settings.proxyHost) {
-      return ['', '']
-    }
-    const auth = settings.proxyUsername
-      ? `${settings.proxyUsername}:${settings.proxyPassword}@`
-      : ''
-    const url = `${settings.proxyType}://${auth}${settings.proxyHost}:${settings.proxyPort}`
-    return [url, url]
+    return true
   }
 
   sendNotification(title: string, body: string): void {

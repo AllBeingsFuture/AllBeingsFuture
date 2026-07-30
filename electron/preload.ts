@@ -60,9 +60,6 @@ const INVOKE_CHANNELS = new Set([
   'SettingsService.Update',
   'SettingsService.UpdateBatch',
   'SettingsService.GetAutoWorktree',
-  'SettingsService.SetAutoWorktree',
-  'SettingsService.SetAutoLaunch',
-  'SettingsService.GetProxyEnv',
   'SettingsService.SendNotification',
   // Task
   'TaskService.GetAll',
@@ -178,14 +175,8 @@ const INVOKE_CHANNELS = new Set([
   'FileChangeTracker.RemoveSession',
   'FileChangeTracker.UpdateSessionActivity',
   'FileChangeTracker.FindSessionIDByWorkingDir',
-  // Workspace
+  // Workspace (settings manager CRUD removed; List kept for SessionCreator)
   'WorkspaceService.List',
-  'WorkspaceService.Create',
-  'WorkspaceService.Update',
-  'WorkspaceService.Delete',
-  'WorkspaceService.ScanRepos',
-  'WorkspaceService.ImportVscode',
-  'WorkspaceService.IsGitRepo',
   // Quick open
   'QuickOpen.Search',
 ])

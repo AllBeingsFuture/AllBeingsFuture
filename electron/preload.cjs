@@ -52,9 +52,6 @@ const INVOKE_CHANNELS = new Set([
   'SettingsService.Update',
   'SettingsService.UpdateBatch',
   'SettingsService.GetAutoWorktree',
-  'SettingsService.SetAutoWorktree',
-  'SettingsService.SetAutoLaunch',
-  'SettingsService.GetProxyEnv',
   'SettingsService.SendNotification',
   'TaskService.GetAll',
   'TaskService.GetByID',
@@ -157,12 +154,6 @@ const INVOKE_CHANNELS = new Set([
   'FileChangeTracker.UpdateSessionActivity',
   'FileChangeTracker.FindSessionIDByWorkingDir',
   'WorkspaceService.List',
-  'WorkspaceService.Create',
-  'WorkspaceService.Update',
-  'WorkspaceService.Delete',
-  'WorkspaceService.ScanRepos',
-  'WorkspaceService.ImportVscode',
-  'WorkspaceService.IsGitRepo',
   'QuickOpen.Search',
 ])
 
