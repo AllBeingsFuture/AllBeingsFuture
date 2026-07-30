@@ -42,6 +42,13 @@ import { AgentStreamNormalizer } from './agent-stream-normalizer.js'
 import { GitService } from './git.js'
 import type { AgentPermissionResponse, AgentStreamSource } from './agent-stream-types.js'
 import type { RequestPermissionOutcome } from '@agentclientprotocol/sdk'
+import {
+  AGENT_CONTROL_MCP_ID,
+  resolveAbfSessionRole,
+  resolveSessionMcpServers,
+  shouldInjectAgentControl,
+  type McpServerConfig,
+} from './session-mcp-policy.js'
 
 // Re-export types so existing consumers don't break
 export type { ChatMessage, ChatState, ChatPatchEvent } from './process-types.js'
@@ -198,34 +205,32 @@ export class ProcessService {
   }
 
   /**
-   * Inject built-in agent-control MCP for a session that may spawn children.
+   * Build agent-control MCP config for a session that may spawn children.
    * ABF_PARENT_SESSION_ID is this session's id (spawned agents become its children).
    * Three-gen: top-level (爷爷) + direct child (父亲) only — not nested sons.
+   * Returns null when provider cannot host MCP or API setup fails.
    */
-  private async injectAgentControlMcp(
-    config: Record<string, unknown>,
+  private async buildAgentControlMcpConfig(
     sessionId: string,
     provider: { id: string; adapterType: string },
     isAcp: boolean,
-  ): Promise<void> {
+  ): Promise<McpServerConfig | null> {
     const isClaudeProvider = provider.id === 'claude-code'
-    if (!isAcp && !isClaudeProvider) return
+    if (!isAcp && !isClaudeProvider) return null
     try {
       const apiPort = await this.ensureAgentApi()
-      config.mcpServers = {
-        ...((config.mcpServers as Record<string, unknown>) || {}),
-        'agent-control': {
-          command: 'node',
-          args: [this.getAgentControlMcpPath()],
-          env: {
-            ABF_AGENT_API_PORT: String(apiPort),
-            ABF_PARENT_SESSION_ID: sessionId,
-          },
+      return {
+        command: 'node',
+        args: [this.getAgentControlMcpPath()],
+        env: {
+          ABF_AGENT_API_PORT: String(apiPort),
+          ABF_PARENT_SESSION_ID: sessionId,
         },
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err)
       appLog('warn', `Failed to set up agent-control MCP: ${errMsg}`, 'process')
+      return null
     }
   }
 
@@ -612,10 +617,42 @@ export class ProcessService {
       )
     }
 
-    if (ProviderCapabilityRegistry.supportsNativeMcp(provider.id) || this.isAcpAdapter(provider.adapterType)) {
-      const enabledMcpServers = this.mcpService.getEnabledServerConfigs()
-      if (Object.keys(enabledMcpServers).length > 0) {
-        config.mcpServers = enabledMcpServers
+    // Three-generation role (MCP + prompts share this classification):
+    // - Top-level (爷爷): enabled user MCPs + agent-control
+    // - Direct child (父亲): same user MCPs + agent-control + worker prompt
+    // - Nested child (儿子): same user MCPs, never agent-control / worker software prompt
+    const parentId = (session.parentSessionId || '').trim()
+    const isChild = Boolean(parentId)
+    let parentSession: ReturnType<SessionService['getById']> | undefined
+    if (isChild) {
+      parentSession = this.sessionService.getById(parentId)
+    }
+    const sessionRole = resolveAbfSessionRole(session.parentSessionId, parentSession?.parentSessionId)
+    const isDirectChild = sessionRole === 'direct-child'
+    const supportsMcpInjection =
+      ProviderCapabilityRegistry.supportsNativeMcp(provider.id) || this.isAcpAdapter(provider.adapterType)
+
+    // Global enabled MCPs (settings) → every session init; not bound to grandpa only.
+    if (supportsMcpInjection) {
+      const enabledUserMcps = this.mcpService.getEnabledServerConfigs() as Record<string, McpServerConfig>
+      let agentControl: McpServerConfig | null = null
+      if (shouldInjectAgentControl(sessionRole)) {
+        agentControl = await this.buildAgentControlMcpConfig(sessionId, provider, isAcp)
+      }
+      const mcpServers = resolveSessionMcpServers({
+        role: sessionRole,
+        enabledUserMcps,
+        agentControl,
+      })
+      if (Object.keys(mcpServers).length > 0) {
+        config.mcpServers = mcpServers
+      }
+      if (sessionRole === 'nested-child') {
+        appLog(
+          'info',
+          `Nested child ${sessionId}: user MCPs injected, skipped ${AGENT_CONTROL_MCP_ID}`,
+          'process',
+        )
       }
     }
 
@@ -659,24 +696,9 @@ export class ProcessService {
       }
     }
 
-    // Inject ABF rules by three-generation session role:
-    // - Top-level (Supervisor / 爷爷): file discovery + agent-control MCP
-    // - Direct child (Worker / 父亲, parent has no parent): worker appendSystemPrompt
-    //   + worker files on isolated worktree + agent-control (so father can spawn sons).
-    // - Nested child (儿子, parent is itself a child): no software worker prompt,
-    //   no agent-control. Worktree isolation still applies (AgentLifecycleManager).
-    // isDirectChild = parent exists and parent has no parentSessionId.
-    const parentId = (session.parentSessionId || '').trim()
-    const isChild = Boolean(parentId)
-    let isDirectChild = false
-    let parentSession: ReturnType<SessionService['getById']> | undefined
-    if (isChild) {
-      parentSession = this.sessionService.getById(parentId)
-      isDirectChild = !parentSession?.parentSessionId
-    }
-
+    // Inject ABF software prompts by role (MCP already resolved above).
     if (isDirectChild) {
-      // Father: worker software prompt + agent-control for spawning sons
+      // Father: worker software prompt (agent-control already in mcpServers when allowed)
       try {
         const workerRules = buildWorkerRulesContent()
         const existingPrompt = (String(config.appendSystemPrompt || '')).trim()
@@ -712,10 +734,8 @@ export class ProcessService {
         const errMsg = err instanceof Error ? err.message : String(err)
         appLog('warn', `Failed to inject worker prompt files for child: ${errMsg}`, 'process')
       }
-
-      await this.injectAgentControlMcp(config, sessionId, provider, isAcp)
     } else if (isChild) {
-      // Son: skip worker software prompt and agent-control
+      // Son: skip worker software prompt (and agent-control was not merged into mcpServers)
       appLog(
         'info',
         `Skipped worker prompt + agent-control for nested child session ${sessionId}`,
@@ -727,9 +747,6 @@ export class ProcessService {
         const workDir = config.workDir as string
         const isClaudeProvider = provider.id === 'claude-code'
         const isHttpApiProvider = provider.adapterType === 'openai-api' || !isAcp
-
-        // 爷爷: agent-control so he can spawn fathers
-        await this.injectAgentControlMcp(config, sessionId, provider, isAcp)
 
         if (isClaudeProvider) {
           try {

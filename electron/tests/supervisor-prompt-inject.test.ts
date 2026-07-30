@@ -144,10 +144,11 @@ test('process.ts injects worker role for direct children only; supervisor+agent-
   assert.match(source, /Injected worker role prompt for direct child session/)
   assert.match(source, /injectWorkerPromptFiles\s*\(/)
   assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
-  // 爷爷 + 父亲 get agent-control via injectAgentControlMcp
+  // 爷爷 + 父亲 get agent-control via role policy + buildAgentControlMcpConfig
   assert.match(source, /ABF_PARENT_SESSION_ID:\s*sessionId/)
-  assert.match(source, /injectAgentControlMcp/)
-  assert.match(source, /'agent-control'/)
+  assert.match(source, /buildAgentControlMcpConfig|resolveSessionMcpServers/)
+  assert.match(source, /shouldInjectAgentControl|AGENT_CONTROL_MCP_ID|agent-control/)
+  assert.match(source, /getEnabledServerConfigs/)
 })
 
 test('process.ts persistent child done injects result to parent (not only non-persistent)', () => {
