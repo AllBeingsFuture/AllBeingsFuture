@@ -125,8 +125,18 @@ function createScrollContainer(metrics: {
 function attachContainer(
   result: { current: ReturnType<typeof useConversationScroll> },
   el: HTMLDivElement,
-  rerender: (props: { sessionId: string; length: number; streaming: boolean }) => void,
-  props: { sessionId: string; length: number; streaming: boolean },
+  rerender: (props: {
+    sessionId: string
+    length: number
+    streaming: boolean
+    liveTailRevision?: number | string
+  }) => void,
+  props: {
+    sessionId: string
+    length: number
+    streaming: boolean
+    liveTailRevision?: number | string
+  },
 ) {
   act(() => {
     result.current.scrollContainerRef.current = el
@@ -461,6 +471,67 @@ describe('useConversationScroll', () => {
     flushAnimationFrames()
 
     expect(el.scrollTop).toBe(520)
+  })
+
+  it('re-pins to bottom when liveTailRevision changes without messagesLength growth', () => {
+    // Streaming text_delta keeps length stable; without revision stick, the latest
+    // tokens can grow below the fold until ResizeObserver catches up.
+    const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+      liveTailRevision,
+    }), {
+      initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(360)
+
+    metrics.scrollHeight = 900
+    act(() => {
+      // Content revision only — messagesLength stays 2.
+      rerender({ sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:240' })
+    })
+    flushAnimationFrames()
+
+    expect(el.scrollTop).toBe(620)
+  })
+
+  it('does not re-pin on liveTailRevision after the user detaches', () => {
+    const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+      liveTailRevision,
+    }), {
+      initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' })
+    flushAnimationFrames()
+
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      result.current.handleWheel({ deltaY: -40 } as WheelEvent)
+      el.scrollTop = 80
+      result.current.handleScroll()
+    })
+    expect(el.scrollTop).toBe(80)
+
+    metrics.scrollHeight = 1000
+    act(() => {
+      rerender({ sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:400' })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(80)
   })
 
   it('stickToBottomNow re-attaches after detach and follows later content growth', () => {

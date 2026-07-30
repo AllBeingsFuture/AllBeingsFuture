@@ -789,7 +789,15 @@ export default function ConversationView({ session }: Props) {
 
   const [ready, setReady] = useState(false)
   const [composerHeight, setComposerHeight] = useState(0)
-  const [preferLiveMessages, setPreferLiveMessages] = useState(streaming)
+  // Treat agent stream phases as live even if the boolean flag briefly lags.
+  const agentStreamLive = Boolean(
+    agentStream
+    && (agentStream.phase === 'running'
+      || agentStream.phase === 'waiting_permission'
+      || agentStream.phase === 'cancelling'),
+  )
+  const liveStreaming = streaming || agentStreamLive
+  const [preferLiveMessages, setPreferLiveMessages] = useState(liveStreaming)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
   const hasComposer = !isEnded || isChildSession
@@ -798,7 +806,7 @@ export default function ConversationView({ session }: Props) {
     : 0
 
   useEffect(() => {
-    if (streaming) {
+    if (liveStreaming) {
       setPreferLiveMessages(true)
       return
     }
@@ -810,8 +818,22 @@ export default function ConversationView({ session }: Props) {
     }, LIVE_RENDER_HOLD_MS)
 
     return () => window.clearTimeout(timer)
-  }, [streaming, session.id])
-  const shouldRenderLiveMessages = streaming || preferLiveMessages
+  }, [liveStreaming, session.id])
+  const shouldRenderLiveMessages = liveStreaming || preferLiveMessages
+
+  // Token deltas keep messages.length stable; revision must change so stick-to-bottom
+  // re-pins while attached (matches historical chat:patch upsert_last behavior).
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
+  const liveTailRevision = shouldRenderLiveMessages
+    ? [
+        messages.length,
+        lastMessage?.role || '',
+        lastMessage?.content?.length || 0,
+        (lastMessage as { partial?: boolean } | undefined)?.partial ? 1 : 0,
+        agentStream?.lastSequence ?? -1,
+        agentStream?.lastEventAt ?? 0,
+      ].join(':')
+    : `${messages.length}`
 
   const {
     bottomRef,
@@ -829,6 +851,7 @@ export default function ConversationView({ session }: Props) {
     messagesLength: messages.length,
     streaming: shouldRenderLiveMessages,
     bottomOffset: composerClearance,
+    liveTailRevision,
   })
 
   const getScrollElement = useCallback(() => scrollContainerRef.current, [scrollContainerRef])

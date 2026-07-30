@@ -5,6 +5,13 @@ interface UseConversationScrollOptions {
   messagesLength: number
   streaming: boolean
   bottomOffset: number
+  /**
+   * Bumps when the live tail content changes without changing messagesLength
+   * (token deltas / upsert_last). While stick-to-bottom is active, this must
+   * re-pin so virtual-list spacer growth does not leave the latest text below
+   * the fold waiting on ResizeObserver alone.
+   */
+  liveTailRevision?: number | string
 }
 
 interface ScrollMetrics {
@@ -42,6 +49,7 @@ export function useConversationScroll({
   messagesLength,
   streaming,
   bottomOffset,
+  liveTailRevision = 0,
 }: UseConversationScrollOptions) {
   const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>({
     scrollTop: 0,
@@ -406,7 +414,9 @@ export function useConversationScroll({
     scrollToBottom(true)
   }, [bottomOffset, scrollToBottom, shouldStickToBottom, syncScrollMetrics])
 
-  useEffect(() => {
+  // useLayoutEffect so stick happens before paint when token deltas grow the
+  // virtual spacer — avoids one-frame "latest text below fold" flashes.
+  useLayoutEffect(() => {
     const previousCount = prevMsgCountRef.current
     prevMsgCountRef.current = messagesLength
 
@@ -417,10 +427,12 @@ export function useConversationScroll({
       return
     }
 
+    // Streaming often mutates the last bubble in place (length stable). Pin on
+    // content revision as well as RO growth so the latest delta stays visible.
     if (streaming && messagesLength > 0) {
       scrollToBottom(true)
     }
-  }, [messagesLength, scrollToBottom, shouldStickToBottom, streaming])
+  }, [liveTailRevision, messagesLength, scrollToBottom, shouldStickToBottom, streaming])
 
   return {
     bottomRef,
