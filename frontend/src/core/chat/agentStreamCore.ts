@@ -216,7 +216,13 @@ function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
       // Normalize legacy toolCallId rows so later stream updates keep matching.
       toolUseId: message.toolUseId || event.toolCallId,
       toolCallId: message.toolCallId || event.toolCallId,
-      partial: true,
+      // tool_call has no status field; keep existing terminal status, else pending.
+      toolStatus: message.toolStatus === 'completed' || message.toolStatus === 'failed'
+        ? message.toolStatus
+        : (message.toolStatus || 'pending'),
+      partial: message.toolStatus === 'completed' || message.toolStatus === 'failed'
+        ? false
+        : true,
     }),
   )
   if (patched.found) return patched.messages
@@ -231,6 +237,7 @@ function upsertToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     toolCallId: event.toolCallId,
     toolName: event.name || event.title,
     toolInput: event.input || {},
+    toolStatus: 'pending',
     timestamp: timestampOf(event),
   } as unknown as ChatMessage]
 }
@@ -241,22 +248,25 @@ function ensureToolCall(messages: ChatMessage[], event: Extract<AgentStreamEvent
     && matchesToolCall(message as StreamChatMessage, event.toolCallId)
   ))
   if (exists) return messages
+  const terminal = event.status === 'completed' || event.status === 'failed'
   const sealed = sealOpenNarrativeMessages(messages)
   return [...sealed, {
     role: 'tool_use',
     content: event.title || '',
-    partial: true,
+    partial: !terminal,
     id: `tool-${event.toolCallId}`,
     toolUseId: event.toolCallId,
     toolCallId: event.toolCallId,
     toolName: event.name || 'Tool',
     toolInput: event.input || {},
+    toolStatus: event.status,
     timestamp: timestampOf(event),
   } as unknown as ChatMessage]
 }
 
 function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { type: 'tool_update' }>) {
   let next = ensureToolCall(messages, event)
+  const terminal = event.status === 'completed' || event.status === 'failed'
   const callPatch = patchMessage(
     next,
     message => message.role === 'tool_use' && matchesToolCall(message, event.toolCallId),
@@ -267,12 +277,13 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
       content: event.title || message.content,
       toolUseId: message.toolUseId || event.toolCallId,
       toolCallId: message.toolCallId || event.toolCallId,
-      partial: event.status !== 'completed' && event.status !== 'failed',
+      // ConversationView / tool groups key off toolStatus (not only partial).
+      toolStatus: event.status,
+      partial: !terminal,
     }),
   )
   next = callPatch.messages
 
-  const terminal = event.status === 'completed' || event.status === 'failed'
   const outputText = event.resultDelta || event.output?.text || (event.status === 'failed' ? event.error || '' : '')
   const resultPatch = patchMessage(
     next,

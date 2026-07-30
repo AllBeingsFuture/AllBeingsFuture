@@ -1085,6 +1085,10 @@ export class ProcessService {
           if (candidate.role === 'user') break
           if (candidate.role === 'tool_use' && candidate.partial) {
             candidate.partial = false
+            // Keep toolStatus in sync so UI open-ops / "已发起" summaries settle with the turn.
+            if (candidate.toolStatus !== 'failed') {
+              candidate.toolStatus = 'completed'
+            }
             continue
           }
           if (candidate.role !== 'assistant') continue

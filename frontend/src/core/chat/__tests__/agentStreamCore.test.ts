@@ -177,10 +177,16 @@ describe('agentStreamCore', () => {
       type: 'tool_call', sessionId: 'session-1', sequence: 1,
       toolCallId: 'tool-1', title: 'Run tests', name: 'shell', input: { command: 'npm test' },
     })
+    expect(call.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use', toolUseId: 'tool-1', toolStatus: 'pending', partial: true,
+    }))
     const output = reduceAgentStreamEvent(call.messages, call.stream, {
       type: 'tool_update', sessionId: 'session-1', sequence: 2,
       toolCallId: 'tool-1', status: 'in_progress', output: { stream: 'stdout', text: 'PASS\n' },
     })
+    expect(output.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use', toolStatus: 'in_progress', partial: true,
+    }))
     const complete = reduceAgentStreamEvent(output.messages, output.stream, {
       type: 'tool_update', sessionId: 'session-1', sequence: 3,
       toolCallId: 'tool-1', status: 'completed', resultDelta: 'Done',
@@ -188,10 +194,64 @@ describe('agentStreamCore', () => {
 
     expect(complete.messages).toHaveLength(2)
     expect(complete.messages[0]).toEqual(expect.objectContaining({
-      role: 'tool_use', toolUseId: 'tool-1', partial: false,
+      role: 'tool_use', toolUseId: 'tool-1', toolStatus: 'completed', partial: false,
     }))
     expect(complete.messages[1]).toEqual(expect.objectContaining({
       role: 'tool_result', toolUseId: 'tool-1', toolResult: 'PASS\nDone', isDelta: false, partial: false,
+    }))
+  })
+
+  it('tool_update completed sets toolStatus=completed and partial=false on tool_use and tool_result', () => {
+    const complete = reduceAgentStreamEvent([], undefined, {
+      type: 'tool_update',
+      sessionId: 'session-1',
+      sequence: 1,
+      toolCallId: 'mcp-wait-1',
+      name: 'wait_agent_idle',
+      status: 'completed',
+      resultDelta: 'idle',
+    })
+
+    expect(complete.messages).toHaveLength(2)
+    expect(complete.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use',
+      toolUseId: 'mcp-wait-1',
+      toolName: 'wait_agent_idle',
+      toolStatus: 'completed',
+      partial: false,
+    }))
+    expect(complete.messages[1]).toEqual(expect.objectContaining({
+      role: 'tool_result',
+      toolUseId: 'mcp-wait-1',
+      toolResult: 'idle',
+      partial: false,
+      isDelta: false,
+      isError: false,
+    }))
+  })
+
+  it('tool_update failed sets toolStatus=failed and clears partial on both rows', () => {
+    const failed = reduceAgentStreamEvent([], undefined, {
+      type: 'tool_update',
+      sessionId: 'session-1',
+      sequence: 1,
+      toolCallId: 'tool-fail',
+      name: 'Bash',
+      status: 'failed',
+      error: 'timeout',
+    })
+
+    expect(failed.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use',
+      toolStatus: 'failed',
+      partial: false,
+    }))
+    expect(failed.messages[1]).toEqual(expect.objectContaining({
+      role: 'tool_result',
+      partial: false,
+      isDelta: false,
+      isError: true,
+      toolResult: 'timeout',
     }))
   })
 
@@ -299,6 +359,7 @@ describe('agentStreamCore', () => {
     expect(updated.messages[0]).toEqual(expect.objectContaining({
       role: 'tool_use',
       toolUseId: 'call-legacy',
+      toolStatus: 'in_progress',
       partial: true,
     }))
     expect(updated.messages[1]).toEqual(expect.objectContaining({

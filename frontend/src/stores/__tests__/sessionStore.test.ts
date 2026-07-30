@@ -922,6 +922,51 @@ describe('sessionStore runtime status sync', () => {
     expect(state.sessions.find(session => session.id === 'session-2')?.status).toBe('running')
   })
 
+  it('child agent:stream running does not flip parent session status or selected streaming', () => {
+    const parentId = 'parent-1'
+    const childId = 'child-1'
+    useSessionStore.setState({
+      selectedId: parentId,
+      sessions: [
+        makeSession({ id: parentId, status: 'idle', name: 'Parent' }),
+        { ...makeSession({ id: childId, status: 'idle', name: 'Child' }), parentSessionId: parentId } as Session,
+      ],
+      messages: [{ role: 'assistant', content: 'parent transcript' } as never],
+      streaming: false,
+      chatError: '',
+    })
+
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'text_delta',
+      sessionId: childId,
+      sequence: 1,
+      itemId: 'child-reply',
+      delta: 'child is working…',
+    })
+    useSessionStore.getState().handleAgentStreamEvent({
+      type: 'tool_update',
+      sessionId: childId,
+      sequence: 2,
+      toolCallId: 'wait-1',
+      name: 'wait_agent_idle',
+      status: 'in_progress',
+    })
+    flushAgentStreamBatches(childId)
+
+    const state = useSessionStore.getState()
+    // Selected parent UI stays idle / non-streaming.
+    expect(state.selectedId).toBe(parentId)
+    expect(state.streaming).toBe(false)
+    expect(state.messages.map(m => m.content)).toEqual(['parent transcript'])
+    expect(state.chatError).toBe('')
+    expect(state.sessions.find(s => s.id === parentId)?.status).toBe('idle')
+    // Only the child session/runtime maps update.
+    expect(state.sessions.find(s => s.id === childId)?.status).toBe('running')
+    expect(state.agentStreams[childId]?.phase).toBe('running')
+    expect(state.agentStreamMessages[childId]?.some(m => m.role === 'tool_use')).toBe(true)
+    expect(state.agentStreams[parentId]).toBeUndefined()
+  })
+
   it('merges consecutive text_delta into a single store update before flush', () => {
     useSessionStore.setState({
       selectedId: 'session-1',

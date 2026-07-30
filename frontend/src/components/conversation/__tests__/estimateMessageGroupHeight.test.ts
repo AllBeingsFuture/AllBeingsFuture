@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estimateMessageGroupHeight } from '../ConversationView'
+import { estimateMessageGroupHeight, toolGroupHasOpenOperations } from '../ConversationView'
 
 function makeGroup(
   type: 'message' | 'tool_group' | 'thinking' | 'child_agent',
@@ -106,5 +106,51 @@ describe('estimateMessageGroupHeight', () => {
     // Still only message-count based — must not balloon into multi-k blank gaps.
     expect(bulky).toBe(Math.max(160, 88 + 2 * 80))
     expect(bulky).toBeLessThan(400)
+  })
+})
+
+describe('toolGroupHasOpenOperations', () => {
+  it('treats toolStatus completed as closed even without a tool_result', () => {
+    const group = makeGroup('tool_group', [
+      {
+        role: 'tool_use',
+        toolUseId: 'wait-1',
+        toolName: 'wait_agent_idle',
+        toolStatus: 'completed',
+        partial: false,
+      },
+    ])
+    expect(toolGroupHasOpenOperations(group)).toBe(false)
+  })
+
+  it('keeps in_progress tool_use open until result settles', () => {
+    const open = makeGroup('tool_group', [
+      {
+        role: 'tool_use',
+        toolUseId: 'wait-1',
+        toolName: 'wait_agent_idle',
+        toolStatus: 'in_progress',
+        partial: true,
+      },
+    ])
+    expect(toolGroupHasOpenOperations(open)).toBe(true)
+
+    const settled = makeGroup('tool_group', [
+      {
+        role: 'tool_use',
+        toolUseId: 'wait-1',
+        toolName: 'wait_agent_idle',
+        toolStatus: 'completed',
+        partial: false,
+      },
+      {
+        role: 'tool_result',
+        toolUseId: 'wait-1',
+        partial: false,
+        isDelta: false,
+        content: 'idle',
+      },
+    ])
+    expect(toolGroupHasOpenOperations(settled)).toBe(false)
   })
 })
