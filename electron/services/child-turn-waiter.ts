@@ -54,3 +54,26 @@ export function rejectChildTurnWaiterEntry(
   waiter.reject(error)
   return true
 }
+
+/** Snapshot used by waitAgentIdle to decide immediate return. */
+export interface AgentIdleSnapshot {
+  /** Tracked agent status from AgentTracker, if known */
+  status?: string | null
+  /** sessionStates.get(child)?.streaming */
+  streaming?: boolean | null
+  /** agentIdleFlags for this child (sticky until child runs again) */
+  idleFlag: boolean
+}
+
+/**
+ * True when waitAgentIdle should return immediately (child is idle / terminal).
+ * Does not mutate flags — idle flag must remain set until the child becomes running again.
+ */
+export function shouldResolveAgentIdleWait(s: AgentIdleSnapshot): boolean {
+  if (s.idleFlag) return true
+  const status = s.status
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') return true
+  // Persistent children stay alive with status=idle after each turn
+  if (status === 'idle' && !s.streaming) return true
+  return false
+}

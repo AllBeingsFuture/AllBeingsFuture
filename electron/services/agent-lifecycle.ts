@@ -13,6 +13,7 @@ import { AgentTracker, type TrackedAgent } from './agent-tracker.js'
 import {
   installChildTurnWaiter,
   resolveChildTurnWaiterEntry,
+  shouldResolveAgentIdleWait,
   type ChildTurnWaiterHandle,
 } from './child-turn-waiter.js'
 import { appLog } from './log.js'
@@ -910,37 +911,47 @@ export class AgentLifecycleManager {
       return { idle: false, output: `Session ${childSessionId} is not a child of ${parentSessionId}` }
     }
 
-    // Already completed/failed/cancelled — return immediately
-    const tracker = this.agentTrackers.get(parentSessionId)
-    if (tracker) {
+    const getTrackedStatus = (): string | null => {
+      const tracker = this.agentTrackers.get(parentSessionId)
+      if (!tracker) return null
       for (const agent of tracker.getAll()) {
-        if (agent.childSessionId === childSessionId) {
-          if (agent.status === 'completed' || agent.status === 'failed' || agent.status === 'cancelled') {
-            return { idle: true, output: this.getAgentOutputText(childSessionId) }
-          }
-          break
-        }
+        if (agent.childSessionId === childSessionId) return agent.status
       }
+      return null
     }
 
-    // Fast path: idle flag already set
-    if (this.agentIdleFlags.get(childSessionId)) {
-      this.agentIdleFlags.delete(childSessionId)
+    const isAlreadyIdle = (): boolean =>
+      shouldResolveAgentIdleWait({
+        status: getTrackedStatus(),
+        streaming: this.sessionStates.get(childSessionId)?.streaming,
+        // Sticky flag: do NOT consume on wait success — cleared only when child runs again
+        idleFlag: !!this.agentIdleFlags.get(childSessionId),
+      })
+
+    // Fast path: terminal status, status=idle && !streaming, or sticky idle flag
+    if (isAlreadyIdle()) {
       return { idle: true, output: this.getAgentOutputText(childSessionId) }
     }
 
-    // Slow path: register waiter
+    // Slow path: register waiter, then re-check to close the race where the child
+    // becomes idle between the check above and waiter registration.
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         const waiters = this.agentIdleWaiters.get(childSessionId) || []
         const idx = waiters.findIndex(w => w.resolve === resolve)
         if (idx >= 0) waiters.splice(idx, 1)
+        if (waiters.length === 0) this.agentIdleWaiters.delete(childSessionId)
         resolve({ idle: false, output: this.getAgentOutputText(childSessionId) })
       }, timeoutMs)
 
       const waiters = this.agentIdleWaiters.get(childSessionId) || []
       waiters.push({ resolve, timer })
       this.agentIdleWaiters.set(childSessionId, waiters)
+
+      // Race re-check: if already idle, resolve waiters immediately (clears this timer)
+      if (isAlreadyIdle()) {
+        this.resolveAgentIdleWaiters(childSessionId)
+      }
     })
   }
 

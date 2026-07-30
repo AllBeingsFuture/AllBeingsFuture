@@ -10,6 +10,7 @@ import {
   installChildTurnWaiter,
   resolveChildTurnWaiterEntry,
   rejectChildTurnWaiterEntry,
+  shouldResolveAgentIdleWait,
   type ChildTurnWaiterHandle,
 } from '../services/child-turn-waiter.js'
 
@@ -110,6 +111,125 @@ test('rejectChildTurnWaiterEntry rejects and clears entry', async () => {
   assert.equal(rejectChildTurnWaiterEntry(map, 'c', new Error('gone')), true)
   await assert.rejects(p, /gone/)
   assert.equal(map.has('c'), false)
+})
+
+// ─── Unit: waitAgentIdle pure idle decision (sticky flag + status=idle) ─
+
+test('shouldResolveAgentIdleWait: status idle && !streaming returns immediately', () => {
+  assert.equal(
+    shouldResolveAgentIdleWait({ status: 'idle', streaming: false, idleFlag: false }),
+    true,
+  )
+  assert.equal(
+    shouldResolveAgentIdleWait({ status: 'idle', streaming: undefined, idleFlag: false }),
+    true,
+  )
+  // Still streaming — must not treat as idle yet
+  assert.equal(
+    shouldResolveAgentIdleWait({ status: 'idle', streaming: true, idleFlag: false }),
+    false,
+  )
+})
+
+test('shouldResolveAgentIdleWait: sticky idle flag is enough (not consumed by decision)', () => {
+  // Flag alone means wait can return without hanging; flag is not cleared by this helper
+  assert.equal(
+    shouldResolveAgentIdleWait({ status: 'running', streaming: true, idleFlag: true }),
+    true,
+  )
+  assert.equal(
+    shouldResolveAgentIdleWait({ status: 'running', streaming: true, idleFlag: false }),
+    false,
+  )
+})
+
+test('shouldResolveAgentIdleWait: terminal statuses resolve immediately', () => {
+  for (const status of ['completed', 'failed', 'cancelled'] as const) {
+    assert.equal(
+      shouldResolveAgentIdleWait({ status, streaming: false, idleFlag: false }),
+      true,
+      status,
+    )
+  }
+  assert.equal(
+    shouldResolveAgentIdleWait({ status: 'running', streaming: false, idleFlag: false }),
+    false,
+  )
+  assert.equal(
+    shouldResolveAgentIdleWait({ status: 'pending', streaming: false, idleFlag: false }),
+    false,
+  )
+})
+
+/**
+ * Contract for the race re-check path: after waiter registration, a late-set
+ * idle flag must still resolve (simulates flag set between check and register).
+ */
+test('idle wait race re-check: set flag after initial false check still resolves', async () => {
+  // Simulate the waitAgentIdle contract without Electron:
+  // 1) check shouldResolve → false
+  // 2) register waiter
+  // 3) set idle flag (child finished between check and register)
+  // 4) re-check shouldResolve → true → resolve waiter
+  let idleFlag = false
+  const snapshot = () => ({
+    status: 'running' as string | null,
+    streaming: true as boolean | null,
+    idleFlag,
+  })
+
+  assert.equal(shouldResolveAgentIdleWait(snapshot()), false)
+
+  let resolved: { idle: boolean } | null = null
+  const waiters: Array<{ resolve: (v: { idle: boolean }) => void; timer: ReturnType<typeof setTimeout> }> = []
+
+  const result = await new Promise<{ idle: boolean }>((resolve) => {
+    const timer = setTimeout(() => {
+      resolve({ idle: false })
+    }, 5_000)
+    waiters.push({ resolve, timer })
+
+    // Race: child becomes idle after check, before/after register
+    idleFlag = true
+    if (shouldResolveAgentIdleWait(snapshot())) {
+      for (const w of waiters) {
+        clearTimeout(w.timer)
+        w.resolve({ idle: true })
+      }
+      waiters.length = 0
+    }
+  })
+
+  resolved = result
+  assert.deepEqual(resolved, { idle: true })
+  // Second wait with sticky flag still resolves (flag not deleted)
+  assert.equal(shouldResolveAgentIdleWait(snapshot()), true)
+})
+
+// ─── Source contracts: waitAgentIdle (idle status + sticky flag) ────
+
+test('waitAgentIdle treats status idle and does not delete idle flag on success', () => {
+  const lifecycle = read('electron/services/agent-lifecycle.ts')
+  const helper = read('electron/services/child-turn-waiter.ts')
+  const fn = lifecycle.match(
+    /async waitAgentIdle\([\s\S]*?\n  \}/,
+  )
+  assert.ok(fn, 'expected waitAgentIdle method')
+  const body = fn[0]
+
+  // Uses pure helper that includes status=idle && !streaming
+  assert.match(body, /shouldResolveAgentIdleWait/)
+  assert.match(helper, /status === 'idle'/)
+  assert.match(helper, /shouldResolveAgentIdleWait/)
+
+  // Must NOT consume/delete idle flag on successful wait return
+  assert.doesNotMatch(body, /agentIdleFlags\.delete\(/)
+  // Sticky flag comment / non-delete contract
+  assert.match(body, /do NOT consume|Sticky flag/i)
+
+  // Race re-check after registering waiter
+  assert.match(body, /resolveAgentIdleWaiters/)
+  assert.match(body, /isAlreadyIdle/)
 })
 
 // ─── Source contracts: item 4 error waiters ─────────────────────────
