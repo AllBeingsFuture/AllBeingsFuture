@@ -136,10 +136,45 @@ export class SessionService {
     return this.getById(id)!
   }
 
+  /**
+   * All descendant session IDs under `id` at any depth (BFS), excluding `id`.
+   * Used so multi-generation trees (爷爷→父亲→儿子) cascade-delete fully.
+   */
+  getDescendantIds(id: string): string[] {
+    const all = this.getAll()
+    const childrenByParent = new Map<string, string[]>()
+    for (const s of all) {
+      const pid = s.parentSessionId || ''
+      if (!pid) continue
+      let list = childrenByParent.get(pid)
+      if (!list) {
+        list = []
+        childrenByParent.set(pid, list)
+      }
+      list.push(s.id)
+    }
+    const out: string[] = []
+    const queue = [id]
+    for (let i = 0; i < queue.length; i++) {
+      const kids = childrenByParent.get(queue[i]!)
+      if (!kids) continue
+      for (const kid of kids) {
+        out.push(kid)
+        queue.push(kid)
+      }
+    }
+    return out
+  }
+
   delete(id: string): void {
-    // Cascade: delete all child sessions first
-    this.db.raw.prepare('DELETE FROM sessions WHERE parent_session_id = ?').run(id)
-    this.db.raw.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+    // Cascade: delete all descendants at any depth, then the session itself.
+    // A single-level DELETE WHERE parent_session_id = ? leaves grandchildren
+    // (parent = direct child) as orphans that surface as top-level sessions.
+    const del = this.db.raw.prepare('DELETE FROM sessions WHERE id = ?')
+    for (const descendantId of this.getDescendantIds(id)) {
+      del.run(descendantId)
+    }
+    del.run(id)
   }
 
   end(id: string): void {

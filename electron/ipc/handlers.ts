@@ -288,12 +288,14 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SessionService.GetByID', (_e, id: string) => sessionService.getById(id))
   ipcMain.handle('SessionService.Create', (_e, config: any) => sessionService.create(config))
   ipcMain.handle('SessionService.Delete', async (_e, id: string) => {
-    // True teardown: destroy adapter + remove software-prompt files (not stop-only)
-    await processService.disposeSession(id).catch(() => {})
-    // Also dispose any child sessions still tracked (DB cascade deletes rows next)
-    for (const child of processService.getChildSessions(id)) {
-      await processService.disposeSession(child.id).catch(() => {})
+    // True teardown: destroy adapter + remove software-prompt files (not stop-only).
+    // Dispose every descendant at any depth (deepest-first via reverse BFS) so
+    // grandchildren processes are cleaned before DB cascade removes their rows.
+    const descendants = sessionService.getDescendantIds(id)
+    for (let i = descendants.length - 1; i >= 0; i--) {
+      await processService.disposeSession(descendants[i]!).catch(() => {})
     }
+    await processService.disposeSession(id).catch(() => {})
     sessionService.delete(id)
   })
   ipcMain.handle('SessionService.End', async (_e, id: string) => {
