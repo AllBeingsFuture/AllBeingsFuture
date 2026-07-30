@@ -46,10 +46,17 @@ describe('estimateMessageGroupHeight', () => {
   })
 
   it('keeps tool_group / child_agent estimates independent of thinking content length', () => {
+    // Settled tool groups default to a compact header height.
     expect(estimateMessageGroupHeight(makeGroup('tool_group', [
       { role: 'tool_use', content: '' },
       { role: 'tool_use', content: '' },
-    ]))).toBe(Math.max(160, 88 + 2 * 160))
+    ]))).toBe(88)
+
+    // In-flight tool groups grow so stick-to-bottom tracks the open list.
+    expect(estimateMessageGroupHeight(makeGroup('tool_group', [
+      { role: 'tool_use', content: '', partial: true },
+      { role: 'tool_result', content: 'out', isDelta: true },
+    ]))).toBe(Math.max(160, 88 + 2 * 80))
 
     expect(estimateMessageGroupHeight(makeGroup('child_agent', [
       { role: 'assistant', content: 'a' },

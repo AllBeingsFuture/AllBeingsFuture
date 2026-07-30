@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -56,7 +56,8 @@ interface ToolUseCardProps {
 }
 
 const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact = false }) => {
-  const [expanded, setExpanded] = useState(() => Boolean(operation?.liveResult && !operation?.result))
+  // null = follow autoExpand; boolean = sticky user override within the current phase.
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
   const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0 })
 
   const resolvedOperation = useMemo(() => normalizeOperation(message, operation), [message, operation])
@@ -93,11 +94,19 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
 
   const isStreamingResult = Boolean(resolvedOperation.liveResult && !resolvedOperation.result)
   const isPending = Boolean(resolvedOperation.toolUse && !resolvedOperation.liveResult && !resolvedOperation.result)
+  // Auto-open only while in flight; settled history stays collapsed (no full input/result dump).
+  const autoExpand = isStreamingResult || isPending
+  const expanded = manualExpanded ?? autoExpand
 
-  // Live output should open itself as chunks arrive (initial state alone misses late liveResult).
   useEffect(() => {
-    if (isStreamingResult) setExpanded(true)
-  }, [isStreamingResult])
+    // Phase flip (in-flight ↔ settled) resets sticky expand so defaults re-apply.
+    setManualExpanded(null)
+  }, [autoExpand])
+
+  const toggleExpanded = useCallback(() => {
+    setManualExpanded(current => !(current ?? autoExpand))
+  }, [autoExpand])
+
   const isResult = Boolean(resolvedOperation.result) || primaryMessage?.role === 'tool_result'
   const isError = resolvedOperation.result?.isError ?? primaryMessage?.isError
   const style = TOOL_STYLES[effectiveToolName] || DEFAULT_STYLE
@@ -130,19 +139,13 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
   const hasFinalResult = Boolean(!isStreamingResult && isResult && displayResult)
   const inputPreview = useMemo(() => formatToolInput(effectiveToolInput), [effectiveToolInput])
 
-  useEffect(() => {
-    if (isStreamingResult) {
-      setExpanded(true)
-    }
-  }, [isStreamingResult])
-
   const menuItems = useMemo<MenuItem[]>(() => {
     const items: MenuItem[] = [
       {
         key: 'toggle',
         label: expanded ? '收起详情' : '展开详情',
         icon: expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />,
-        onClick: () => setExpanded(v => !v),
+        onClick: toggleExpanded,
       },
       { key: 'div1', type: 'divider' },
       {
@@ -194,7 +197,7 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
     }
 
     return items
-  }, [command, effectiveToolInput, effectiveToolName, effectiveToolResult, expanded, filePath])
+  }, [command, effectiveToolInput, effectiveToolName, effectiveToolResult, expanded, filePath, toggleExpanded])
 
   if (!primaryMessage) {
     return null
@@ -203,7 +206,10 @@ const ToolUseCard: React.FC<ToolUseCardProps> = ({ message, operation, compact =
   return (
     <div className={compact ? 'my-0.5 mx-1' : 'my-1 mx-2'}>
       <button
-        onClick={() => setExpanded(!expanded)}
+        type="button"
+        onClick={toggleExpanded}
+        aria-expanded={expanded}
+        data-testid="tool-use-card-toggle"
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()

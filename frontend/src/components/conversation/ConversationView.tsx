@@ -247,7 +247,12 @@ export function estimateMessageGroupHeight(group: MessageGroup): number {
   }
 
   if (group.type === 'tool_group') {
-    return Math.max(160, 88 + group.messages.length * 160)
+    // Settled groups default to a compact header + summary row; only in-flight
+    // tools auto-expand and need a taller estimate for stick-to-bottom.
+    if (isPartial) {
+      return Math.max(160, 88 + group.messages.length * 80)
+    }
+    return 88
   }
 
   if (group.type === 'child_agent') {
@@ -1028,11 +1033,14 @@ export default function ConversationView({ session }: Props) {
 
   const renderMessageGroup = useCallback((group: MessageGroup) => {
     const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
-    // Keep groups live while any row is still partial/delta — not only the last
-    // group. Otherwise finished-looking "执行了 N 个操作" / "思考完成" freezes mid-turn
-    // as soon as a later assistant bubble opens.
+    // Tool groups: live only while a row is still partial/delta — do NOT treat
+    // "last group during a turn" as live, or finished "执行了 N 个操作" stays expanded.
+    // Thinking / child / message groups: still treat last group as live so the
+    // active tail keeps streaming UI when partial flags lag.
     const groupIsLive = shouldRenderLiveMessages && (
-      isLastGroup || messageGroupHasPartial(group)
+      group.type === 'tool_group'
+        ? messageGroupHasPartial(group)
+        : (isLastGroup || messageGroupHasPartial(group))
     )
 
     if (group.type === 'tool_group' && group.convMessages) {

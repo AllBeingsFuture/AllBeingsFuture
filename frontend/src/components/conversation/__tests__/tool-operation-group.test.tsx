@@ -68,6 +68,75 @@ describe('ToolOperationGroup', () => {
     expect(screen.queryByText('Grep')).not.toBeInTheDocument()
   })
 
+  it('stays collapsed when all tools settled even if isActive is still true', () => {
+    // Mid-turn: tools finished but session still streaming — must not stay open.
+    const finished = [
+      toolMsg({
+        id: 'use-1',
+        role: 'tool_use',
+        toolUseId: 'call-1',
+        toolName: 'list_agents',
+        toolInput: { parentSessionId: 'p1' },
+        content: '',
+      }),
+      toolMsg({
+        id: 'result-1',
+        role: 'tool_result',
+        toolUseId: 'call-1',
+        toolName: 'list_agents',
+        toolResult: '[]',
+        content: '[]',
+        isDelta: false,
+      }),
+    ]
+
+    renderWithProviders(<ToolOperationGroup messages={finished} isActive />)
+
+    const toggle = screen.getByTestId('tool-operation-group-toggle')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText(/正在执行/)).toBeInTheDocument()
+    expect(screen.getByText(/最近：/)).toBeInTheDocument()
+    expect(screen.queryByText('输入参数')).not.toBeInTheDocument()
+  })
+
+  it('settled tool cards inside an expanded group stay collapsed until clicked', () => {
+    const finished = [
+      toolMsg({
+        id: 'use-1',
+        role: 'tool_use',
+        toolUseId: 'call-1',
+        toolName: 'list_agents',
+        toolInput: { parentSessionId: 'p1' },
+        content: '',
+      }),
+      toolMsg({
+        id: 'result-1',
+        role: 'tool_result',
+        toolUseId: 'call-1',
+        toolName: 'list_agents',
+        toolResult: '[{"id":"a1"}]',
+        content: '[{"id":"a1"}]',
+        isDelta: false,
+      }),
+    ]
+
+    renderWithProviders(<ToolOperationGroup messages={finished} isActive={false} />)
+
+    const groupToggle = screen.getByTestId('tool-operation-group-toggle')
+    fireEvent.click(groupToggle)
+    expect(groupToggle).toHaveAttribute('aria-expanded', 'true')
+
+    const cardToggle = screen.getByTestId('tool-use-card-toggle')
+    expect(cardToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('输入参数')).not.toBeInTheDocument()
+    expect(screen.queryByText('最终结果')).not.toBeInTheDocument()
+
+    fireEvent.click(cardToggle)
+    expect(cardToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('输入参数')).toBeInTheDocument()
+    expect(screen.getByText('最终结果')).toBeInTheDocument()
+  })
+
   it('lets the user collapse a live group and expand it again', () => {
     renderWithProviders(<ToolOperationGroup messages={liveTools} isActive />)
 

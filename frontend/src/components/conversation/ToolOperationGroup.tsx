@@ -183,22 +183,35 @@ function getText(value: unknown): string {
   return ''
 }
 
+function operationIsInFlight(operation: ToolOperationCardData): boolean {
+  if (operation.liveResult && !operation.result) return true
+  if (operation.toolUse && !operation.result && !operation.liveResult) return true
+  return false
+}
+
 const ToolOperationGroup: React.FC<ToolOperationGroupProps> = ({ messages, isActive }) => {
-  // Live groups auto-expand so pending→running→done is visible without a click.
-  // Settled history stays collapsed. User toggle is sticky within the phase.
+  // null = follow autoExpand; boolean = sticky user override within the current phase.
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
-  const expanded = manualExpanded ?? isActive
-
-  useEffect(() => {
-    // Phase flip (live ↔ settled) resets sticky expand so defaults re-apply.
-    setManualExpanded(null)
-  }, [isActive])
-
-  const toggleExpanded = useCallback(() => {
-    setManualExpanded(current => !(current ?? isActive))
-  }, [isActive])
 
   const operations = useMemo(() => aggregateOperations(messages), [messages])
+  // Auto-expand only while at least one tool is still in flight — not merely
+  // "session streaming" / isActive. Finished history and mid-turn settled groups stay collapsed.
+  const hasInFlight = useMemo(
+    () => operations.some(operationIsInFlight),
+    [operations],
+  )
+  const autoExpand = isActive && hasInFlight
+  const expanded = manualExpanded ?? autoExpand
+
+  useEffect(() => {
+    // Phase flip (in-flight ↔ settled) resets sticky expand so defaults re-apply.
+    setManualExpanded(null)
+  }, [autoExpand])
+
+  const toggleExpanded = useCallback(() => {
+    setManualExpanded(current => !(current ?? autoExpand))
+  }, [autoExpand])
+
   const toolCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const operation of operations) {
