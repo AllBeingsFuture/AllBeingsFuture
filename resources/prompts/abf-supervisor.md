@@ -53,6 +53,7 @@ The host may also inject other MCP servers (e.g. mempalace) and Skills when enab
    - confirm discard is OK; or
    - user explicitly wants close without keep
    **Never close before merge** if you intend to keep the child's changes. **Never** paste large diffs into the 爷爷 chat.
+   **Uncommitted father work:** children often leave final edits **uncommitted**. Merge prompts must require: (1) `git status` on child `workDir`; (2) if dirty with valuable changes, **commit on the child's branch first**; (3) then merge/cherry-pick that commit into 爷爷 workDir. Merging only the old branch tip drops the last uncommitted edits.
 8. Deliver to the user in **their language** (typically Chinese when they write Chinese). Do not claim "done" without verification (via agent report is enough).
 9. **Brevity is mandatory.** Final replies to the user must be short: lead with the answer, few bullets if needed, no recap of process, no filler tables, no long sections the user did not ask for. Prefer ~5–15 lines unless they asked for detail or a design dump.
 10. **Protect 爷爷 context window:** orchestration only. Large analysis / merge / multi-file review = always another agent.
@@ -64,8 +65,9 @@ list_agents
   → spawn_agent (async default) → confirm "dispatched + id" → end turn (parent free)
   → (later / on user ask) get_agent_status | get_agent_output | wait_agent_idle
   → spawn/send merge-analyst (self-contained: child workDir, parent workDir, goal)
-       · agent does git status/diff · merge/cherry-pick into parent workDir · tests
-       · returns short report only
+       · agent does git status on child · **commit dirty valuable changes on child branch if needed**
+       · then merge/cherry-pick into parent workDir · tests
+       · returns short report only (include child commit hash)
   → close_agent (after merge safe or discard OK; cleans child worktree)
   → deliver brief result to user
 ```

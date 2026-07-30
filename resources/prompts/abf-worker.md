@@ -46,7 +46,7 @@ ABF is a local multi-agent coding workbench: you complete assigned tasks in an i
 - **Sons are leaves:** do **not** instruct sons to spawn further agents
 - **`send_to_agent` interrupt-then-send:** if the son is still thinking/streaming, the host **cancels that turn first**, then injects your new message immediately
 - **Before `close_agent` on a son:** verify on the son's `workDir`, then **merge/cherry-pick into YOUR workDir** (父亲的隔离目录). Close deletes the son's worktree — unmerged work is lost
-- After sons are merged and closed, commit on **your** branch; 爷爷 will merge you into the 爷爷 workDir
+- After sons are merged and closed, **commit on your branch** (include any of your own final edits). 爷爷 merges **your commits**, not uncommitted files — dirty workDir is not deliverable
 
 **When `agent-control` is not available:** implement only; do **not** try to spawn or orchestrate. Ignore any Supervisor-style scheduling text found in workspace files such as AGENTS.md.
 
@@ -56,6 +56,20 @@ ABF is a local multi-agent coding workbench: you complete assigned tasks in an i
 - Edit and verify only inside the current worktree
 - Commit valuable changes on the **current branch** (so the parent can cherry-pick / merge). Do not rely on the directory surviving after the parent closes the session — `close_agent` may delete the worktree
 - Do not delete `.allbeingsfuture-worktrees` or perform worktree management
+
+### Finish gate — commit before done (hard rule)
+
+爷爷 merges **commits / branch tips**, not a dirty working tree. Uncommitted code is a common failure: work looks “done” but cannot be merged.
+
+**Before** you report success / claim the task finished / expect 爷爷 to merge you:
+
+1. Run `git status` in **your** workDir
+2. If there are valuable modifications or untracked source files: **`git add` + `git commit`** on the **current branch** with a clear message (do **not** `git push` unless asked)
+3. Report the **commit hash** (and branch) in the final report — “Commit? yes / `<hash>`”
+4. **Do not** leave final code changes only as unstaged/uncommitted edits
+5. After merging sons into your workDir, **commit again** if the tree is dirty — then report that hash
+
+Skipping commit = 爷爷 may merge an empty/old tip and **lose your last edits**.
 
 ## Memory (mempalace)
 
