@@ -30,7 +30,20 @@ function getGitExecutable(): string {
 }
 
 function normalizeFilePath(target: string): string {
+  if (!target) return ''
   return path.resolve(target).replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+/**
+ * True only for ABF-managed worktrees under the repo's isolation root.
+ * Parent main checkout / arbitrary dirs are never safe to force-remove.
+ */
+export function isManagedAbfWorktreePath(sourceRepo: string, worktreePath: string): boolean {
+  const repoRoot = normalizeFilePath(sourceRepo)
+  const candidate = normalizeFilePath(worktreePath)
+  if (!repoRoot || !candidate) return false
+  return candidate.startsWith(`${repoRoot}/.allbeingsfuture-worktrees/`)
+    || candidate.startsWith(`${repoRoot}/.abf-worktrees/`)
 }
 
 /**
@@ -250,8 +263,24 @@ export class GitService {
 
   async removeWorktree(repoPath: string, worktreePath: string, deleteBranch: boolean = true, branchName?: string): Promise<void> {
     const normalizedWorktreePath = worktreePath ? normalizeFilePath(worktreePath) : ''
+    // Empty path: no-op (callers may pass optional/missing worktree).
     if (!normalizedWorktreePath) return
+
     const baseRepoPath = await this.getPrimaryRepoPath(repoPath).catch(() => normalizeFilePath(repoPath))
+    const repoRoot = normalizeFilePath(baseRepoPath)
+
+    if (!repoRoot) {
+      throw new Error('removeWorktree refused: empty repository path')
+    }
+    if (normalizedWorktreePath === repoRoot) {
+      throw new Error(`removeWorktree refused: path is the main repository checkout (${normalizedWorktreePath})`)
+    }
+    if (!isManagedAbfWorktreePath(repoRoot, normalizedWorktreePath)) {
+      throw new Error(
+        `removeWorktree refused: path is not an ABF-managed worktree under ${repoRoot}/.allbeingsfuture-worktrees or .abf-worktrees: ${normalizedWorktreePath}`,
+      )
+    }
+
     const branchToDelete = deleteBranch
       ? (branchName || await this.getWorktreeBranch(baseRepoPath, normalizedWorktreePath).catch(() => '') || `worktree-${path.basename(normalizedWorktreePath)}`)
       : ''
@@ -259,6 +288,7 @@ export class GitService {
     try {
       await this.git(['worktree', 'remove', normalizedWorktreePath, '--force'], baseRepoPath)
     } catch (removeErr: any) {
+      // Fallback rm only after managed-path gate passed above.
       try {
         await rm(normalizedWorktreePath, { recursive: true, force: true })
       } catch (fsErr: any) {

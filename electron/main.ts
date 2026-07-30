@@ -246,6 +246,7 @@ async function createWindow() {
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
+    // File drops may surface as file:// navigations — never navigate, treat as drop.
     if (url.startsWith('file://')) {
       event.preventDefault()
       try {
@@ -256,6 +257,25 @@ async function createWindow() {
       } catch {
         // Ignore malformed URLs.
       }
+      return
+    }
+
+    // Only allow navigation to the app renderer origin (dev server or custom scheme).
+    let allowed = false
+    try {
+      const parsed = new URL(url)
+      if (isDev && (parsed.origin === 'http://localhost:5173' || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(parsed.origin))) {
+        allowed = true
+      }
+      if (parsed.protocol === `${APP_SCHEME}:`) {
+        allowed = true
+      }
+    } catch {
+      allowed = false
+    }
+
+    if (!allowed) {
+      event.preventDefault()
     }
   })
 
@@ -389,9 +409,17 @@ function registerAppIpcHandlers() {
   })
 
   ipcMain.handle('app:openExternal', async (_event, targetUrl: string) => {
-    if (targetUrl) {
-      await shell.openExternal(targetUrl)
+    if (!targetUrl) return
+    let parsed: URL
+    try {
+      parsed = new URL(targetUrl)
+    } catch {
+      throw new Error(`openExternal refused: invalid URL`)
     }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`openExternal refused: only http/https allowed, got ${parsed.protocol}`)
+    }
+    await shell.openExternal(parsed.toString())
   })
 
   ipcMain.handle('clipboard:writeText', async (_event, text: string) => {

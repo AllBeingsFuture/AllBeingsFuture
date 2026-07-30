@@ -11,6 +11,8 @@
     "services/agent-stream-types.ts",
     "services/builtin-skills.ts",
     "services/concurrency-guard.ts",
+    "services/file-transfer.ts",
+    "services/git.ts",
     "services/log.ts",
     "services/mcp.ts",
     "services/mempalace-safe.ts",

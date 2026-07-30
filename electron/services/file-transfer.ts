@@ -46,14 +46,87 @@ const MIME_MAP: Record<string, string> = {
   '.md': 'text/markdown',
 }
 
+const DROPS_DIR_NAME = 'allbeingsfuture-drops'
+const DANGEROUS_FILENAME_CHARS = /[<>:"|?*\x00-\x1f]/g
+
+function normalizePathPrefix(target: string): string {
+  if (!target) return ''
+  return path.resolve(target).replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+/** Resolve + realpath when possible (macOS /var → /private/var). */
+function resolveAllowedRoot(root: string): string {
+  const resolved = normalizePathPrefix(root)
+  if (!resolved) return ''
+  try {
+    if (fs.existsSync(resolved)) {
+      return normalizePathPrefix(fs.realpathSync(resolved))
+    }
+  } catch {
+    // fall through
+  }
+  return resolved
+}
+
+function isPathInsideRoot(candidate: string, root: string): boolean {
+  const c = normalizePathPrefix(candidate)
+  const r = normalizePathPrefix(root)
+  if (!c || !r) return false
+  return c === r || c.startsWith(`${r}/`)
+}
+
 export class FileTransferService {
-  prepareFile(filePath: string): PreparedFile {
+  /** Readable roots for prepareFile (homedir + tmpdir by default). */
+  private allowedRoots: string[] = [
+    resolveAllowedRoot(os.homedir()),
+    resolveAllowedRoot(os.tmpdir()),
+  ]
+
+  setAllowedRoots(roots: string[]): void {
+    this.allowedRoots = roots
+      .map((r) => resolveAllowedRoot(r))
+      .filter(Boolean)
+  }
+
+  addAllowedRoot(root: string): void {
+    const normalized = resolveAllowedRoot(root)
+    if (!normalized) return
+    if (!this.allowedRoots.includes(normalized)) {
+      this.allowedRoots.push(normalized)
+    }
+  }
+
+  getAllowedRoots(): string[] {
+    return [...this.allowedRoots]
+  }
+
+  private assertReadablePath(filePath: string): string {
+    if (!filePath || !String(filePath).trim()) {
+      throw new Error('File path is empty')
+    }
     if (!fs.existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`)
     }
 
-    const stat = fs.statSync(filePath)
-    const ext = path.extname(filePath).toLowerCase()
+    let realPath: string
+    try {
+      realPath = fs.realpathSync(filePath)
+    } catch {
+      throw new Error(`File not found: ${filePath}`)
+    }
+
+    const normalized = normalizePathPrefix(realPath)
+    const allowed = this.allowedRoots.some((root) => isPathInsideRoot(normalized, root))
+    if (!allowed) {
+      throw new Error(`File path is outside allowed roots: ${normalized}`)
+    }
+    return realPath
+  }
+
+  prepareFile(filePath: string): PreparedFile {
+    const resolvedPath = this.assertReadablePath(filePath)
+    const stat = fs.statSync(resolvedPath)
+    const ext = path.extname(resolvedPath).toLowerCase()
     const mimeType = stat.isDirectory() ? 'inode/directory' : (MIME_MAP[ext] || 'application/octet-stream')
     const isImage = mimeType.startsWith('image/')
 
@@ -61,8 +134,8 @@ export class FileTransferService {
     if (stat.isDirectory()) {
       return {
         id: uuidv4(),
-        originalPath: filePath,
-        filename: path.basename(filePath),
+        originalPath: resolvedPath,
+        filename: path.basename(resolvedPath),
         mimeType,
         size: 0,
         sizeBytes: 0,
@@ -72,12 +145,19 @@ export class FileTransferService {
       }
     }
 
-    const data = fs.readFileSync(filePath)
+    const maxSize = PLATFORM_LIMITS.default.maxFileSize
+    if (stat.size > maxSize) {
+      throw new Error(
+        `File size ${(stat.size / 1024 / 1024).toFixed(1)}MB exceeds max allowed ${(maxSize / 1024 / 1024).toFixed(0)}MB`,
+      )
+    }
+
+    const data = fs.readFileSync(resolvedPath)
 
     return {
       id: uuidv4(),
-      originalPath: filePath,
-      filename: path.basename(filePath),
+      originalPath: resolvedPath,
+      filename: path.basename(resolvedPath),
       mimeType,
       size: stat.size,
       sizeBytes: stat.size,
@@ -117,10 +197,21 @@ export class FileTransferService {
   }
 
   saveDroppedFile(filename: string, base64Data: string): string {
-    const tmpDir = path.join(os.tmpdir(), 'allbeingsfuture-drops')
+    const tmpDir = path.resolve(os.tmpdir(), DROPS_DIR_NAME)
     fs.mkdirSync(tmpDir, { recursive: true })
-    const safeName = filename.replace(/[<>:"|?*]/g, '_')
-    const filePath = path.join(tmpDir, `${Date.now()}-${safeName}`)
+
+    // Strip directories / traversal; only keep a leaf name.
+    const base = path.basename(filename || 'drop.bin').replace(/\\/g, '/')
+    const leaf = base.includes('/') ? base.split('/').pop()! : base
+    const safeName = (leaf || 'drop.bin').replace(DANGEROUS_FILENAME_CHARS, '_').replace(/^\.+/, '_') || 'drop.bin'
+
+    const filePath = path.resolve(tmpDir, `${Date.now()}-${safeName}`)
+    const resolvedTmp = normalizePathPrefix(tmpDir)
+    const resolvedFile = normalizePathPrefix(filePath)
+    if (resolvedFile !== resolvedTmp && !resolvedFile.startsWith(`${resolvedTmp}/`)) {
+      throw new Error(`saveDroppedFile refused: path escapes drops directory (${filePath})`)
+    }
+
     fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'))
     return filePath
   }
