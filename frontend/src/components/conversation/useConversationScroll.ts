@@ -25,7 +25,11 @@ const FORCE_SCROLL_WINDOW_MS = 3000
 const NEAR_BOTTOM_THRESHOLD_PX = 150
 /** Re-attach only when this close to the live tail (hysteresis vs detach). */
 const USER_REATTACH_THRESHOLD_PX = 32
-const FOLLOW_UP_SCROLL_FRAMES = 2
+/**
+ * One post-layout frame is enough for RO/estimate growth to settle.
+ * Two frames doubled thrash when liveTailRevision + ResizeObserver both pin.
+ */
+const FOLLOW_UP_SCROLL_FRAMES = 1
 const PROGRAMMATIC_SCROLL_GUARD_MS = 150
 /** Large per-event jump — sync virtual window immediately + extra overscan. */
 const FAST_SCROLL_DELTA_PX = 48
@@ -211,7 +215,9 @@ export function useConversationScroll({
       return
     }
 
-    // 先立刻纠正一次，再保留后续帧兜底，避免流式内容增长时出现可见断档。
+    // Sync pin every time height may have changed (liveTailRevision / RO).
+    // Follow-up rAF is coalesced inside queueFollowUpAutoScroll so dual observers
+    // + layout effect do not stack multiple post-paint frames per token.
     applyScrollToBottom()
     queueFollowUpAutoScroll()
   }, [applyScrollToBottom, cancelPendingAutoScroll, queueFollowUpAutoScroll])

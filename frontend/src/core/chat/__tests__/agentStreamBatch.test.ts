@@ -35,6 +35,23 @@ function toolCall(sessionId: string, sequence: number): AgentStreamEvent {
   }
 }
 
+function toolUpdate(
+  sessionId: string,
+  sequence: number,
+  status: 'pending' | 'in_progress' | 'completed' | 'failed',
+  resultDelta?: string,
+  toolCallId = 'tool-1',
+): AgentStreamEvent {
+  return {
+    type: 'tool_update',
+    sessionId,
+    sequence,
+    toolCallId,
+    status,
+    resultDelta,
+  }
+}
+
 function done(sessionId: string, sequence: number): AgentStreamEvent {
   return { type: 'done', sessionId, sequence }
 }
@@ -46,7 +63,11 @@ describe('isBatchableAgentStreamEvent', () => {
     expect(isBatchableAgentStreamEvent(thinkingDelta('s', 1, 'i', 'a', 'delta'))).toBe(true)
   })
 
-  it('does not batch tool/done/thinking replace', () => {
+  it('batches progressive tool_update but not terminal tool/done/thinking replace', () => {
+    expect(isBatchableAgentStreamEvent(toolUpdate('s', 1, 'pending'))).toBe(true)
+    expect(isBatchableAgentStreamEvent(toolUpdate('s', 1, 'in_progress', 'tick'))).toBe(true)
+    expect(isBatchableAgentStreamEvent(toolUpdate('s', 1, 'completed', 'done'))).toBe(false)
+    expect(isBatchableAgentStreamEvent(toolUpdate('s', 1, 'failed', 'err'))).toBe(false)
     expect(isBatchableAgentStreamEvent(toolCall('s', 1))).toBe(false)
     expect(isBatchableAgentStreamEvent(done('s', 1))).toBe(false)
     expect(isBatchableAgentStreamEvent(thinkingDelta('s', 1, 'i', 'full', 'replace'))).toBe(false)
@@ -100,6 +121,31 @@ describe('coalesceAgentStreamEvents', () => {
     ])
     expect(coalesced).toEqual([
       thinkingDelta('s1', 2, 't1', 'think more', 'delta'),
+    ])
+  })
+
+  it('merges consecutive progressive tool_update resultDeltas', () => {
+    const coalesced = coalesceAgentStreamEvents([
+      toolUpdate('s1', 1, 'in_progress', 'Hello '),
+      toolUpdate('s1', 2, 'in_progress', 'world'),
+      toolUpdate('s1', 3, 'in_progress', '!'),
+    ])
+    expect(coalesced).toEqual([
+      toolUpdate('s1', 3, 'in_progress', 'Hello world!'),
+    ])
+  })
+
+  it('does not merge tool_update across different toolCallIds or terminal status', () => {
+    const coalesced = coalesceAgentStreamEvents([
+      toolUpdate('s1', 1, 'in_progress', 'a', 'tool-a'),
+      toolUpdate('s1', 2, 'in_progress', 'b', 'tool-b'),
+      toolUpdate('s1', 3, 'in_progress', 'c', 'tool-b'),
+      toolUpdate('s1', 4, 'completed', 'done', 'tool-b'),
+    ])
+    expect(coalesced).toEqual([
+      toolUpdate('s1', 1, 'in_progress', 'a', 'tool-a'),
+      toolUpdate('s1', 3, 'in_progress', 'bc', 'tool-b'),
+      toolUpdate('s1', 4, 'completed', 'done', 'tool-b'),
     ])
   })
 })
@@ -164,6 +210,30 @@ describe('createAgentStreamBatcher', () => {
     // cancelled the pending schedule
     scheduled[0]()
     expect(onFlush).toHaveBeenCalledTimes(1)
+    batcher.dispose()
+  })
+
+  it('batches progressive tool_update until schedule; completed flushes immediately', () => {
+    const batcher = createTestBatcher()
+    batcher.push(toolUpdate('s1', 1, 'in_progress', 'tick '))
+    batcher.push(toolUpdate('s1', 2, 'in_progress', 'tock'))
+    expect(onFlush).not.toHaveBeenCalled()
+    expect(scheduled).toHaveLength(1)
+
+    scheduled[0]()
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(onFlush).toHaveBeenCalledWith('s1', [
+      toolUpdate('s1', 2, 'in_progress', 'tick tock'),
+    ])
+
+    batcher.push(toolUpdate('s1', 3, 'in_progress', 'more'))
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    batcher.push(toolUpdate('s1', 4, 'completed', 'done'))
+    expect(onFlush).toHaveBeenCalledTimes(2)
+    expect(onFlush.mock.calls[1][1]).toEqual([
+      toolUpdate('s1', 3, 'in_progress', 'more'),
+      toolUpdate('s1', 4, 'completed', 'done'),
+    ])
     batcher.dispose()
   })
 

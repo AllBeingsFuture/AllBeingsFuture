@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -56,7 +56,7 @@ type ExtendedMessage = ChatMessage & {
   presentation?: 'message' | 'commentary'
 }
 
-export default function MessageBubble({ message, providerId }: Props) {
+function MessageBubble({ message, providerId }: Props) {
   const extendedMessage = message as ExtendedMessage
   const isUser = message.role === 'user'
   const isPartial = message.partial
@@ -146,14 +146,21 @@ export default function MessageBubble({ message, providerId }: Props) {
   )
 
   const thinkingSeconds = Math.max(1, Math.round((thinkingText?.length || 0) / 180))
+  // Streaming tokens re-render every frame — skip enter motion to avoid opacity/y thrash.
+  const BubbleShell = isPartial ? 'div' : motion.div
+  const bubbleMotionProps = isPartial
+    ? {}
+    : {
+        initial: { opacity: 0, y: 6 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.2, ease: 'easeOut' as const },
+      }
 
   return (
     <>
-      <motion.div
+      <BubbleShell
         className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
+        {...bubbleMotionProps}
       >
         <div
           className={[
@@ -314,7 +321,7 @@ export default function MessageBubble({ message, providerId }: Props) {
             </div>
           )}
         </div>
-      </motion.div>
+      </BubbleShell>
 
       {previewIndex !== null && userImages && (
         <ImageViewer
@@ -326,3 +333,31 @@ export default function MessageBubble({ message, providerId }: Props) {
     </>
   )
 }
+
+function messageBubblePropsEqual(prev: Props, next: Props): boolean {
+  if (prev.providerId !== next.providerId) return false
+  const a = prev.message as ExtendedMessage & {
+    id?: string
+    isDelta?: boolean
+    usage?: unknown
+    timestamp?: string
+  }
+  const b = next.message as ExtendedMessage & {
+    id?: string
+    isDelta?: boolean
+    usage?: unknown
+    timestamp?: string
+  }
+  if (a === b) return true
+  return a.id === b.id
+    && a.role === b.role
+    && a.content === b.content
+    && a.partial === b.partial
+    && a.isDelta === b.isDelta
+    && a.presentation === b.presentation
+    && a.timestamp === b.timestamp
+    && a.usage === b.usage
+    && a.images === b.images
+}
+
+export default React.memo(MessageBubble, messageBubblePropsEqual)

@@ -652,6 +652,9 @@ const ThinkingBlock = memo(function ThinkingBlock({
     setManualExpanded(null)
   }, [isActive])
 
+  const bodyClassName =
+    'mt-1.5 max-h-[200px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-500'
+
   return (
     <div className="my-1 w-full max-w-[42rem]" data-thinking-active={isActive ? 'true' : 'false'}>
       <button
@@ -678,14 +681,20 @@ const ThinkingBlock = memo(function ThinkingBlock({
           {preview}
         </div>
       )}
+      {/* Live body is static: height:0→auto animation thrashs stick-to-bottom every token. */}
+      {expanded && content && isActive && (
+        <div className={bodyClassName} data-testid="thinking-block-body">
+          {content}
+        </div>
+      )}
       <AnimatePresence>
-        {expanded && content && (
+        {expanded && content && !isActive && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.18, ease: 'easeInOut' }}
-            className="mt-1.5 max-h-[200px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-500"
+            className={bodyClassName}
             data-testid="thinking-block-body"
           >
             {content}

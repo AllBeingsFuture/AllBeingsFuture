@@ -41,7 +41,7 @@ interface SessionScheduleEntry {
  *
  * ~1 store update per display frame is intentional: further coalescing would add
  * visible latency without a smoother UI (paint already caps at display refresh).
- * Tool / terminal events still flush immediately via push().
+ * Terminal tool/status events still flush immediately via push().
  */
 export function isBatchableAgentStreamEvent(event: AgentStreamEvent): boolean {
   if (event.type === 'text_delta') return true
@@ -49,11 +49,30 @@ export function isBatchableAgentStreamEvent(event: AgentStreamEvent): boolean {
     // replace must land immediately so partial thinking is not merged incorrectly
     return event.mode !== 'replace'
   }
+  // Progressive tool output is high-frequency (stdout ticks); completed/failed must land now.
+  if (event.type === 'tool_update') {
+    return event.status === 'pending' || event.status === 'in_progress'
+  }
   return false
 }
 
+function mergeToolUpdateOutput(
+  prev: Extract<AgentStreamEvent, { type: 'tool_update' }>,
+  next: Extract<AgentStreamEvent, { type: 'tool_update' }>,
+): Extract<AgentStreamEvent, { type: 'tool_update' }>['output'] | undefined {
+  if (!prev.output && !next.output) return undefined
+  if (!prev.output) return next.output
+  if (!next.output) return prev.output
+  // Different streams: prefer the later chunk so reduce keeps stream identity.
+  if (prev.output.stream !== next.output.stream) return next.output
+  return {
+    stream: next.output.stream,
+    text: `${prev.output.text || ''}${next.output.text || ''}`,
+  }
+}
+
 /**
- * Merge consecutive same-session+itemId text/thinking deltas.
+ * Merge consecutive same-session+itemId text/thinking deltas, and progressive tool_update.
  * lastSequence contract: coalesced event.sequence is the last real event's sequence.
  * Only merges strictly increasing sequences so replay/duplicate events stay separate
  * for reduceAgentStreamEvent to ignore.
@@ -91,6 +110,26 @@ export function coalesceAgentStreamEvents(events: AgentStreamEvent[]): AgentStre
       out[out.length - 1] = {
         ...event,
         text: `${prev.text}${event.text}`,
+      }
+      continue
+    }
+    if (
+      prev
+      && prev.type === 'tool_update'
+      && event.type === 'tool_update'
+      && prev.sessionId === event.sessionId
+      && prev.toolCallId === event.toolCallId
+      && event.sequence > prev.sequence
+      && isBatchableAgentStreamEvent(prev)
+      && isBatchableAgentStreamEvent(event)
+    ) {
+      const mergedResultDelta = `${prev.resultDelta || ''}${event.resultDelta || ''}`
+      const mergedOutput = mergeToolUpdateOutput(prev, event)
+      out[out.length - 1] = {
+        ...event,
+        // Later event wins status/name/title/input/error; append progressive payloads.
+        resultDelta: mergedResultDelta || undefined,
+        output: mergedOutput,
       }
       continue
     }
