@@ -332,7 +332,9 @@ export function reduceAgentStreamEvent(
   let nextMessages = messages
   const eventAt = event.timestamp ? Date.parse(event.timestamp) : NaN
   const lastEventAt = Number.isFinite(eventAt) ? eventAt : Date.now()
-  let stream = { ...current, lastSequence: event.sequence, lastEventAt }
+  // Explicit type: lastEventAt is optional on AgentSessionStreamState; without annotation,
+  // the local object is inferred with required lastEventAt and breaks activate() reassignment.
+  let stream: AgentSessionStreamState = { ...current, lastSequence: event.sequence, lastEventAt }
   let error = ''
 
   switch (event.type) {

@@ -121,22 +121,19 @@ function createScrollContainer(metrics: {
   return { el, metrics }
 }
 
+type ScrollHookTestProps = {
+  sessionId: string
+  length: number
+  streaming: boolean
+  liveTailRevision?: number | string
+}
+
 /** Attach container and re-bind observers via a session change after the ref is set. */
 function attachContainer(
   result: { current: ReturnType<typeof useConversationScroll> },
   el: HTMLDivElement,
-  rerender: (props: {
-    sessionId: string
-    length: number
-    streaming: boolean
-    liveTailRevision?: number | string
-  }) => void,
-  props: {
-    sessionId: string
-    length: number
-    streaming: boolean
-    liveTailRevision?: number | string
-  },
+  rerender: (props: ScrollHookTestProps) => void,
+  props: ScrollHookTestProps,
 ) {
   act(() => {
     result.current.scrollContainerRef.current = el
@@ -478,15 +475,18 @@ describe('useConversationScroll', () => {
     // tokens can grow below the fold until ResizeObserver catches up.
     const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
 
-    const { result, rerender } = renderHook(({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
-      sessionId,
-      messagesLength: length,
-      streaming,
-      bottomOffset: 96,
-      liveTailRevision,
-    }), {
-      initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
-    })
+    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
+      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
+        sessionId,
+        messagesLength: length,
+        streaming,
+        bottomOffset: 96,
+        liveTailRevision,
+      }),
+      {
+        initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
+      },
+    )
 
     attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' })
     flushAnimationFrames()
@@ -505,15 +505,18 @@ describe('useConversationScroll', () => {
   it('does not re-pin on liveTailRevision after the user detaches', () => {
     const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
 
-    const { result, rerender } = renderHook(({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
-      sessionId,
-      messagesLength: length,
-      streaming,
-      bottomOffset: 96,
-      liveTailRevision,
-    }), {
-      initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
-    })
+    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
+      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
+        sessionId,
+        messagesLength: length,
+        streaming,
+        bottomOffset: 96,
+        liveTailRevision,
+      }),
+      {
+        initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
+      },
+    )
 
     attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' })
     flushAnimationFrames()
