@@ -261,11 +261,15 @@ export function estimateMessageGroupHeight(group: MessageGroup): number {
 
   // Streaming partial uses plain pre-wrap (~15px / 1.8 line-height). Keep the
   // estimate close to real growth so the virtual spacer tracks tokens smoothly
-  // without estimate↔measure thrash. Completed messages keep the roomier
-  // history estimate so fling-into-unmeasured rows still overscan safely.
+  // without estimate↔measure thrash.
+  //
+  // Settled messages keep a mild overestimate for fling-into-unmeasured history,
+  // but must NOT use content/6 (≈6-char lines) — that hit the 4000px cap on long
+  // assistants and left a huge blank region between the last bubble and composer
+  // whenever the measured cache was cold or lagging.
   const textHeight = isPartial
     ? Math.max(72, Math.min(4000, 56 + Math.ceil(totalContentLength / 42) * 27 + newlineCount * 27))
-    : Math.max(140, Math.min(4000, 120 + Math.ceil(totalContentLength / 6) * 22 + newlineCount * 16))
+    : Math.max(120, Math.min(4000, 100 + Math.ceil(totalContentLength / 36) * 26 + newlineCount * 22))
   const imageCount = countMessageImages(group)
   if (imageCount <= 0) return textHeight
 

@@ -40,9 +40,28 @@ describe('estimateMessageGroupHeight', () => {
       { role: 'assistant', content: 'x'.repeat(200), partial: false },
     ]))
 
-    // Partial estimate tracks plain pre-wrap growth; completed keeps the roomier history pad.
+    // Partial estimate tracks plain pre-wrap growth; completed keeps a mild history pad.
     expect(partial).toBeLessThan(complete)
     expect(partial).toBeGreaterThan(72)
+  })
+
+  it('does not massively overestimate settled long assistant messages', () => {
+    // Old content/6 * 22 formula hit ~4000px on multi-k char replies and left blank
+    // bottom gaps under stick-to-bottom when measured cache was cold.
+    const longBody = 'word '.repeat(800) // ~4000 chars of prose-like content
+    const complete = estimateMessageGroupHeight(makeGroup('message', [
+      { role: 'assistant', content: longBody, partial: false },
+    ]))
+    const partial = estimateMessageGroupHeight(makeGroup('message', [
+      { role: 'assistant', content: longBody, partial: true },
+    ]))
+
+    expect(complete).toBeGreaterThan(partial * 0.8)
+    // Roomier than partial, but far below the old content/6 * 22 path (~4000 cap).
+    expect(complete).toBeLessThan(3400)
+    const oldAggressive = Math.min(4000, 120 + Math.ceil(longBody.length / 6) * 22)
+    expect(complete).toBeLessThan(oldAggressive)
+    expect(oldAggressive - complete).toBeGreaterThan(500)
   })
 
   it('keeps tool_group / child_agent estimates independent of thinking content length', () => {

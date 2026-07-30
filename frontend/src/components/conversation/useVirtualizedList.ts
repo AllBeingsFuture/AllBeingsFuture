@@ -147,6 +147,14 @@ function getItemFingerprint(item: unknown, index: number, estimatedSize: number)
 }
 
 /**
+ * Max px a streaming estimate may lead a real ResizeObserver measurement.
+ * Uncapped max(measured, estimate) locked totalHeight to overestimated formulas
+ * and left multi-kpx blank gaps under the last assistant bubble while stick-to-bottom.
+ * A modest lead still lets the spacer advance one frame ahead of RO during token growth.
+ */
+const GROWING_ESTIMATE_MAX_LEAD_PX = 360
+
+/**
  * Prefer the last measured size for a key even when content fingerprint changes.
  * Streaming tokens rewrite fingerprints constantly; discarding measurements caused
  * estimate↔measured thrash and visible scroll jumps. ResizeObserver still pushes
@@ -156,7 +164,15 @@ function getItemFingerprint(item: unknown, index: number, estimatedSize: number)
  * max(estimate, measured) permanently locked collapsed thinking rows (real ~40px)
  * to content-length estimates of hundreds/thousands of px, inflating totalHeight
  * and leaving huge empty gaps in the virtual list.
+ *
+ * Streaming partial tails may still grow with the estimate, but only up to
+ * measured + GROWING_ESTIMATE_MAX_LEAD_PX so overestimates cannot pin a blank gap.
  */
+function resolveGrowingSize(measured: number, estimate: number): number {
+  if (estimate <= measured) return measured
+  return Math.min(estimate, measured + GROWING_ESTIMATE_MAX_LEAD_PX)
+}
+
 function resolveMeasuredSize<T>(
   entry: MeasuredSizeCacheValue | undefined,
   item: T,
@@ -169,14 +185,15 @@ function resolveMeasuredSize<T>(
 
   if (typeof entry === 'number') {
     const measured = entry > 0 ? entry : safeEstimate
-    // Streaming tails: let the estimate pull the spacer forward before RO catches up.
-    if (preferGrowingEstimate) return { fingerprint, size: Math.max(measured, safeEstimate) }
+    // Streaming tails: let the estimate pull the spacer forward before RO catches up,
+    // but never open a permanent overestimate blank gap under the live bubble.
+    if (preferGrowingEstimate) return { fingerprint, size: resolveGrowingSize(measured, safeEstimate) }
     return { fingerprint, size: measured }
   }
 
   if (entry && typeof entry.size === 'number' && entry.size > 0) {
     if (preferGrowingEstimate) {
-      return { fingerprint, size: Math.max(entry.size, safeEstimate) }
+      return { fingerprint, size: resolveGrowingSize(entry.size, safeEstimate) }
     }
     return { fingerprint, size: entry.size }
   }
