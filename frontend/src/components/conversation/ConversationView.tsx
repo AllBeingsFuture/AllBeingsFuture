@@ -29,22 +29,26 @@ function toConversationMessage(
   sessionId: string,
   idSuffix?: string,
 ): ConversationMessage {
+  const anyMsg = msg as any
+  // Agent stream uses toolUseId; legacy process path stores toolCallId.
+  const toolUseId = anyMsg.toolUseId || anyMsg.toolCallId
   return {
     id: `${sessionId}-${index}${idSuffix ? `-${idSuffix}` : ''}`,
     sessionId,
     role: (msg.role as ConversationMessage['role']) || 'assistant',
     content: msg.content || '',
-    timestamp: (msg as any).timestamp || new Date().toISOString(),
-    toolName: (msg as any).toolName,
-    toolInput: (msg as any).toolInput as Record<string, unknown> | undefined,
-    toolResult: (msg as any).toolResult,
-    toolOutputs: (msg as any).toolOutputs,
-    toolUseId: (msg as any).toolUseId,
-    isDelta: (msg as any).isDelta,
-    isError: (msg as any).isError,
-    isThinking: (msg as any).isThinking,
-    thinkingText: (msg as any).isThinking ? msg.content : undefined,
-    usage: (msg as any).usage,
+    timestamp: anyMsg.timestamp || new Date().toISOString(),
+    toolName: anyMsg.toolName,
+    toolInput: anyMsg.toolInput as Record<string, unknown> | undefined,
+    toolResult: anyMsg.toolResult,
+    toolOutputs: anyMsg.toolOutputs,
+    toolUseId,
+    // Live tool rows: treat open partial tool_use/result as delta so UI stays live.
+    isDelta: Boolean(anyMsg.isDelta || anyMsg.partial),
+    isError: anyMsg.isError,
+    isThinking: anyMsg.isThinking,
+    thinkingText: anyMsg.isThinking ? msg.content : undefined,
+    usage: anyMsg.usage,
   }
 }
 
@@ -213,9 +217,12 @@ function countMessageImages(group: MessageGroup): number {
   return count
 }
 
-/** True when any bubble in the group is still streaming (partial tail). */
+/** True when any bubble in the group is still streaming (partial / delta tail). */
 export function messageGroupHasPartial(group: MessageGroup): boolean {
-  return group.messages.some((message) => Boolean((message as { partial?: boolean }).partial))
+  return group.messages.some((message) => {
+    const m = message as { partial?: boolean; isDelta?: boolean }
+    return Boolean(m.partial || m.isDelta)
+  })
 }
 
 /** Exported for unit tests; used by virtual list estimateSize. */
@@ -228,6 +235,14 @@ export function estimateMessageGroupHeight(group: MessageGroup): number {
   // invent expanded thinking height — ThinkingBlock defaults to collapsed.
 
   if (group.type === 'thinking') {
+    // Live thinking auto-expands — grow estimate with content so stick-to-bottom
+    // tracks the open body. Settled thinking stays a compact header row.
+    if (isPartial) {
+      return Math.max(
+        THINKING_COLLAPSED_HEIGHT + 48,
+        Math.min(260, THINKING_COLLAPSED_HEIGHT + 40 + Math.ceil(totalContentLength / 48) * 18),
+      )
+    }
     return THINKING_COLLAPSED_HEIGHT
   }
 
@@ -565,20 +580,51 @@ const TOOL_ICONS: Record<string, string> = {
   Agent: '🤖', WebSearch: '🌐', WebFetch: '🌐', ToolSearch: '🔍',
 }
 
-/** Collapsible thinking block — calm compact row */
-const ThinkingBlock = memo(function ThinkingBlock({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(false)
+/** Collapsible thinking block — live turns show 思考中 and stream content. */
+const ThinkingBlock = memo(function ThinkingBlock({
+  content,
+  isActive = false,
+}: {
+  content: string
+  isActive?: boolean
+}) {
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
+  // Live thinking starts open so token growth is visible; settled stays collapsed.
+  const expanded = manualExpanded ?? isActive
   const seconds = Math.max(1, Math.round((content?.length || 0) / 180))
+  const preview = content.length > 160 ? `${content.slice(0, 160)}…` : content
+
+  useEffect(() => {
+    // Reset sticky toggle when the live/settled phase flips.
+    setManualExpanded(null)
+  }, [isActive])
+
   return (
-    <div className="my-1 w-full max-w-[42rem]">
+    <div className="my-1 w-full max-w-[42rem]" data-thinking-active={isActive ? 'true' : 'false'}>
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setManualExpanded(current => !(current ?? isActive))}
         className="inline-flex items-center gap-1.5 rounded-lg py-1 text-[12px] text-zinc-500 transition-colors hover:text-zinc-300"
+        aria-expanded={expanded}
+        data-testid="thinking-block-toggle"
       >
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        <span className="font-medium tracking-wide">思考完成 · {seconds}s</span>
+        <span className="font-medium tracking-wide">
+          {isActive ? `思考中 · ${seconds}s` : `思考完成 · ${seconds}s`}
+        </span>
+        {isActive && (
+          <span className="flex gap-0.5 ml-0.5">
+            <span className="h-1 w-1 animate-bounce rounded-full bg-zinc-500" style={{ animationDelay: '0ms' }} />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-zinc-500" style={{ animationDelay: '150ms' }} />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-zinc-500" style={{ animationDelay: '300ms' }} />
+          </span>
+        )}
       </button>
+      {!expanded && isActive && preview && (
+        <div className="mt-1 max-h-[72px] overflow-hidden rounded-lg border border-white/[0.04] bg-white/[0.015] px-3 py-2 font-mono text-[11px] leading-relaxed text-zinc-500/80 whitespace-pre-wrap">
+          {preview}
+        </div>
+      )}
       <AnimatePresence>
         {expanded && content && (
           <motion.div
@@ -587,6 +633,7 @@ const ThinkingBlock = memo(function ThinkingBlock({ content }: { content: string
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.18, ease: 'easeInOut' }}
             className="mt-1.5 max-h-[200px] overflow-y-auto rounded-xl border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-500"
+            data-testid="thinking-block-body"
           >
             {content}
           </motion.div>
@@ -980,8 +1027,15 @@ export default function ConversationView({ session }: Props) {
   }, [hasComposer, measureComposerHeight, session.id])
 
   const renderMessageGroup = useCallback((group: MessageGroup) => {
+    const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
+    // Keep groups live while any row is still partial/delta — not only the last
+    // group. Otherwise finished-looking "执行了 N 个操作" / "思考完成" freezes mid-turn
+    // as soon as a later assistant bubble opens.
+    const groupIsLive = shouldRenderLiveMessages && (
+      isLastGroup || messageGroupHasPartial(group)
+    )
+
     if (group.type === 'tool_group' && group.convMessages) {
-      const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
       const fileOps = extractFileChanges(group.convMessages)
       const fileOpMessageIds = new Set(fileOps.map((operation) => operation.id))
       const fileOpToolUseIds = new Set(fileOps.map(operation => operation.toolUseId).filter(Boolean))
@@ -998,7 +1052,7 @@ export default function ConversationView({ session }: Props) {
           {nonStickerMsgs.length > 0 && (
             <ToolOperationGroup
               messages={nonStickerMsgs}
-              isActive={shouldRenderLiveMessages && isLastGroup}
+              isActive={groupIsLive}
             />
           )}
           {fileOps.map((operation, index) => (
@@ -1016,14 +1070,13 @@ export default function ConversationView({ session }: Props) {
     }
 
     if (group.type === 'child_agent' && group.childSessionId) {
-      const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
       return (
         <ChildAgentBlock
           key={`child-${group.childSessionId}-${group.index}`}
           name={group.childAgentName}
           messages={group.messages}
           childSessionId={group.childSessionId}
-          isActive={shouldRenderLiveMessages && isLastGroup}
+          isActive={groupIsLive}
         />
       )
     }
@@ -1031,7 +1084,7 @@ export default function ConversationView({ session }: Props) {
     if (group.type === 'thinking') {
       const merged = group.messages.map(m => m.content).join('')
       return (
-        <ThinkingBlock key={`think-${group.index}`} content={merged} />
+        <ThinkingBlock key={`think-${group.index}`} content={merged} isActive={groupIsLive} />
       )
     }
 
