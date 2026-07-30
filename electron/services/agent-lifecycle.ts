@@ -791,27 +791,47 @@ export class AgentLifecycleManager {
   }
 
   /**
-   * Clean managed ABF child worktree when a session is disposed/deleted.
-   * Same safety gates as closeChildSession → cleanupChildWorktree.
-   * No-op for top-level sessions or when isolation never set worktreePath.
+   * Clean managed ABF worktree when a session is disposed/deleted.
+   * - Nested children: same safety gates as closeChildSession → cleanupChildWorktree
+   * - Top-level sessions: remove dedicated worktreePath under managed isolation root
+   * - Orphan children (parent already gone): still remove managed path via worktreeSourceRepo
    */
   async cleanupDisposedSessionWorktree(sessionId: string): Promise<void> {
-    const child = this.sessionService.getById(sessionId)
-    if (!child) return
-    if (!child.parentSessionId) return
-    const worktreePath = (child.worktreePath || '').trim()
-    if (!worktreePath || child.worktreeMerged) return
+    const session = this.sessionService.getById(sessionId)
+    if (!session) return
+    const worktreePath = (session.worktreePath || '').trim()
+    if (!worktreePath || session.worktreeMerged) return
 
-    const parent = this.sessionService.getById(child.parentSessionId)
-    if (!parent) {
+    if (session.parentSessionId) {
+      const parent = this.sessionService.getById(session.parentSessionId)
+      if (parent) {
+        await this.cleanupChildWorktree(parent, session)
+        return
+      }
+      // Parent row already gone mid-cascade: fall through to source-repo managed cleanup.
       appLog(
         'warn',
-        `Disposed-session worktree cleanup skipped: parent ${child.parentSessionId} not found for ${sessionId}`,
+        `Disposed-session worktree: parent ${session.parentSessionId} missing for ${sessionId}; trying source-repo cleanup`,
+        'process',
+      )
+    }
+
+    const sourceRepo = (session.worktreeSourceRepo || '').trim()
+    if (!sourceRepo) return
+    if (!isManagedAbfWorktreePath(sourceRepo, worktreePath)) {
+      appLog(
+        'warn',
+        `Disposed-session worktree cleanup refused (not managed): ${worktreePath}`,
         'process',
       )
       return
     }
-    await this.cleanupChildWorktree(parent, child)
+    await this.gitService.removeWorktree(
+      sourceRepo,
+      worktreePath,
+      true,
+      session.worktreeBranch || '',
+    )
   }
 
   /**

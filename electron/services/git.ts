@@ -67,13 +67,18 @@ export class GitService {
   /**
    * If an isolation branch was mistakenly pushed to origin, delete it.
    * No-op for non-isolation branches or when remote ref is absent.
+   * Network-bound: always uses a short timeout so session delete never hangs.
    */
   private async deleteRemoteIsolationBranch(repoPath: string, branch: string): Promise<string | null> {
     if (!isAbfIsolationBranch(branch)) return null
-    const remoteHeads = await this.git(['ls-remote', '--heads', 'origin', branch], repoPath).catch(() => '')
+    const remoteHeads = await this.git(
+      ['ls-remote', '--heads', 'origin', branch],
+      repoPath,
+      { timeoutMs: 8_000 },
+    ).catch(() => '')
     if (!remoteHeads.trim()) return null
     try {
-      await this.git(['push', 'origin', '--delete', branch], repoPath)
+      await this.git(['push', 'origin', '--delete', branch], repoPath, { timeoutMs: 15_000 })
       return `已删除远端隔离分支 origin/${branch}`
     } catch (err: any) {
       const detail = err?.stderr || err?.message || String(err)
@@ -81,12 +86,17 @@ export class GitService {
     }
   }
 
-  private async git(args: string[], cwd: string): Promise<string> {
+  private async git(
+    args: string[],
+    cwd: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<string> {
     try {
       const { stdout } = await execFileAsync(getGitExecutable(), args, {
         cwd,
         maxBuffer: 10 * 1024 * 1024,
         windowsHide: true,
+        ...(opts?.timeoutMs && opts.timeoutMs > 0 ? { timeout: opts.timeoutMs } : {}),
       })
       return stdout.trim()
     } catch (err: any) {
@@ -247,7 +257,8 @@ export class GitService {
     const worktreePath = path.join(baseRepoPath, '.allbeingsfuture-worktrees', safeName).replace(/\\/g, '/')
     const branch = `worktree-${safeName}`
 
-    await this.git(['worktree', 'prune'], baseRepoPath).catch(() => {})
+    // Do not prune on the create hot path — prune can be slow with many worktrees
+    // and is already done on remove/list. Session create should stay snappy.
     await mkdir(path.dirname(worktreePath), { recursive: true })
     const start = (startPoint || '').trim()
     if (start) {
@@ -302,8 +313,9 @@ export class GitService {
 
     if (deleteBranch && branchToDelete) {
       await this.git(['branch', '-D', branchToDelete], baseRepoPath).catch(() => {})
-      // Safety net: agents sometimes push worktree-* isolation branches to origin.
-      await this.deleteRemoteIsolationBranch(baseRepoPath, branchToDelete)
+      // Safety net only: never block session delete on remote network latency.
+      // Fire-and-forget with timeouts inside deleteRemoteIsolationBranch.
+      void this.deleteRemoteIsolationBranch(baseRepoPath, branchToDelete).catch(() => {})
     }
   }
 

@@ -273,8 +273,16 @@ async function createSessionWithWorktree(config: SessionConfig) {
   try {
     const session = await SessionService.Create({ ...config, workingDirectory: worktreePath })
     if (!session) return null
-    await SessionService.SetWorktreeInfo(session.id, worktreePath, worktree.branch, worktree.baseCommit || '', worktree.baseBranch || '', repoPath)
-    return await SessionService.GetByID(session.id) || {
+    await SessionService.SetWorktreeInfo(
+      session.id,
+      worktreePath,
+      worktree.branch,
+      worktree.baseCommit || '',
+      worktree.baseBranch || '',
+      repoPath,
+    )
+    // Skip GetByID round-trip — SetWorktreeInfo fields are known locally.
+    return {
       ...session,
       workingDirectory: worktreePath,
       worktreePath,
@@ -379,7 +387,8 @@ async function enterSessionWorktree(session: Session): Promise<Session> {
       worktree.baseBranch || '',
       repoPath,
     )
-    return await SessionService.GetByID(session.id) || {
+    // Skip GetByID round-trip — fields are known after SetWorktreeInfo.
+    return {
       ...session,
       workingDirectory: worktreePath,
       worktreePath,
@@ -472,11 +481,13 @@ export const chatCore = {
     // Full subtree (self + all descendants), not only direct children.
     const targetIds = collectSessionSubtreeIds(snapshot.sessions, id)
     const targets = snapshot.sessions.filter(session => targetIds.has(session.id))
-    for (const session of targets) {
-      try { await ProcessService.StopProcess(session.id) } catch {}
-    }
-    for (const session of targets) await cleanupSessionWorktree(session)
-    // Backend cascades delete from root only.
+    // Stop + local worktree cleanup in parallel; backend Delete also disposes + cascades DB.
+    // Do not serialize per-session await — multi-level trees felt "undeletable" when one hung.
+    await Promise.all(
+      targets.map((session) => ProcessService.StopProcess(session.id).catch(() => {})),
+    )
+    await Promise.all(targets.map((session) => cleanupSessionWorktree(session)))
+    // Backend cascades delete from root only (dispose descendants + DB).
     await SessionService.Delete(id)
 
     const nextAgents: Record<string, AgentInfo[]> = {}

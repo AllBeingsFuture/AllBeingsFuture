@@ -234,7 +234,10 @@ export const useSessionStore = create<SessionState>((set, get) => {
   remove: async (id) => {
     const before = get()
     const targetIds = collectSessionSubtreeIds(before.sessions, id)
-    const patch = await chatCore.remove(snapshotOf(before), id)
+    const snapshot = snapshotOf(before)
+
+    // Optimistic UI: drop subtree immediately so delete never looks stuck while
+    // stop/worktree/backend cascade runs (network-bound remote branch cleanup, etc.).
     sessionsEpoch++
     set(current => {
       const agentStreams = { ...current.agentStreams }
@@ -243,18 +246,44 @@ export const useSessionStore = create<SessionState>((set, get) => {
         delete agentStreams[sessionId]
         delete agentStreamMessages[sessionId]
       }
-      // Prefer current sessions filtered by targetIds so concurrent creates are not dropped.
+      const nextAgents: typeof current.agents = {}
+      for (const [parentKey, list] of Object.entries(current.agents)) {
+        if (targetIds.has(parentKey)) continue
+        nextAgents[parentKey] = list.filter(
+          agent => !targetIds.has(agent.childSessionId) && !targetIds.has(agent.parentSessionId),
+        )
+      }
+      const nextChildToParent: typeof current.childToParent = {}
+      for (const [childKey, binding] of Object.entries(current.childToParent)) {
+        if (targetIds.has(childKey) || targetIds.has(binding.parentSessionId)) continue
+        nextChildToParent[childKey] = binding
+      }
       const sessions = current.sessions.filter(session => !targetIds.has(session.id))
       const resetSelection = current.selectedId != null && targetIds.has(current.selectedId)
       return {
-        ...patch,
         sessions,
         selectedId: resetSelection ? null : current.selectedId,
+        agents: nextAgents,
+        childToParent: nextChildToParent,
         agentStreams,
         agentStreamMessages,
         ...(resetSelection ? { messages: [], streaming: false, chatError: '' } : {}),
       }
     })
+
+    try {
+      await chatCore.remove(snapshot, id)
+    } catch (err) {
+      // Backend/cleanup failed after optimistic drop — resync so UI matches DB.
+      console.error('Session remove failed; reloading sessions:', err)
+      try {
+        await get().load()
+        await get().fetchAllAgents()
+      } catch {
+        // ignore secondary reload errors
+      }
+      throw err
+    }
   },
 
   end: async (id) => {

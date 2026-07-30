@@ -297,10 +297,13 @@ export function registerAllIpcHandlers(
   ipcMain.handle('SessionService.GetByID', (_e, id: string) => sessionService.getById(id))
   ipcMain.handle('SessionService.Create', (_e, config: any) => sessionService.create(config))
   ipcMain.handle('SessionService.Delete', async (_e, id: string) => {
-    // Dispose every descendant at any depth (deepest-first via reverse BFS), then self, then DB cascade.
+    // Dispose all descendants in parallel (each cleans its own process/worktree),
+    // then the root, then DB cascade. Avoid serial await stalls on multi-level trees.
     const descendants = sessionService.getDescendantSessionIds(id)
-    for (let i = descendants.length - 1; i >= 0; i--) {
-      await processService.disposeSession(descendants[i]!).catch(() => {})
+    if (descendants.length > 0) {
+      await Promise.all(
+        descendants.map((childId) => processService.disposeSession(childId).catch(() => {})),
+      )
     }
     await processService.disposeSession(id).catch(() => {})
     sessionService.delete(id)

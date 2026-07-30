@@ -175,7 +175,8 @@ describe('sessionStore runtime status sync', () => {
       'main',
       'C:/repo',
     )
-    expect(serviceMocks.sessionService.GetByID).toHaveBeenCalledWith('session-worktree')
+    // Create path skips GetByID — local hydration after SetWorktreeInfo.
+    expect(serviceMocks.sessionService.GetByID).not.toHaveBeenCalled()
     expect(session).toEqual(hydratedSession)
     expect(useSessionStore.getState().sessions[0]).toEqual(hydratedSession)
   })
@@ -1085,6 +1086,76 @@ describe('sessionStore runtime status sync', () => {
     expect(state.agentStreamMessages['other-1']).toEqual([
       { role: 'assistant', content: 'keep me' },
     ])
+  })
+
+  it('optimistically drops the subtree before SessionService.Delete resolves', async () => {
+    let resolveDelete: (() => void) | undefined
+    serviceMocks.processService.StopProcess.mockResolvedValue(undefined)
+    serviceMocks.sessionService.Delete.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveDelete = resolve }),
+    )
+
+    useSessionStore.setState({
+      selectedId: 'session-1',
+      sessions: [
+        makeSession({ id: 'session-1', name: 'Parent' }),
+        makeSession({ id: 'child-1', name: 'Child', parentSessionId: 'session-1' }),
+        makeSession({ id: 'other-1', name: 'Other' }),
+      ],
+      agents: {
+        'session-1': [{
+          agentId: 'persistent-child-1',
+          name: 'Child',
+          parentSessionId: 'session-1',
+          childSessionId: 'child-1',
+          status: 'idle',
+          workDir: '/tmp',
+          createdAt: '2026-07-30T00:00:00.000Z',
+        }],
+      },
+      childToParent: {
+        'child-1': { parentSessionId: 'session-1', agentId: 'persistent-child-1', agentName: 'Child' },
+      },
+    })
+
+    const removePromise = useSessionStore.getState().remove('session-1')
+
+    // Optimistic set runs synchronously before the first await in remove().
+    const mid = useSessionStore.getState()
+    expect(mid.sessions.map((s) => s.id)).toEqual(['other-1'])
+    expect(mid.selectedId).toBeNull()
+    expect(mid.agents['session-1']).toBeUndefined()
+    expect(mid.childToParent['child-1']).toBeUndefined()
+
+    // Wait until StopProcess path reaches Delete (still pending).
+    await vi.waitFor(() => {
+      expect(serviceMocks.sessionService.Delete).toHaveBeenCalledWith('session-1')
+    })
+
+    resolveDelete?.()
+    await removePromise
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['other-1'])
+  })
+
+  it('reloads sessions when backend delete fails after optimistic drop', async () => {
+    serviceMocks.processService.StopProcess.mockResolvedValue(undefined)
+    serviceMocks.sessionService.Delete.mockRejectedValue(new Error('dispose hung'))
+    serviceMocks.sessionService.GetAll.mockResolvedValue([
+      makeSession({ id: 'session-1', name: 'Still there' }),
+    ])
+    serviceMocks.processApi.ListAllAgents.mockResolvedValue([])
+
+    useSessionStore.setState({
+      sessions: [
+        makeSession({ id: 'session-1', name: 'Parent' }),
+        makeSession({ id: 'other-1', name: 'Other' }),
+      ],
+    })
+
+    await expect(useSessionStore.getState().remove('session-1')).rejects.toThrow('dispose hung')
+
+    expect(serviceMocks.sessionService.GetAll).toHaveBeenCalled()
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['session-1'])
   })
 
   it('preserves a concurrent user append when stream batch flush reduces inside set()', () => {
