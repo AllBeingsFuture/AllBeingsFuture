@@ -69,6 +69,19 @@ test('resolveProcessCommand for claude-agent-acp yields spawnable entry (dev wor
   assert.ok(resolved.shimEntrypoint!.includes('claude-agent-acp'))
 })
 
+test('resolveProcessCommand resolves bare grok to absolute path when installed', () => {
+  const resolved = resolveProcessCommand('grok', '')
+  // Host may or may not have Grok CLI; when present it must be absolute (no bare ENOENT).
+  if (resolved.command === 'grok') {
+    // Not installed in this environment — still must not invent a wrong path.
+    assert.equal(resolved.args.length, 0)
+    return
+  }
+  assert.ok(path.isAbsolute(resolved.command), `expected absolute grok path, got ${resolved.command}`)
+  assert.match(resolved.command, /grok/i)
+  assert.equal(resolved.shell, false)
+})
+
 test('resolveBundledAcpWrapperEntry finds workspace packages', () => {
   const codex = resolveBundledAcpWrapperEntry('codex-acp')
   const claude = resolveBundledAcpWrapperEntry('claude-agent-acp')

@@ -41,14 +41,37 @@ export function parseCommand(command: string | undefined, fallback: string): Par
 
 export function resolveCommand(command: string | undefined, fallback: string): ParsedCommand {
   const parsed = parseCommand(command, fallback)
-  if (process.platform !== 'win32') {
+  if (!parsed.command) {
     return parsed
   }
 
-  return {
-    command: resolveWindowsCommand(parsed.command),
-    args: parsed.args,
+  // Absolute / relative paths: Windows may still need extension resolution.
+  if (hasPathSeparator(parsed.command)) {
+    if (process.platform === 'win32') {
+      return {
+        command: resolvePathCandidate(parsed.command) || parsed.command,
+        args: parsed.args,
+      }
+    }
+    return parsed
   }
+
+  // Bare names: always resolve to an absolute path when possible.
+  // GUI-launched Electron inherits a stripped PATH (/usr/bin:/bin/…); relying on
+  // spawn PATH lookup alone still fails if child env is wrong or incomplete.
+  // Search well-known user bins (~/.grok/bin, npm-global, homebrew, …) first.
+  if (process.platform === 'win32') {
+    return {
+      command: resolveWindowsCommand(parsed.command),
+      args: parsed.args,
+    }
+  }
+
+  const matches = findCommandInPath(parsed.command)
+  if (matches.length > 0) {
+    return { command: matches[0], args: parsed.args }
+  }
+  return parsed
 }
 
 export function detectGitBashPath(preferredPath?: string): string | undefined {
@@ -385,11 +408,14 @@ function getCommandSearchPathEntries(): string[] {
     prependPathEntry(entries, npmGlobalBin)
   }
 
-  // Common user-level global bin locations (macOS/Linux)
+  // Common user-level global bin locations (macOS/Linux).
+  // GUI apps do not load shell rc files — these dirs must be searched explicitly
+  // so host CLIs (especially `grok` at ~/.grok/bin) resolve without ENOENT.
   for (const candidate of [
     path.join(os.homedir(), '.npm-global', 'bin'),
     path.join(os.homedir(), '.grok', 'bin'),
     path.join(os.homedir(), '.local', 'bin'),
+    path.join(os.homedir(), 'homebrew', 'bin'),
     '/usr/local/bin',
     '/opt/homebrew/bin',
   ]) {

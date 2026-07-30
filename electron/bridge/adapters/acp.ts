@@ -229,7 +229,11 @@ export class AcpAdapter implements ProviderAdapter {
     })
 
     child.once('error', (error) => {
-      const wrapped = new Error(`Failed to start ACP agent '${resolved.command}': ${error.message}`)
+      const detail = (error.message || String(error)).replace(/\.$/, '')
+      const hint = /ENOENT/i.test(detail)
+        ? ' CLI binary not found — install it, put it on PATH, or set Provider executable path / GROK_PATH.'
+        : ''
+      const wrapped = new Error(`Failed to start ACP agent '${resolved.command}': ${detail}.${hint}`)
       if (!this.initialized) rejectStartup?.(wrapped)
       else this.emitFatal(wrapped.message)
     })

@@ -24,6 +24,7 @@ import {
   missingHostCliError,
   resolveClaudeCodeExecutable,
   resolveCodexCliPath,
+  resolveGrokCliPath,
 } from './cli-path-resolve.js'
 import { AgentApi } from './agent-api.js'
 import { ConcurrencyGuard } from './concurrency-guard.js'
@@ -711,32 +712,52 @@ export class ProcessService {
       config.resumeFlag = provider.resumeFlag
     }
 
-    // Wire host CLIs into thin ACP wrappers (same model as Grok: PATH / env / settings).
-    // Production packages never embed Codex/Claude platform natives; dev may still have optional packages.
-    if (isAcp && (provider.id === 'codex' || provider.id === 'claude-code')) {
-      const envOverrides = {
-        ...((config.envOverrides as Record<string, string> | undefined) || {}),
+    // Wire host CLIs for built-in ACP agents.
+    // Production packages never embed platform natives; resolve host binaries like Grok.
+    // Grok is spawned directly — pin executablePath to an absolute path so GUI-launched
+    // Electron (stripped PATH) never hits spawn ENOENT for bare `grok`.
+    if (isAcp) {
+      const bareCommand = String(provider.command || '').trim().toLowerCase()
+      const isGrok =
+        provider.id === 'grok-build'
+        || bareCommand === 'grok'
+        || bareCommand.endsWith('/grok')
+        || bareCommand.endsWith('\\grok')
+
+      if (isGrok) {
+        const grokPath = resolveGrokCliPath(provider.executablePath)
+        if (!grokPath) {
+          throw missingHostCliError('grok', `Provider: ${provider.name}.`)
+        }
+        config.executablePath = grokPath
+        appLog('info', `Resolved Grok CLI: ${grokPath}`, 'process')
       }
-      if (provider.id === 'codex') {
-        if (!envOverrides.CODEX_PATH) {
-          const codexPath = resolveCodexCliPath(provider.executablePath)
-          if (codexPath) envOverrides.CODEX_PATH = codexPath
+
+      if (provider.id === 'codex' || provider.id === 'claude-code') {
+        const envOverrides = {
+          ...((config.envOverrides as Record<string, string> | undefined) || {}),
         }
-        if (!envOverrides.CODEX_PATH && !hasOptionalCodexNativePackage()) {
-          throw missingHostCliError('codex', `Provider: ${provider.name}.`)
+        if (provider.id === 'codex') {
+          if (!envOverrides.CODEX_PATH) {
+            const codexPath = resolveCodexCliPath(provider.executablePath)
+            if (codexPath) envOverrides.CODEX_PATH = codexPath
+          }
+          if (!envOverrides.CODEX_PATH && !hasOptionalCodexNativePackage()) {
+            throw missingHostCliError('codex', `Provider: ${provider.name}.`)
+          }
         }
-      }
-      if (provider.id === 'claude-code') {
-        if (!envOverrides.CLAUDE_CODE_EXECUTABLE) {
-          const claudePath = resolveClaudeCodeExecutable(provider.executablePath)
-          if (claudePath) envOverrides.CLAUDE_CODE_EXECUTABLE = claudePath
+        if (provider.id === 'claude-code') {
+          if (!envOverrides.CLAUDE_CODE_EXECUTABLE) {
+            const claudePath = resolveClaudeCodeExecutable(provider.executablePath)
+            if (claudePath) envOverrides.CLAUDE_CODE_EXECUTABLE = claudePath
+          }
+          if (!envOverrides.CLAUDE_CODE_EXECUTABLE && !hasOptionalClaudeNativePackage()) {
+            throw missingHostCliError('claude', `Provider: ${provider.name}.`)
+          }
         }
-        if (!envOverrides.CLAUDE_CODE_EXECUTABLE && !hasOptionalClaudeNativePackage()) {
-          throw missingHostCliError('claude', `Provider: ${provider.name}.`)
+        if (Object.keys(envOverrides).length > 0) {
+          config.envOverrides = envOverrides
         }
-      }
-      if (Object.keys(envOverrides).length > 0) {
-        config.envOverrides = envOverrides
       }
     }
 
