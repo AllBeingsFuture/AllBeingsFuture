@@ -103,7 +103,9 @@ test('abf-supervisor Memory requires mempalace_checkpoint for important conclusi
   assert.match(source, /items:.*wing.*room.*content|wing.*room.*content/i)
   assert.match(source, /must.*call|you \*\*must\*\* call/i)
   assert.match(source, /Orchestration sessions still file|reusable conclusions/i)
-  assert.match(source, /peer lock|retry once/i)
+  assert.match(source, /peer lock|write lock busy/i)
+  assert.match(source, /2\s*min|deadline|exponential backoff/i)
+  assert.doesNotMatch(source, /retry once/i)
 })
 
 test('abf-worker prompt documents worktree isolation, commit, mempalace, must close sons', () => {
@@ -117,7 +119,9 @@ test('abf-worker prompt documents worktree isolation, commit, mempalace, must cl
   assert.match(source, /Never `git push` isolation branches|Never git push isolation/i)
   // Finish-gate: at least one checkpoint before done
   assert.match(source, /Before finishing.*mempalace_checkpoint|at least once/i)
-  assert.match(source, /peer lock|retry once/i)
+  assert.match(source, /peer lock|write lock busy/i)
+  assert.match(source, /2\s*min|deadline|exponential backoff/i)
+  assert.doesNotMatch(source, /retry once/i)
 })
 
 test('abf-worker requires spawn sons for non-trivial when agent-control present', () => {

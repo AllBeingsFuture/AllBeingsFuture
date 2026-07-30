@@ -80,6 +80,22 @@ test('applyMempalaceSafeProxy only rewrites mempalace keys', () => {
   assert.equal(out.other.command, 'echo')
 })
 
+test('write-lock defaults favor long multi-agent wait (60–120s range)', async () => {
+  assert.ok(existsSync(writeLockPath), 'write-lock.mjs must exist')
+  const mod = await import(pathToFileUrl(writeLockPath))
+  assert.equal(mod.DEFAULT_LOCK_MAX_WAIT_MS, 90_000)
+  assert.equal(mod.DEFAULT_LOCK_RETRIES, 200)
+  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MIN_MS, 50)
+  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MAX_MS, 3000)
+  // Proxy env defaults must align with longer retries
+  const proxySrc = readFileSync(proxyPath, 'utf8')
+  assert.match(proxySrc, /ABF_MEMPALACE_LOCK_MAX_MS/)
+  assert.match(proxySrc, /ABF_MEMPALACE_TOOL_MAX_MS/)
+  assert.match(proxySrc, /DEFAULT_LOCK_RETRIES/)
+  assert.match(proxySrc, /parseEnvInt\('ABF_MEMPALACE_TOOL_RETRIES',\s*40\)/)
+  assert.match(proxySrc, /parseEnvInt\('ABF_MEMPALACE_TOOL_MAX_MS',\s*120_000\)/)
+})
+
 test('write-lock serializes concurrent acquires (second waits then succeeds)', async () => {
   assert.ok(existsSync(writeLockPath), 'write-lock.mjs must exist')
   const { acquireWriteLock, withWriteLock } = await import(
@@ -96,7 +112,7 @@ test('write-lock serializes concurrent acquires (second waits then succeeds)', a
       await new Promise((r) => setTimeout(r, 120))
       order.push('a-end')
       return 'A'
-    }, { lockPath: lockFile, retries: 20, minMs: 20, maxMs: 80 })
+    }, { lockPath: lockFile, retries: 20, minMs: 20, maxMs: 80, maxWaitMs: 5000 })
 
     // Start B slightly after A has the lock
     await new Promise((r) => setTimeout(r, 30))
@@ -104,7 +120,7 @@ test('write-lock serializes concurrent acquires (second waits then succeeds)', a
       order.push('b-start')
       order.push('b-end')
       return 'B'
-    }, { lockPath: lockFile, retries: 30, minMs: 20, maxMs: 100 })
+    }, { lockPath: lockFile, retries: 30, minMs: 20, maxMs: 100, maxWaitMs: 5000 })
 
     const [ra, rb] = await Promise.all([a, b])
     assert.equal(ra, 'A')
@@ -120,6 +136,40 @@ test('write-lock serializes concurrent acquires (second waits then succeeds)', a
 
   // touch acquireWriteLock so tree-shaking / lint doesn't complain in some runners
   assert.equal(typeof acquireWriteLock, 'function')
+})
+
+test('write-lock maxWaitMs deadline stops busy wait without inventing success', async () => {
+  const { acquireWriteLock } = await import(pathToFileUrl(writeLockPath))
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mplock-deadline-'))
+  const lockFile = path.join(dir, 'abf_write.lock')
+  const { writeFileSync } = await import('node:fs')
+  // Hold lock with a fake alive-looking pid (current process) so stale recovery does not steal it
+  writeFileSync(lockFile, `${process.pid}\n`, 'utf8')
+
+  const started = Date.now()
+  let err: { code?: string; message?: string } | null = null
+  try {
+    await acquireWriteLock({
+      lockPath: lockFile,
+      retries: 200,
+      minMs: 20,
+      maxMs: 40,
+      maxWaitMs: 250,
+      staleMs: 3_600_000,
+    })
+  } catch (e) {
+    err = e as { code?: string; message?: string }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+
+  assert.ok(err, 'must throw ABF_WRITE_LOCK_BUSY')
+  assert.equal(err!.code, 'ABF_WRITE_LOCK_BUSY')
+  assert.match(String(err!.message), /write lock busy/i)
+  const elapsed = Date.now() - started
+  // Should respect short deadline (not hang for full retries budget)
+  assert.ok(elapsed < 2000, `deadline should bind quickly, elapsed=${elapsed}`)
+  assert.ok(elapsed >= 200, `should actually wait some backoff, elapsed=${elapsed}`)
 })
 
 test('proxy: concurrent write tools both succeed via mock child', async () => {
@@ -255,6 +305,140 @@ rl.on('line', async (line) => {
     try {
       rmSync(mockChild, { force: true })
     } catch { /* ignore */ }
+  }
+})
+
+test('proxy: peer-lock response is retried then succeeds (never invents success)', async () => {
+  assert.ok(existsSync(proxyPath))
+  const mockChild = path.join(proxyDir, '_test_mock_peerlock.mjs')
+  const mockSource = `
+import { createInterface } from 'node:readline'
+let calls = 0
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
+rl.on('line', async (line) => {
+  const req = JSON.parse(line)
+  if (req.method === 'initialize') {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0', id: req.id,
+      result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'mock', version: '0' } }
+    }) + '\\n')
+    return
+  }
+  if (req.method === 'tools/call' && req.params?.name === 'mempalace_checkpoint') {
+    calls += 1
+    if (calls === 1) {
+      process.stdout.write(JSON.stringify({
+        jsonrpc: '2.0', id: req.id,
+        error: { code: -32000, message: 'Peer MCP writer active — palace peer lock — 未写入' }
+      }) + '\\n')
+      return
+    }
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0', id: req.id,
+      result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, calls }) }] }
+    }) + '\\n')
+    return
+  }
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: {} }) + '\\n')
+})
+`
+  const { writeFileSync } = await import('node:fs')
+  writeFileSync(mockChild, mockSource, 'utf8')
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mppeer-'))
+  const lockFile = path.join(dir, 'abf_write.lock')
+
+  try {
+    const body = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [proxyPath, '--', process.execPath, mockChild],
+        {
+          env: {
+            ...process.env,
+            ABF_MEMPALACE_WRITE_LOCK: lockFile,
+            ABF_MEMPALACE_WRITE_RETRIES: '20',
+            ABF_MEMPALACE_LOCK_MAX_MS: '5000',
+            ABF_MEMPALACE_TOOL_RETRIES: '5',
+            ABF_MEMPALACE_TOOL_MAX_MS: '15000',
+            MEMPALACE_MCP_ALLOW_PEER_WRITER: '1',
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
+      )
+      let out = ''
+      child.stdout.on('data', (c) => { out += c.toString() })
+      child.stderr.on('data', () => { /* proxy logs */ })
+      child.on('error', reject)
+
+      const send = (obj: unknown) => {
+        child.stdin.write(JSON.stringify(obj) + '\n')
+      }
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+      setTimeout(() => {
+        send({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: {
+            name: 'mempalace_checkpoint',
+            arguments: { items: [{ wing: 't', room: 't', content: 'peer' }] },
+          },
+        })
+      }, 40)
+
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`timeout peer-lock retry out=${out}`))
+      }, 12000)
+
+      const tryFinish = () => {
+        const lines = out
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line) as {
+              id?: number
+              result?: { content?: Array<{ text?: string }> }
+              error?: unknown
+            }
+            if (msg.id !== 2) continue
+            clearTimeout(timer)
+            try { child.stdin.end() } catch { /* ignore */ }
+            setTimeout(() => {
+              child.kill('SIGTERM')
+              resolve(out)
+            }, 50)
+            return
+          } catch {
+            /* ignore partial */
+          }
+        }
+      }
+      child.stdout.on('data', tryFinish)
+    })
+
+    const msgs = body
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        try { return JSON.parse(l) } catch { return null }
+      })
+      .filter(Boolean) as Array<{ id?: number; result?: unknown; error?: unknown }>
+    const writeResp = msgs.find((m) => m.id === 2)
+    assert.ok(writeResp, `missing tools/call response: ${body}`)
+    assert.equal(writeResp.error, undefined, `peer retry should succeed, got error: ${body}`)
+    const contentText = (writeResp.result as { content?: Array<{ text?: string }> })?.content?.[0]?.text
+    assert.ok(contentText, `missing content: ${body}`)
+    const payload = JSON.parse(contentText)
+    assert.equal(payload.ok, true)
+    assert.ok(payload.calls >= 2, `expected retry (calls>=2), got ${payload.calls}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    try { rmSync(mockChild, { force: true }) } catch { /* ignore */ }
   }
 })
 
