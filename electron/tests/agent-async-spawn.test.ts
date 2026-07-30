@@ -77,6 +77,10 @@ test('abf-supervisor prompt documents async spawn, parent idle, close safety', (
   assert.match(source, /MUST `close_agent` after accept\/merge|MUST close_agent after accept/i)
   assert.match(source, /idle.*待命|待命.*idle/)
   assert.doesNotMatch(source, /wait for the first turn.*by default/i)
+  // Hard ban: never publish worktree-* isolation branches to origin
+  assert.match(source, /Never publish session isolation branches/i)
+  assert.match(source, /worktree-\*/)
+  assert.match(source, /git push origin <base>|push origin <base>/i)
 })
 
 test('abf-worker prompt documents worktree isolation, commit, mempalace, must close sons', () => {
@@ -87,6 +91,15 @@ test('abf-worker prompt documents worktree isolation, commit, mempalace, must cl
   assert.match(source, /commit/i)
   assert.match(source, /workDir/)
   assert.match(source, /MUST `close_agent`|MUST close_agent/)
+  assert.match(source, /Never `git push` isolation branches|Never git push isolation/i)
+})
+
+test('git service deletes remote isolation branches on worktree cleanup', () => {
+  const source = read('electron/services/git.ts')
+  assert.match(source, /export function isAbfIsolationBranch/)
+  assert.match(source, /deleteRemoteIsolationBranch/)
+  assert.match(source, /push',\s*'origin',\s*'--delete'/)
+  assert.match(source, /name\.startsWith\('worktree-'\)/)
 })
 
 test('close_agent tool text requires close after accept; handlers expose UI CloseChildSession', () => {
