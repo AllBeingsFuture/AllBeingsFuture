@@ -9,20 +9,8 @@ export function GetAutoWorktree(): Promise<boolean> {
     return ipc("SettingsService.GetAutoWorktree")
 }
 
-export function GetProxyEnv(): Promise<[string, string]> {
-    return ipc("SettingsService.GetProxyEnv")
-}
-
 export function SendNotification(title: string, body: string): Promise<void> {
     return ipc("SettingsService.SendNotification", title, body)
-}
-
-export function SetAutoLaunch(enabled: boolean): Promise<void> {
-    return ipc("SettingsService.SetAutoLaunch", enabled)
-}
-
-export function SetAutoWorktree(enabled: boolean): Promise<void> {
-    return ipc("SettingsService.SetAutoWorktree", enabled)
 }
 
 export function Update(key: string, value: string): Promise<void> {

@@ -3,32 +3,28 @@ import { describe, expect, it, vi } from 'vitest'
 import SettingsModal, { resolveSettingsTab } from '../SettingsModal'
 import { renderWithProviders, screen } from '../../../test/render'
 
-vi.mock('../GeneralSettings', () => ({ default: () => <div data-testid="general-tab" /> }))
 vi.mock('../ProviderManager', () => ({ default: () => <div data-testid="providers-tab" /> }))
-vi.mock('../ThemeTab', () => ({ default: () => <div data-testid="theme-tab" /> }))
-vi.mock('../AppearanceTab', () => ({ default: () => <div data-testid="appearance-tab" /> }))
-vi.mock('../WorkspaceTab', () => ({ default: () => <div data-testid="workspace-tab" /> }))
 vi.mock('../FeedbackTab', () => ({ default: () => <div data-testid="feedback-tab" /> }))
 vi.mock('../LogsTab', () => ({ default: () => <div data-testid="logs-tab" /> }))
 
 describe('resolveSettingsTab', () => {
-  it('keeps valid tabs and falls removed/unknown tabs back to general', () => {
-    expect(resolveSettingsTab('general')).toBe('general')
-    expect(resolveSettingsTab('theme')).toBe('theme')
+  it('keeps valid tabs and falls removed/unknown tabs back to providers', () => {
     expect(resolveSettingsTab('providers')).toBe('providers')
-    expect(resolveSettingsTab('workspace')).toBe('workspace')
     expect(resolveSettingsTab('feedback')).toBe('feedback')
     expect(resolveSettingsTab('logs')).toBe('logs')
 
-    expect(resolveSettingsTab('extensions')).toBe('general')
-    expect(resolveSettingsTab('skills')).toBe('general')
-    expect(resolveSettingsTab('policy')).toBe('general')
-    expect(resolveSettingsTab('system')).toBe('general')
-    expect(resolveSettingsTab('account')).toBe('general')
-    expect(resolveSettingsTab('queue')).toBe('general')
-    expect(resolveSettingsTab('not-a-tab')).toBe('general')
-    expect(resolveSettingsTab(undefined)).toBe('general')
-    expect(resolveSettingsTab(null)).toBe('general')
+    expect(resolveSettingsTab('general')).toBe('providers')
+    expect(resolveSettingsTab('theme')).toBe('providers')
+    expect(resolveSettingsTab('workspace')).toBe('providers')
+    expect(resolveSettingsTab('extensions')).toBe('providers')
+    expect(resolveSettingsTab('skills')).toBe('providers')
+    expect(resolveSettingsTab('policy')).toBe('providers')
+    expect(resolveSettingsTab('system')).toBe('providers')
+    expect(resolveSettingsTab('account')).toBe('providers')
+    expect(resolveSettingsTab('queue')).toBe('providers')
+    expect(resolveSettingsTab('not-a-tab')).toBe('providers')
+    expect(resolveSettingsTab(undefined)).toBe('providers')
+    expect(resolveSettingsTab(null)).toBe('providers')
   })
 })
 
@@ -44,13 +40,13 @@ describe('Settings modal', () => {
     expect(screen.queryByRole('button', { name: 'Telegram 机器人' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'QQ 机器人' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'QQ 官方机器人' })).not.toBeInTheDocument()
-    // lucide Bot icon is still used by AI Provider tab — keep that core tab
-    fireEvent.click(screen.getByRole('button', { name: 'AI Provider' }))
+    // default tab is AI Provider
     expect(await screen.findByTestId('providers-tab')).toBeInTheDocument()
-    expect(screen.getByTestId('general-tab')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '反馈' }))
+    expect(await screen.findByTestId('feedback-tab')).toBeInTheDocument()
   })
 
-  it('does not expose removed extensions/policy/system settings entries', () => {
+  it('does not expose removed settings entries', () => {
     renderWithProviders(<SettingsModal onClose={() => {}} />)
 
     expect(screen.queryByRole('button', { name: '扩展' })).not.toBeInTheDocument()
@@ -60,22 +56,24 @@ describe('Settings modal', () => {
     expect(screen.queryByText('策略引擎与审计日志')).not.toBeInTheDocument()
     expect(screen.queryByText('底层参数与遥测')).not.toBeInTheDocument()
 
+    // removed settings entries
+    expect(screen.queryByRole('button', { name: '通用' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '主题与外观' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '工作区' })).not.toBeInTheDocument()
+
     // retained settings entries
-    expect(screen.getByRole('button', { name: '通用' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '主题与外观' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'AI Provider' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '工作区' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '反馈' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '日志' })).toBeInTheDocument()
   })
 
-  it.each(['extensions', 'skills', 'policy', 'system'] as const)(
-    'falls back removed initialTab %s to general content',
+  it.each(['extensions', 'skills', 'policy', 'system', 'general', 'theme', 'workspace'] as const)(
+    'falls back removed initialTab %s to providers content',
     (tab) => {
       renderWithProviders(<SettingsModal onClose={() => {}} initialTab={tab} />)
 
-      expect(screen.getByTestId('general-tab')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: '通用' })).toHaveClass('bg-blue-500/15')
+      expect(screen.getByTestId('providers-tab')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'AI Provider' })).toHaveClass('bg-blue-500/15')
     },
   )
 })

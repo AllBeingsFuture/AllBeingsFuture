@@ -1,26 +1,17 @@
 import { startTransition, useEffect, useState, type ReactNode } from 'react'
 import {
   Settings2,
-  Palette,
   Bot,
-  FolderKanban,
   MessageSquareHeart,
   ScrollText,
 } from 'lucide-react'
-import GeneralSettings from './GeneralSettings'
 import ProviderManager from './ProviderManager'
-import ThemeTab from './ThemeTab'
-import AppearanceTab from './AppearanceTab'
-import WorkspaceTab from './WorkspaceTab'
 import FeedbackTab from './FeedbackTab'
 import LogsTab from './LogsTab'
 import DraggableDialog from '../common/DraggableDialog'
 
 type TabId =
-  | 'general'
-  | 'theme'
   | 'providers'
-  | 'workspace'
   | 'feedback'
   | 'logs'
 
@@ -32,20 +23,20 @@ const REMOVED_TAB_IDS = new Set([
   'system',
   'account',
   'queue',
+  'general',
+  'theme',
+  'workspace',
 ])
 
 const VALID_TAB_IDS = new Set<TabId>([
-  'general',
-  'theme',
   'providers',
-  'workspace',
   'feedback',
   'logs',
 ])
 
 export function resolveSettingsTab(tab: string | undefined | null): TabId {
   if (!tab || REMOVED_TAB_IDS.has(tab) || !VALID_TAB_IDS.has(tab as TabId)) {
-    return 'general'
+    return 'providers'
   }
   return tab as TabId
 }
@@ -54,7 +45,7 @@ interface TabDefinition {
   id: TabId
   label: string
   description: string
-  group: 'core' | 'integrations' | 'support'
+  group: 'integrations' | 'support'
   icon: ReactNode
 }
 
@@ -65,32 +56,11 @@ interface Props {
 
 const TABS: TabDefinition[] = [
   {
-    id: 'general',
-    label: '通用',
-    description: '代理、语言和启动行为',
-    group: 'core',
-    icon: <Settings2 size={15} />,
-  },
-  {
-    id: 'theme',
-    label: '主题与外观',
-    description: '配色方案、字体大小和显示选项',
-    group: 'core',
-    icon: <Palette size={15} />,
-  },
-  {
     id: 'providers',
     label: 'AI Provider',
     description: '管理 CLI 和 API 适配器',
     group: 'integrations',
     icon: <Bot size={15} />,
-  },
-  {
-    id: 'workspace',
-    label: '工作区',
-    description: '多仓库工作区与路径管理',
-    group: 'integrations',
-    icon: <FolderKanban size={15} />,
   },
   {
     id: 'feedback',
@@ -109,14 +79,13 @@ const TABS: TabDefinition[] = [
 ]
 
 const GROUP_LABELS: Record<TabDefinition['group'], string> = {
-  core: '基本',
   integrations: '能力',
   support: '诊断',
 }
 
-const GROUP_ORDER: TabDefinition['group'][] = ['core', 'integrations', 'support']
+const GROUP_ORDER: TabDefinition['group'][] = ['integrations', 'support']
 
-export default function SettingsModal({ onClose, initialTab = 'general' }: Props) {
+export default function SettingsModal({ onClose, initialTab = 'providers' }: Props) {
   const resolvedInitial = resolveSettingsTab(initialTab)
   const [activeTab, setActiveTab] = useState<TabId>(resolvedInitial)
   const [visitedTabs, setVisitedTabs] = useState<Record<TabId, boolean>>(() => ({
@@ -233,26 +202,13 @@ export default function SettingsModal({ onClose, initialTab = 'general' }: Props
 
 function renderTab(activeTab: TabId, isActive: boolean) {
   switch (activeTab) {
-    case 'general':
-      return <GeneralSettings />
-    case 'theme':
-      return (
-        <div className="space-y-8">
-          <ThemeTab />
-          <div className="border-t border-white/10 pt-6">
-            <AppearanceTab />
-          </div>
-        </div>
-      )
     case 'providers':
       return <ProviderManager />
-    case 'workspace':
-      return <WorkspaceTab />
     case 'feedback':
       return <FeedbackTab />
     case 'logs':
       return <LogsTab isActive={isActive} />
     default:
-      return <GeneralSettings />
+      return <ProviderManager />
   }
 }
