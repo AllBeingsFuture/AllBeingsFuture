@@ -13,7 +13,7 @@
 | ✅ 已做 | 终态 finalize 清除 `tool_use.isDelta`、收敛 open `toolStatus` | `74df920` |
 | ✅ 已做 | **结构性**：取消 silence fail-open 抢内容权；活跃 turn 只认 `agent:stream` | `8f362cc` |
 | ✅ 已做 | **滚动 v1**：假贴底禁止误 re-attach；虚拟列表 group key 稳定化 | `2fc2d70` |
-| ✅ 已做 | **滚动 v2（用户确认 ended 也坏）**：贴底仅当 `isNearBottom`；settled 不因 revision 强拉；长历史关闭 bottom-align | 见 §F 最新 commit |
+| ✅ 已做 | **滚动 v2（用户确认 ended 也坏）**：贴底仅当 `isNearBottom`；settled 不因 revision 强拉；长历史关闭 bottom-align | `e511780` |
 | ✅ 已做 | 回归测试：双通道 silence、finalize、假贴底、getGroupKey、**settled 上滑** | 同上 |
 | ❌ 未做 | 后端停双发 `chat:update`（仍双 emit，前端已忽略 mid-turn） | — |
 | ❌ 未做 | 嵌套 `overflow-y-auto`（工具/思考块）wheel 不冒泡（次要） | — |
@@ -201,6 +201,6 @@ cd frontend && npm test -- --run
 2. `8f362cc` — stop silence fail-open from stealing stream content  
 3. `2fc2d70` — false-bottom reattach + stabilize virtual keys  
 4. `2083186` — docs: diagnosis hashes  
-5. （最新）— stick requires near-bottom; settled no revision yank; short-only bottom-align  
+5. `e511780` — only stick-to-bottom when near live tail (stream + settled)  
 
-以 `git log -6 --oneline` 为准。未 push / 未开 PR。
+未 push / 未开 PR。
