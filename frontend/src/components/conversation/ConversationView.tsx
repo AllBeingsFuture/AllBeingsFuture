@@ -953,17 +953,22 @@ export default function ConversationView({ session }: Props) {
 
   // Token deltas keep messages.length stable; revision must change so stick-to-bottom
   // re-pins while attached (matches historical chat:patch upsert_last behavior).
+  // After LIVE hold ends, still include content.length + partial so length-stable
+  // settle jumps (partial flip / late content) re-trigger the layout pin. Detached
+  // users are gated inside useConversationScroll — do not drop content sensitivity.
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
+  const lastContentLen = lastMessage?.content?.length || 0
+  const lastPartial = (lastMessage as { partial?: boolean } | undefined)?.partial ? 1 : 0
   const liveTailRevision = shouldRenderLiveMessages
     ? [
         messages.length,
         lastMessage?.role || '',
-        lastMessage?.content?.length || 0,
-        (lastMessage as { partial?: boolean } | undefined)?.partial ? 1 : 0,
+        lastContentLen,
+        lastPartial,
         agentStream?.lastSequence ?? -1,
         agentStream?.lastEventAt ?? 0,
       ].join(':')
-    : `${messages.length}`
+    : `${messages.length}:${lastContentLen}:${lastPartial}`
 
   const {
     bottomRef,

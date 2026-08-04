@@ -669,6 +669,121 @@ describe('useConversationScroll', () => {
     expect(el.scrollTop).toBe(600)
   })
 
+  it('attached + settled: after streaming flips false, content height growth still sticks to bottom', () => {
+    // Stream settle used to stop re-pinning on liveTailRevision / RO because of the
+    // streaming-only gate and isNearBottom self-invalidation on content growth.
+    const { el, metrics } = createScrollContainer({ scrollHeight: 800, clientHeight: 300 })
+
+    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
+      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
+        sessionId,
+        messagesLength: length,
+        streaming,
+        bottomOffset: 96,
+        liveTailRevision,
+      }),
+      {
+        initialProps: { sessionId: 's1', length: 3, streaming: true, liveTailRevision: '3:a:100' },
+      },
+    )
+
+    attachContainer(result, el, rerender, {
+      sessionId: 's1',
+      length: 3,
+      streaming: true,
+      liveTailRevision: '3:a:100',
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(500)
+
+    // Turn settles; user remains attached near bottom.
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      rerender({ sessionId: 's1', length: 3, streaming: false, liveTailRevision: '3:100:0' })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(500)
+
+    // Post-settle height growth (markdown mount / virtualizer remeasure).
+    metrics.scrollHeight = 1200
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(900)
+
+    // liveTailRevision churn after settle (partial flip / content length) also re-pins.
+    metrics.scrollHeight = 1400
+    act(() => {
+      rerender({ sessionId: 's1', length: 3, streaming: false, liveTailRevision: '3:400:0' })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(1100)
+  })
+
+  it('long message settle height growth still sticks while attached near bottom', () => {
+    // Near-bottom attached viewport: after settle, scrollHeight jumps (long message
+    // plain→Markdown) without messagesLength growth — must re-pin to new bottom.
+    const { el, metrics } = createScrollContainer({
+      scrollHeight: 2000,
+      clientHeight: 400,
+      scrollTop: 1900,
+    })
+
+    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
+      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
+        sessionId,
+        messagesLength: length,
+        streaming,
+        bottomOffset: 96,
+        liveTailRevision,
+      }),
+      {
+        initialProps: { sessionId: 's1', length: 5, streaming: true, liveTailRevision: '5:200' },
+      },
+    )
+
+    attachContainer(result, el, rerender, {
+      sessionId: 's1',
+      length: 5,
+      streaming: true,
+      liveTailRevision: '5:200',
+    })
+    flushAnimationFrames()
+    // Initial pin forces bottom (2000 - 400 = 1600).
+    expect(el.scrollTop).toBe(1600)
+
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      // Still near bottom after force window.
+      el.scrollTop = 1600
+      result.current.handleScroll()
+      rerender({ sessionId: 's1', length: 5, streaming: false, liveTailRevision: '5:200:0' })
+    })
+    flushAnimationFrames()
+
+    // Long-message settle: large height jump, scrollTop temporarily stale.
+    // Simulate the growth-before-re-pin scroll path that used to clear isNearBottom.
+    metrics.scrollHeight = 3200
+    act(() => {
+      // Browser may fire scroll when height changes; distanceFromBottom becomes large
+      // while user is still attached — must NOT demote stick.
+      result.current.handleScroll()
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+
+    expect(el.scrollTop).toBe(2800)
+
+    // Further liveTailRevision after settle continues to stick.
+    metrics.scrollHeight = 3500
+    act(() => {
+      rerender({ sessionId: 's1', length: 5, streaming: false, liveTailRevision: '5:900:0' })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(3100)
+  })
+
   it('stickToBottomNow re-attaches after detach and follows later content growth', () => {
     // Mirrors user-send: had scrolled up to read history, then explicitly sends.
     // Passive message growth must stay detached; stickToBottomNow must re-stick.

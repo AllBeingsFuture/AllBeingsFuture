@@ -26,10 +26,11 @@ const NEAR_BOTTOM_THRESHOLD_PX = 150
 /** Re-attach only when this close to the live tail (hysteresis vs detach). */
 const USER_REATTACH_THRESHOLD_PX = 32
 /**
- * One post-layout frame is enough for RO/estimate growth to settle.
- * Two frames doubled thrash when liveTailRevision + ResizeObserver both pin.
+ * Multi-frame follow-up for settle height commits (markdown mount + virtualizer
+ * rAF-coalesced measure). Coalesced via autoScrollFrameRef so dual observers
+ * + layout effect do not stack unbounded rAFs.
  */
-const FOLLOW_UP_SCROLL_FRAMES = 1
+const FOLLOW_UP_SCROLL_FRAMES = 3
 const PROGRAMMATIC_SCROLL_GUARD_MS = 150
 /** Large per-event jump — sync virtual window immediately + extra overscan. */
 const FAST_SCROLL_DELTA_PX = 48
@@ -88,6 +89,8 @@ export function useConversationScroll({
    * and the user cannot stay scrolled up ("有时往上滑会滑不上去").
    */
   const wasFarFromBottomWhileDetachedRef = useRef(false)
+  /** Track streaming edge so settle can force multi-frame re-pin. */
+  const prevStreamingRef = useRef(streaming)
 
   /**
    * Mark a scrollTop write as programmatic. Prefer passing the target scrollTop so
@@ -347,7 +350,22 @@ export function useConversationScroll({
       wasFarFromBottomWhileDetachedRef.current = false
     }
 
-    isNearBottomRef.current = nextIsNearBottom
+    // Content growth inflates distanceFromBottom while scrollTop is still at the
+    // previous bottom. Demoting isNearBottom from growth alone self-invalidates
+    // stick-to-bottom before RO / liveTailRevision can re-pin. Only demote on
+    // real user upward movement or clear mid-history geometry after user scroll.
+    const contentGrew = el.scrollHeight > lastContentHeightRef.current
+    if (
+      contentGrew
+      && !userDetachedRef.current
+      && lastUserScrollIntentRef.current !== 'up'
+      && isNearBottomRef.current
+      && !scrolledUp
+    ) {
+      isNearBottomRef.current = true
+    } else {
+      isNearBottomRef.current = nextIsNearBottom
+    }
     lastScrollTopRef.current = el.scrollTop
     lastContentHeightRef.current = el.scrollHeight
 
@@ -409,6 +427,10 @@ export function useConversationScroll({
     lastUserScrollIntentRef.current = null
     lastUserScrollDeltaRef.current = 0
     wasFarFromBottomWhileDetachedRef.current = false
+    // Align streaming edge tracker so a session switch does not fake true→false.
+    prevStreamingRef.current = streaming
+    // Only reset on session switch — do not list `streaming` or every settle re-attaches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional session-only reset
   }, [sessionId])
 
   useLayoutEffect(() => {
@@ -454,11 +476,15 @@ export function useConversationScroll({
 
   // useLayoutEffect so stick happens before paint when token deltas grow the
   // virtual spacer — avoids one-frame "latest text below fold" flashes.
-  // Settled (streaming=false): only re-pin when message count grows AND still
-  // near bottom — never on pure layout thrash after the turn ends.
+  // While shouldStickToBottom(), re-pin on liveTailRevision even after stream
+  // settle (plain→Markdown / tool collapse / virtualizer remeasure). The hard
+  // gate already blocks mid-history and user scroll-up — streaming-only was
+  // redundant and left settle height jumps clipped below the fold.
   useLayoutEffect(() => {
     const previousCount = prevMsgCountRef.current
     prevMsgCountRef.current = messagesLength
+    const wasStreaming = prevStreamingRef.current
+    prevStreamingRef.current = streaming
 
     if (!shouldStickToBottom()) return
 
@@ -467,10 +493,14 @@ export function useConversationScroll({
       return
     }
 
-    // Live token / tool growth only while the turn is still streaming.
-    // After settle, liveTailRevision may still churn (markdown, hold window);
-    // do not treat that as a reason to force the viewport to the tail.
-    if (streaming && messagesLength > 0) {
+    // Streaming true→false: force multi-frame follow-up so settle height commits pin.
+    if (wasStreaming && !streaming && messagesLength > 0) {
+      scrollToBottom(true)
+      return
+    }
+
+    // liveTailRevision / content growth while attached (streaming or settled).
+    if (messagesLength > 0) {
       scrollToBottom(true)
     }
   }, [liveTailRevision, messagesLength, scrollToBottom, shouldStickToBottom, streaming])
