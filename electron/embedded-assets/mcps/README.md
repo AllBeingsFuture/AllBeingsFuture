@@ -10,4 +10,4 @@ Internal runtime server used by the process layer for child-agent control. It is
 
 ## `mempalace-safe/`
 
-Internal stdio proxy used when an enabled user MCP looks like mempalace. Serializes write tools across multi-agent sessions (cross-process file lock + retry) so palace peer-lock write failures are recoverable. Auto-wired by `MCPService.getEnabledServerConfigs()` — not a user-facing catalog entry.
+Internal stdio proxy used when an enabled user MCP looks like mempalace. Cross-process exclusive write queue (file lock) + in-process write chain; reads unguarded; wait/retry until tool budget (defaults: lock 90s, tool 120s, child 25s) so concurrent multi-agent writers succeed. Auto-wired by `MCPService.getEnabledServerConfigs()` — not a user-facing catalog entry.

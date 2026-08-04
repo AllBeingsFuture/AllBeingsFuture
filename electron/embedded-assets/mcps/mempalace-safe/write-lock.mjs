@@ -3,24 +3,28 @@
  * Used by the ABF mempalace-safe MCP proxy so multi-agent sessions do not
  * race the shared Chroma/SQLite palace.
  *
- * Lock strategy: O_EXCL create + PID body + stale recovery (dead PID / mtime).
- * No native deps (proper-lockfile not required).
+ * Lock strategy: O_EXCL create + PID body + stale recovery only for dead /
+ * invalid holders (never steal from a live PID). Fair queue via wait/retry
+ * until maxWaitMs deadline. No native deps (proper-lockfile not required).
  */
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** Default total wall-clock budget for lock acquire (fail fast under contention). */
-export const DEFAULT_LOCK_MAX_WAIT_MS = 5000
+/** Default total wall-clock budget for lock acquire (queue behind other agents). */
+export const DEFAULT_LOCK_MAX_WAIT_MS = 90_000
 /** Safety cap on acquire attempts; wall-clock deadline usually binds first. */
-export const DEFAULT_LOCK_RETRIES = 40
+export const DEFAULT_LOCK_RETRIES = 200
 /** Minimum per-attempt backoff sleep. */
-export const DEFAULT_LOCK_BACKOFF_MIN_MS = 50
-/** Maximum per-attempt backoff sleep (not total wait). */
-export const DEFAULT_LOCK_BACKOFF_MAX_MS = 500
-/** Stale lock age threshold (dead PID always reclaimable; aged also reclaimable). */
-export const DEFAULT_STALE_MS = 30_000
+export const DEFAULT_LOCK_BACKOFF_MIN_MS = 30
+/** Maximum per-attempt backoff sleep (snappier handoff after release). */
+export const DEFAULT_LOCK_BACKOFF_MAX_MS = 400
+/**
+ * Stale age threshold — only applies when PID is invalid/null.
+ * Live PIDs are never reclaimed regardless of age.
+ */
+export const DEFAULT_STALE_MS = 120_000
 
 /** Mutating mempalace MCP tools (align with mempalace.service.WRITE_TOOLS + maintenance writers). */
 export const WRITE_TOOLS = new Set([
@@ -89,12 +93,31 @@ function readLockMeta(lockPath) {
   }
 }
 
-function tryRemoveStale(lockPath, { staleMs = DEFAULT_STALE_MS } = {}) {
+/**
+ * Reclaim a lock file only when it is safe:
+ * - PID known and dead → reclaim
+ * - PID invalid/null and aged beyond staleMs → reclaim
+ * - PID alive → never reclaim (even if aged)
+ *
+ * @returns {boolean} true if lock file was removed
+ */
+export function tryRemoveStale(lockPath, { staleMs = DEFAULT_STALE_MS } = {}) {
   const meta = readLockMeta(lockPath)
   if (!meta) return false
+
+  // Live holder: never steal, regardless of mtime age
+  if (meta.pid != null && isPidAlive(meta.pid)) {
+    return false
+  }
+
+  // Dead PID (known and not alive) → reclaim
   const dead = meta.pid != null && !isPidAlive(meta.pid)
+  // Invalid/null PID → reclaim only when aged
+  const invalidPid = meta.pid == null
   const aged = Date.now() - meta.mtimeMs > staleMs
-  if (!dead && !aged) return false
+
+  if (!dead && !(invalidPid && aged)) return false
+
   try {
     fs.unlinkSync(lockPath)
     return true
