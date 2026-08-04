@@ -268,8 +268,85 @@ describe('agentStreamCore', () => {
     expect(terminal.error).toBe('Agent disconnected')
     expect(terminal.stream.phase).toBe('error')
     expect(terminal.messages[0]).toEqual(expect.objectContaining({ partial: false }))
+    expect(terminal.messages[1]).toEqual(expect.objectContaining({
+      role: 'tool_use',
+      toolUseId: 'tool-1',
+      partial: false,
+      isDelta: false,
+      toolStatus: 'failed',
+    }))
     expect(terminal.messages[2]).toEqual(expect.objectContaining({
       role: 'tool_result', toolUseId: 'tool-1', isError: true, toolResult: 'Agent disconnected',
+    }))
+  })
+
+  it('clears isDelta and settles open toolStatus on done (no stuck live markers)', () => {
+    // tool_call sets isDelta=true; if the turn ends without tool_update completed,
+    // finalize must clear isDelta and mark the tool completed — otherwise UI
+    // keeps messageGroupHasPartial / "执行中" forever after streaming ends.
+    const call = reduceAgentStreamEvent([], undefined, {
+      type: 'tool_call',
+      sessionId: 'session-1',
+      sequence: 1,
+      toolCallId: 'tool-open',
+      title: 'Grep',
+      name: 'Grep',
+    })
+    const mid = reduceAgentStreamEvent(call.messages, call.stream, {
+      type: 'tool_update',
+      sessionId: 'session-1',
+      sequence: 2,
+      toolCallId: 'tool-open',
+      status: 'in_progress',
+      resultDelta: 'partial out\n',
+    })
+    expect(mid.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use', isDelta: true, partial: true, toolStatus: 'in_progress',
+    }))
+    expect(mid.messages[1]).toEqual(expect.objectContaining({
+      role: 'tool_result', isDelta: true, partial: true,
+    }))
+
+    const done = reduceAgentStreamEvent(mid.messages, mid.stream, {
+      type: 'done', sessionId: 'session-1', sequence: 3, stopReason: 'end_turn',
+    })
+
+    expect(done.streaming).toBe(false)
+    expect(done.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use',
+      toolUseId: 'tool-open',
+      partial: false,
+      isDelta: false,
+      toolStatus: 'completed',
+    }))
+    expect(done.messages[1]).toEqual(expect.objectContaining({
+      role: 'tool_result',
+      toolUseId: 'tool-open',
+      partial: false,
+      isDelta: false,
+      toolResult: 'partial out\n',
+    }))
+  })
+
+  it('status idle finalizes like done (clears live tool markers)', () => {
+    const call = reduceAgentStreamEvent([], undefined, {
+      type: 'tool_call',
+      sessionId: 'session-1',
+      sequence: 1,
+      toolCallId: 'tool-idle',
+      title: 'Bash',
+      name: 'Bash',
+    })
+    const idle = reduceAgentStreamEvent(call.messages, call.stream, {
+      type: 'status', sessionId: 'session-1', sequence: 2, status: 'idle',
+    })
+    expect(idle.stream.phase).toBe('idle')
+    expect(idle.streaming).toBe(false)
+    expect(idle.messages[0]).toEqual(expect.objectContaining({
+      role: 'tool_use', partial: false, isDelta: false, toolStatus: 'completed',
+    }))
+    expect(idle.messages[1]).toEqual(expect.objectContaining({
+      role: 'tool_result', partial: false, isDelta: false,
     }))
   })
 

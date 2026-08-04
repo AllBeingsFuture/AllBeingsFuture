@@ -43,7 +43,9 @@ function toConversationMessage(
     toolResult: anyMsg.toolResult,
     toolOutputs: anyMsg.toolOutputs,
     toolUseId,
-    // Live tool rows: treat open partial tool_use/result as delta so UI stays live.
+    // Preserve partial; also fold it into isDelta so tool UI that only checks
+    // isDelta still treats agent:stream in-flight rows as live.
+    partial: Boolean(anyMsg.partial),
     isDelta: Boolean(anyMsg.isDelta || anyMsg.partial),
     isError: anyMsg.isError,
     isThinking: anyMsg.isThinking,

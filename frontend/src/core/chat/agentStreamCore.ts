@@ -327,6 +327,10 @@ function updateTool(messages: ChatMessage[], event: Extract<AgentStreamEvent, { 
   } as unknown as ChatMessage]
 }
 
+function isTerminalToolStatus(status: string | undefined): boolean {
+  return status === 'completed' || status === 'failed'
+}
+
 function finalizeMessages(messages: ChatMessage[], error?: string): ChatMessage[] {
   const resultIds = new Set(messages
     .filter(message => message.role === 'tool_result')
@@ -334,13 +338,28 @@ function finalizeMessages(messages: ChatMessage[], error?: string): ChatMessage[
     .filter((id): id is string => Boolean(id)))
   const finalized = messages.map(message => {
     const streamMessage = message as StreamChatMessage
-    if (!streamMessage.partial && !streamMessage.isDelta) return message
-    return {
+    const openToolUse = streamMessage.role === 'tool_use'
+      && !isTerminalToolStatus(streamMessage.toolStatus)
+    // Terminal turns must clear *all* live markers. Leaving isDelta=true on
+    // tool_use (or unfinished toolStatus) makes messageGroupHasPartial /
+    // tool groups stay "执行中" and virtualization keep growing estimates.
+    if (!streamMessage.partial && !streamMessage.isDelta && !openToolUse) {
+      if (error && streamMessage.role === 'tool_result' && !streamMessage.isError) {
+        return { ...streamMessage, isError: true } as ChatMessage
+      }
+      return message
+    }
+    const next: StreamChatMessage = {
       ...streamMessage,
       partial: false,
-      isDelta: streamMessage.role === 'tool_result' ? false : streamMessage.isDelta,
+      isDelta: false,
       isError: error && streamMessage.role === 'tool_result' ? true : streamMessage.isError,
-    } as ChatMessage
+    }
+    if (openToolUse) {
+      // Match process.ts done path: settle incomplete tools when the turn ends.
+      next.toolStatus = error ? 'failed' : 'completed'
+    }
+    return next as ChatMessage
   })
 
   for (const message of messages) {
