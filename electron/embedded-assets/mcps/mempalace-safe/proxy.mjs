@@ -447,31 +447,23 @@ async function handleWriteCall(req) {
     let response
     let childTimedOut = false
     let childDied = false
+    let fatalProxyError = null
     try {
       const remainingBudget = toolDeadline - Date.now()
       if (remainingBudget <= 0) {
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          error: {
-            code: -32002,
-            message: `mempalace tools/call timeout after ${toolMaxMs}ms`,
-            data: {
-              tool: toolNameFromRequest(req),
-              reason: 'tool_budget_exhausted',
-              waitedMs: Date.now() - toolStart,
-            },
-          },
-        }
+        // Fall through to release lock below; mark as exhausted timeout.
+        childTimedOut = true
+        lastTimeoutMessage = `mempalace tools/call timeout after ${toolMaxMs}ms`
+      } else {
+        // Per-attempt child wait: never exceed remaining overall write budget.
+        // Prefer generous childTimeout so slow embeddings complete under the lock.
+        const waitMs =
+          childTimeoutMs > 0
+            ? Math.min(childTimeoutMs, remainingBudget)
+            : remainingBudget
+        sendToChild(req)
+        response = await waitChildResponse(req.id, waitMs)
       }
-      // Per-attempt child wait: never exceed remaining overall write budget.
-      // Prefer generous childTimeout so slow embeddings complete under the lock.
-      const waitMs =
-        childTimeoutMs > 0
-          ? Math.min(childTimeoutMs, remainingBudget)
-          : remainingBudget
-      sendToChild(req)
-      response = await waitChildResponse(req.id, waitMs)
     } catch (err) {
       if (err && (err.code === 'ABF_CHILD_TIMEOUT' || /timeout/i.test(String(err?.message || '')))) {
         childTimedOut = true
@@ -486,32 +478,45 @@ async function handleWriteCall(req) {
         childDied = true
         lastTimeoutMessage = String(err.message || err)
       } else {
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          error: {
-            code: -32000,
-            message: `mempalace-safe proxy error: ${err?.message || err}`,
-            data: { tool: toolNameFromRequest(req), attempt },
-          },
-        }
+        fatalProxyError = err
       }
-    } finally {
-      // always release before peer-lock backoff so other writers can proceed
+    }
+
+    // CRITICAL: on hang/timeout, kill+respawn the child WHILE still holding the
+    // write lock. Releasing first lets another agent start a concurrent Chroma
+    // write against a still-running hung process → multi-client pile-up.
+    if (childTimedOut || childDied) {
       try {
-        stopHeartbeat()
-      } catch {
-        /* ignore */
+        await restartChild(childTimedOut ? 'write-timeout' : 'child-dead')
+      } catch (re) {
+        process.stderr.write(`[mempalace-safe] restart failed: ${re?.message || re}\n`)
       }
-      try {
-        lock.release()
-      } catch {
-        /* ignore */
+    }
+
+    try {
+      stopHeartbeat()
+    } catch {
+      /* ignore */
+    }
+    try {
+      lock.release()
+    } catch {
+      /* ignore */
+    }
+
+    if (fatalProxyError) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: {
+          code: -32000,
+          message: `mempalace-safe proxy error: ${fatalProxyError?.message || fatalProxyError}`,
+          data: { tool: toolNameFromRequest(req), attempt },
+        },
       }
     }
 
     if (childTimedOut || childDied) {
-      // Kill+respawn so OS flock on mine_palace_*.lock is dropped; then retry.
       const remaining = toolDeadline - Date.now()
       const canRetry = attempt < toolRetries && remaining > MIN_RETRY_REMAINING_MS
       if (!canRetry) {
@@ -525,18 +530,13 @@ async function handleWriteCall(req) {
               tool: toolNameFromRequest(req),
               attempt,
               waitedMs: Date.now() - toolStart,
-              hint: 'Underlying mempalace did not respond in time; lock released; child restarted',
+              hint: 'Underlying mempalace did not respond in time; child killed under lock then lock released',
             },
           },
         }
       }
-      try {
-        await restartChild(childTimedOut ? 'write-timeout' : 'child-dead')
-      } catch (re) {
-        process.stderr.write(`[mempalace-safe] restart failed: ${re?.message || re}\n`)
-      }
       const sleepFor = peerRetryBackoffMs(attempt)
-      await new Promise((r) => setTimeout(r, Math.min(sleepFor, toolDeadline - Date.now())))
+      await new Promise((r) => setTimeout(r, Math.min(sleepFor, Math.max(0, toolDeadline - Date.now()))))
       continue
     }
 

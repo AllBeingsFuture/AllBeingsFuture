@@ -12,6 +12,8 @@ import {
   applyMempalaceSafeProxy,
   isMempalaceSafeWrapped,
   isMempalaceServer,
+  MEMPALACE_SAFE_DEFAULTS,
+  resolveSharedWriteLockPath,
   wrapMempalaceConfigIfNeeded,
 } from '../services/mempalace-safe.js'
 
@@ -53,11 +55,13 @@ test('wrapMempalaceConfigIfNeeded rewrites command to safe proxy', () => {
   assert.equal(wrapped.env.MEMPALACE_MCP_ALLOW_PEER_WRITER, '1')
   assert.equal(wrapped.env.FOO, '1')
   // Concurrent multi-agent write budgets (queue-and-succeed, not busy-skip)
-  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_MS, '180000')
-  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_MAX_MS, '180000')
-  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_RETRIES, '12')
-  assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, '90000')
-  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_HOLD_MS, '180000')
+  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_MS, MEMPALACE_SAFE_DEFAULTS.LOCK_MAX_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_MAX_MS, MEMPALACE_SAFE_DEFAULTS.TOOL_MAX_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_RETRIES, MEMPALACE_SAFE_DEFAULTS.TOOL_RETRIES)
+  assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, MEMPALACE_SAFE_DEFAULTS.CHILD_TIMEOUT_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_HOLD_MS, MEMPALACE_SAFE_DEFAULTS.LOCK_MAX_HOLD_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_WRITE_LOCK, resolveSharedWriteLockPath())
+  assert.match(wrapped.env.ABF_MEMPALACE_WRITE_LOCK, /abf_write\.lock$/)
 })
 
 test('wrapMempalaceConfigIfNeeded does not override user timeout env', () => {
@@ -81,7 +85,7 @@ test('wrapMempalaceConfigIfNeeded does not override user timeout env', () => {
   assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, '20000')
 })
 
-test('wrapMempalaceConfigIfNeeded is no-op for non-mempalace and already wrapped', () => {
+test('wrapMempalaceConfigIfNeeded is no-op for non-mempalace; already wrapped still gets budgets', () => {
   const other = wrapMempalaceConfigIfNeeded(
     'web',
     { command: 'npx', args: ['web'], env: {} },
@@ -96,6 +100,17 @@ test('wrapMempalaceConfigIfNeeded is no-op for non-mempalace and already wrapped
   )
   assert.equal(once.command, 'node')
   assert.deepEqual(once.args, [proxyPath])
+  // Already-wrapped configs still materialize queue budgets + shared lock path
+  assert.equal(once.env.ABF_MEMPALACE_TOOL_MAX_MS, MEMPALACE_SAFE_DEFAULTS.TOOL_MAX_MS)
+  assert.equal(once.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, MEMPALACE_SAFE_DEFAULTS.CHILD_TIMEOUT_MS)
+  assert.equal(once.env.ABF_MEMPALACE_WRITE_LOCK, resolveSharedWriteLockPath())
+  assert.equal(once.env.MEMPALACE_MCP_ALLOW_PEER_WRITER, '1')
+})
+
+test('resolveSharedWriteLockPath is absolute HOME-based by default', () => {
+  const p = resolveSharedWriteLockPath()
+  assert.ok(path.isAbsolute(p))
+  assert.match(p, /[\\/]\.mempalace[\\/]locks[\\/]abf_write\.lock$/)
 })
 
 test('applyMempalaceSafeProxy only rewrites mempalace keys', () => {

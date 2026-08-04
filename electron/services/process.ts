@@ -43,6 +43,7 @@ import {
   enabledMcpsIncludeMempalace,
   NESTED_CHILD_MEMPALACE_MEMORY_PROMPT,
 } from './supervisor-prompt.js'
+import { isMempalaceSafeWrapped, isMempalaceServer } from './mempalace-safe.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
@@ -677,6 +678,21 @@ export class ProcessService {
       })
       if (Object.keys(mcpServers).length > 0) {
         config.mcpServers = mcpServers
+      }
+      // Diagnostic: each session spawns its own MCP stdio process; mempalace
+      // concurrent writes rely on safe-proxy wrap + shared abf_write.lock.
+      if (mempalaceEnabled) {
+        for (const [mcpKey, mcpCfg] of Object.entries(mcpServers)) {
+          if (!isMempalaceServer(mcpKey, mcpCfg.command, mcpCfg.args || [])) continue
+          const wrapped = isMempalaceSafeWrapped(mcpCfg.command, mcpCfg.args || [])
+          appLog(
+            wrapped ? 'info' : 'warn',
+            wrapped
+              ? `Session ${sessionId}: mempalace MCP "${mcpKey}" behind safe proxy (per-session process; shared write lock)`
+              : `Session ${sessionId}: mempalace MCP "${mcpKey}" NOT behind safe proxy — multi-agent peer lock / 未写入 likely`,
+            'process',
+          )
+        }
       }
       if (sessionRole === 'nested-child') {
         appLog(

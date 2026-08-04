@@ -233,9 +233,11 @@ export class MCPService {
       }
     }
 
-    // MemPalace: multi-agent sessions each spawn an MCP process; the palace
-    // exclusive writer lease causes "peer lock / 未写入". Transparent safe
-    // proxy serializes writes + allows peer writer with host-side file lock.
+    // MemPalace: each agent session gets its own stdio MCP process (ACP).
+    // Transparent safe proxy + shared abf_write.lock serializes concurrent
+    // writes so multi-agent "peer lock / 未写入" becomes queue-and-succeed.
+    // Budgets (lock 90s / tool 120s) are always written into config.env so
+    // agent-spawned MCP receives them (not relying on Electron process.env).
     return applyMempalaceSafeProxy(configs)
   }
 
