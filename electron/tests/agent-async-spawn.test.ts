@@ -85,14 +85,14 @@ test('abf-supervisor prompt documents async spawn, parent idle, close safety', (
   assert.match(source, /Brevity is mandatory/i)
   // Hard rule: must close after accept/merge; idle is not finished
   assert.match(source, /MUST `close_agent` after accept\/merge|MUST close_agent after accept/i)
-  assert.match(source, /idle.*待命|待命.*idle/)
+  assert.match(source, /idle.*standby|standby.*idle|idle.*待命|待命.*idle/i)
   assert.doesNotMatch(source, /wait for the first turn.*by default/i)
   // Hard ban: never publish worktree-* isolation branches to origin
   assert.match(source, /Never publish session isolation branches/i)
   assert.match(source, /worktree-\*/)
   assert.match(source, /git push origin <base>|push origin <base>/i)
   // Father should spawn sons for non-trivial; son is leaf (three-gen)
-  assert.match(source, /must spawn 儿子|spawn sons for non-trivial/i)
+  assert.match(source, /must spawn sons for non-trivial|spawn sons for non-trivial/i)
   assert.match(source, /must not.*spawn further|three-generation cap/i)
 })
 
@@ -133,11 +133,11 @@ test('abf-worker requires spawn sons for non-trivial when agent-control present'
   const source = read('resources/prompts/abf-worker.md')
   // Must not regress to "prefer implement yourself" for multi-file work
   assert.doesNotMatch(source, /Prefer implementing a single coherent task yourself/)
-  assert.match(source, /REQUIRED when agent-control present|orchestration of 儿子 is mandatory/i)
-  assert.match(source, /Must spawn 儿子|必须.*spawn_agent/i)
+  assert.match(source, /REQUIRED when agent-control present|orchestration of sons is mandatory/i)
+  assert.match(source, /Must spawn sons|MUST `spawn_agent` sons|spawn_agent sons/i)
   assert.match(source, /Do it yourself \(trivial only\)|trivial only/i)
-  assert.match(source, /Hard ban for 父亲 when agent-control|Hard ban for 父亲/i)
-  assert.match(source, /multi-file|多文件/)
+  assert.match(source, /Hard ban for Father when agent-control|Hard ban for Father/i)
+  assert.match(source, /multi-file/)
   assert.match(source, /Sons are leaves|three-gen cap|Generation cap/i)
   // Father is still implementer/owner — not pure Supervisor hard-ban on all work
   assert.doesNotMatch(source, /# ABF Supervisor/)

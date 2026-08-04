@@ -377,7 +377,7 @@ test('injectWorkerRules writes worker body into AGENTS.md (not supervisor schedu
     // Worker (父亲) may document agent-control for spawning sons; must not be full Supervisor.
     assert.doesNotMatch(workerBody, /# ABF Supervisor/)
     // Non-trivial work must spawn sons when agent-control present (not "prefer solo implement")
-    assert.match(workerBody, /Must spawn 儿子|必须.*spawn_agent|REQUIRED when agent-control/i)
+    assert.match(workerBody, /Must spawn sons|MUST `spawn_agent` sons|REQUIRED when agent-control/i)
     assert.doesNotMatch(workerBody, /Prefer implementing a single coherent task yourself/)
 
     injectWorkerRules(worktree, 'grok')
