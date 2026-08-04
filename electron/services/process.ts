@@ -1606,16 +1606,6 @@ export class ProcessService {
     return this.sessionStates.get(sessionId)?.streaming || false
   }
 
-  /** Get the output parser instance */
-  getOutputParser(): OutputParser {
-    return this.outputParser
-  }
-
-  /** Get the state inference instance */
-  getStateInference(): StateInference {
-    return this.stateInference
-  }
-
   /**
    * Cancel the current turn / stop streaming. Does NOT remove software-prompt
    * files (AGENTS.md / .claude/rules) — those must remain while the session

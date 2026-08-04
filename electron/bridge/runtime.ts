@@ -74,41 +74,6 @@ export function resolveCommand(command: string | undefined, fallback: string): P
   return parsed
 }
 
-export function detectGitBashPath(preferredPath?: string): string | undefined {
-  const candidates = new Set<string>()
-
-  if (preferredPath) {
-    candidates.add(preferredPath)
-  }
-
-  for (const candidate of [
-    'C:\\Program Files\\Git\\bin\\bash.exe',
-    'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
-    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
-    'C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe',
-    'D:\\Git\\bin\\bash.exe',
-    'D:\\Program Files\\Git\\bin\\bash.exe',
-  ]) {
-    candidates.add(candidate)
-  }
-
-  for (const gitPath of findCommandInPath('git')) {
-    const gitDir = path.dirname(gitPath)
-    const gitRoot = path.dirname(gitDir)
-    candidates.add(path.join(gitDir, 'bash.exe'))
-    candidates.add(path.join(gitRoot, 'bin', 'bash.exe'))
-    candidates.add(path.join(gitRoot, 'usr', 'bin', 'bash.exe'))
-  }
-
-  for (const candidate of candidates) {
-    if (candidate && existsSync(candidate)) {
-      return candidate
-    }
-  }
-
-  return undefined
-}
-
 export function detectGitCmdPath(): string | undefined {
   // Check well-known Git installation directories on Windows
   for (const candidate of [

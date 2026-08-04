@@ -113,22 +113,5 @@ export class MissionService {
     return this.getMission(missionId)
   }
 
-  updatePlan(missionId: string, plan: any): any {
-    this.db.raw.prepare('UPDATE missions SET steps_json = ?, updated_at = ? WHERE id = ?')
-      .run(JSON.stringify(plan), new Date().toISOString(), missionId)
-    return this.getMission(missionId)
-  }
-
   listRoleTemplates(): any[] { return [...ROLE_TEMPLATES] }
-  getRoleTemplate(id: string): any { return ROLE_TEMPLATES.find(t => t.id === id) || null }
-  getRoleTemplatesByCategory(category: string): any[] { return ROLE_TEMPLATES.filter(t => t.category === category) }
-
-  // Legacy
-  getAll(): any[] { return this.listMissions() }
-  create(data: any): any { return this.createMission(data) }
-  update(id: string, data: any): void {
-    this.db.raw.prepare('UPDATE missions SET name = ?, description = ?, status = ?, steps_json = ?, config_json = ?, results_json = ?, updated_at = ? WHERE id = ?')
-      .run(data.name || '', data.description || '', data.status || 'draft', JSON.stringify(data.steps || []), JSON.stringify(data.config || {}), JSON.stringify(data.results || []), new Date().toISOString(), id)
-  }
-  delete(id: string): void { this.deleteMission(id) }
 }

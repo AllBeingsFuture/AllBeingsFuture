@@ -174,11 +174,6 @@ export function buildAgentsMdRulesContent(
   }
 }
 
-/** @deprecated 与 buildAllRulesContent 相同，不再附带 codex 手册 */
-export function buildCodexRulesContent(availableProviders: string[] = []): string {
-  return buildAllRulesContent(availableProviders, true)
-}
-
 function stripInjectedAgentsRules(content: string): string {
   if (!content.includes(AGENTS_INJECT_START)) return content
   const pattern = new RegExp(
@@ -319,23 +314,6 @@ export function resolveContextFilesForProvider(providerId: string, extraFiles: s
   return Array.from(new Set([AGENTS_MD_FILE, ...extras, ...extraFiles]))
 }
 
-export function injectAgentsMd(
-  workDir: string,
-  availableProviders: string[] = [],
-  options: AgentsMdInjectOptions = {},
-): void {
-  const body = buildAgentsMdRulesContent(availableProviders, options)
-  const files = resolveContextFilesForProvider('', options.extraFiles || [])
-  for (const filename of files) {
-    injectRulesIntoFile(path.join(workDir, filename), body)
-  }
-  appLog(
-    'info',
-    `[Supervisor] Injected rules into: ${files.map(f => path.join(workDir, f)).join(', ')}`,
-    'supervisor-prompt',
-  )
-}
-
 export function injectProviderRules(
   workDir: string,
   providerId: string,
@@ -387,11 +365,6 @@ export function hasWorkerPromptFiles(workDir: string, providerId: string = ''): 
   } catch {
     return false
   }
-}
-
-/** @deprecated 使用 injectProviderRules */
-export function injectCodexAgentsMd(workDir: string, availableProviders: string[] = []): void {
-  injectProviderRules(workDir, 'codex', availableProviders)
 }
 
 /**
