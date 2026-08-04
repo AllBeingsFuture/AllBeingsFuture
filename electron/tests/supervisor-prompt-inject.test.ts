@@ -425,10 +425,31 @@ test('process.ts only injects worker files for direct child isolated worktree (n
   // Shared cwd with parent must skip file inject
   assert.match(source, /sameCwd/)
   assert.match(source, /path\.resolve\(workDir\) === path\.resolve\(parentWorkDir\)/)
-  // Grandchild / nested son skip
+  // Grandchild / nested son skip full worker inject
   assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
   // Worker file inject for direct child
   assert.match(source, /injectWorkerPromptFiles/)
+
+  // Direct-child arm must inject worker files when isolated
+  const directArm = source.match(/if \(isDirectChild\) \{[\s\S]*?\} else if \(isChild\) \{/)
+  assert.ok(directArm, 'expected direct-child branch')
+  assert.match(directArm[0], /injectWorkerPromptFiles/)
+})
+
+test('process.ts nested-child arm strips inherited software prompts on isolated worktree only', () => {
+  const source = readFileSync(processSourcePath, 'utf8')
+  assert.match(source, /stripInheritedSoftwarePromptFiles/)
+  assert.match(source, /Stripped inherited software prompt files for nested child/)
+
+  const nestedArm = source.match(/\} else if \(isChild\) \{[\s\S]*?\} else \{/)
+  assert.ok(nestedArm, 'expected nested-child branch')
+  // Strip helper runs in nested arm when workDir && !sameCwd
+  assert.match(nestedArm[0], /stripInheritedSoftwarePromptFiles\s*\(\s*workDir\s*\)/)
+  assert.match(nestedArm[0], /sameCwd/)
+  assert.match(nestedArm[0], /if \(workDir && !sameCwd\)/)
+  // Still no full worker inject / agent-control for sons
+  assert.doesNotMatch(nestedArm[0], /injectWorkerPromptFiles/)
+  assert.doesNotMatch(nestedArm[0], /buildWorkerRulesContent\s*\(/)
 })
 
 test('wrapWorkerTaskPrompt appends mempalace checkpoint reminder for every child task', async () => {
@@ -490,6 +511,67 @@ test('process.ts injects nested-child short Memory prompt when mempalace enabled
   assert.ok(nestedArm, 'expected nested-child branch')
   assert.doesNotMatch(nestedArm[0], /buildWorkerRulesContent\s*\(/)
   assert.doesNotMatch(nestedArm[0], /injectWorkerPromptFiles/)
+  // Isolated sons strip inherited ABF files
+  assert.match(nestedArm[0], /stripInheritedSoftwarePromptFiles/)
+})
+
+test('stripInheritedSoftwarePromptFiles removes inherited ABF Supervisor block, preserves user content', async () => {
+  const tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'abf-son-strip-'))
+  const sonWorktree = path.join(tmpRoot, '.allbeingsfuture-worktrees', 'son-1')
+  mkdirSync(sonWorktree, { recursive: true })
+  mkdirSync(path.join(sonWorktree, '.claude', 'rules'), { recursive: true })
+
+  try {
+    const {
+      stripInheritedSoftwarePromptFiles,
+      cleanupSupervisorPrompt,
+    } = await loadSupervisorPrompt()
+
+    // Alias must point at the same cleanup logic
+    assert.equal(stripInheritedSoftwarePromptFiles, cleanupSupervisorPrompt)
+
+    // Simulate git worktree checkout: committed AGENTS.md with Supervisor ABF block + user notes
+    const agentsPath = path.join(sonWorktree, 'AGENTS.md')
+    writeFileSync(
+      agentsPath,
+      [
+        '# Project notes',
+        '',
+        'User content outside ABF block — keep me.',
+        '',
+        AGENTS_INJECT_START,
+        '# ABF Supervisor',
+        'You are the Supervisor (爷爷). spawn_agent only.',
+        AGENTS_INJECT_END,
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+    writeFileSync(
+      path.join(sonWorktree, '.claude', 'rules', 'abf-supervisor.md'),
+      '# fake supervisor\n',
+      'utf8',
+    )
+    writeFileSync(
+      path.join(sonWorktree, '.claude', 'rules', 'abf-worker.md'),
+      '# fake worker\n',
+      'utf8',
+    )
+
+    stripInheritedSoftwarePromptFiles(sonWorktree)
+
+    const cleaned = readFileSync(agentsPath, 'utf8')
+    assert.equal(cleaned.includes(AGENTS_INJECT_START), false, 'ABF start marker must be gone')
+    assert.equal(cleaned.includes(AGENTS_INJECT_END), false, 'ABF end marker must be gone')
+    assert.doesNotMatch(cleaned, /# ABF Supervisor/)
+    assert.doesNotMatch(cleaned, /spawn_agent only/)
+    assert.match(cleaned, /User content outside ABF block — keep me/)
+    assert.match(cleaned, /# Project notes/)
+    assert.equal(existsSync(path.join(sonWorktree, '.claude', 'rules', 'abf-supervisor.md')), false)
+    assert.equal(existsSync(path.join(sonWorktree, '.claude', 'rules', 'abf-worker.md')), false)
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true })
+  }
 })
 
 test('hasSupervisorPromptFiles detects missing AGENTS block and re-inject restores it', async () => {

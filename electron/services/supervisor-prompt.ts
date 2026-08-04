@@ -3,7 +3,8 @@
  *
  * 顶层 Supervisor：只注入 abf-supervisor.md（文件 + 可选 append）
  * 直接子 Agent Worker：appendSystemPrompt + 隔离 worktree 上的 worker 文件
- * 孙 Agent：默认不注入软件提示词文件
+ * 孙 Agent：默认不注入软件提示词文件；隔离 worktree 上需剥离继承的 ABF 块
+ *   （git worktree checkout 会带上已提交的 AGENTS.md / abf-*.md）
  *
  * 不再注入 common / providers / git / codex 手册。
  *
@@ -12,6 +13,9 @@
  * - 多数 CLI: AGENTS.md 注入块（body 为 supervisor 或 worker 角色）
  * - Gemini/Qwen: 额外 GEMINI.md / QWEN.md
  * - openai-api: appendSystemPrompt
+ *
+ * cleanupSupervisorPrompt / stripInheritedSoftwarePromptFiles：删除 abf-*.md 并剥离
+ * AGENTS.md 等文件中的 ABF 注入块。会话销毁清理与 nested-child 隔离 worktree 共用。
  */
 
 import * as path from 'node:path'
@@ -390,6 +394,14 @@ export function injectCodexAgentsMd(workDir: string, availableProviders: string[
   injectProviderRules(workDir, 'codex', availableProviders)
 }
 
+/**
+ * Remove ABF software-prompt files/blocks under workDir:
+ * - delete .claude/rules/abf-*.md (active + legacy)
+ * - strip <!-- ABF:CODEX-RULES --> blocks from AGENTS.md / GEMINI.md / QWEN.md
+ *
+ * Used for session teardown cleanup, and to clear inherited Supervisor/Worker
+ * rules checked out into a nested-child (儿子) isolated git worktree.
+ */
 export function cleanupSupervisorPrompt(workDir: string): void {
   const rulesDir = path.join(workDir, '.claude', 'rules')
   for (const filename of ABF_RULES_FILES) {
@@ -411,3 +423,6 @@ export function cleanupSupervisorPrompt(workDir: string): void {
 
   appLog('info', `[Supervisor] Cleaned up rule files from: ${workDir}`, 'supervisor-prompt')
 }
+
+/** Alias: strip inherited ABF software prompts from nested-child isolated worktrees. */
+export const stripInheritedSoftwarePromptFiles = cleanupSupervisorPrompt

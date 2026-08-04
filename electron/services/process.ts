@@ -35,6 +35,7 @@ import {
   injectProviderRules,
   injectWorkerPromptFiles,
   cleanupSupervisorPrompt,
+  stripInheritedSoftwarePromptFiles,
   buildAllRulesContent,
   buildWorkerRulesContent,
   hasSupervisorPromptFiles,
@@ -800,6 +801,31 @@ export class ProcessService {
         appLog('warn', `Failed to inject worker prompt files for child: ${errMsg}`, 'process')
       }
     } else if (isChild) {
+      // Son: strip inherited ABF software prompts from isolated worktree only.
+      // git worktree add checks out committed AGENTS.md (Supervisor/Worker blocks);
+      // inject skips nested-child, so we must strip here. Never strip when sharing
+      // parent cwd — that would wipe the father's live AGENTS.md.
+      try {
+        const workDir = String(config.workDir || '')
+        const parentWorkDir = parentSession
+          ? (parentSession.worktreePath || parentSession.workingDirectory || '')
+          : ''
+        const sameCwd = workDir
+          && parentWorkDir
+          && path.resolve(workDir) === path.resolve(parentWorkDir)
+        if (workDir && !sameCwd) {
+          stripInheritedSoftwarePromptFiles(workDir)
+          appLog(
+            'info',
+            `Stripped inherited software prompt files for nested child ${sessionId} in ${workDir}`,
+            'process',
+          )
+        }
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to strip inherited software prompts for nested child: ${errMsg}`, 'process')
+      }
+
       // Son: skip full worker software prompt + agent-control; still inject short Memory when mempalace is on.
       if (mempalaceEnabled) {
         try {
