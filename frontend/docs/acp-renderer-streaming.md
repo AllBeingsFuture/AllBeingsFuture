@@ -142,9 +142,17 @@ stop button, and settles on the backend result or a normalized terminal event.
 
 Existing `chat:update`, `chat:patch`, and `agent:update` listeners remain supported. Before a
 normalized turn starts they behave exactly as before. While a normalized stream is active for
-a session, chat snapshots and patches for that session are ignored so parallel compatibility
-delivery cannot overwrite or duplicate the normalized turn. After a terminal event, a final
-legacy snapshot may reconcile persisted history.
+a session (`phase` in `running` | `waiting_permission` | `cancelling`), chat snapshots and
+non-user patches for that session are ignored so parallel compatibility delivery cannot
+overwrite or duplicate the normalized turn — **including after long silence**. Content
+ownership is phase-based only; do not reassign live transcript to legacy mid-turn.
+
+Exceptions while the turn is open:
+- `chat:patch` user appends (composer / child send)
+- legacy `streaming: false` (terminal reconcile if `done` was lost; poll may discover this)
+
+After a terminal event (or legacy `streaming: false` converge), a final legacy snapshot may
+reconcile persisted history.
 
 Live normalized messages are buffered per session. Background updates change that session's
 runtime status without replacing the selected conversation, and switching sessions can

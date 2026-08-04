@@ -43,7 +43,10 @@ export interface AgentStreamReduction {
 
 const ACTIVE_PHASES = new Set<AgentStreamPhase>(['running', 'waiting_permission', 'cancelling'])
 
-/** How long agent:stream may stay silent before legacy chat:update/patch/poll may resume. */
+/**
+ * @deprecated Silence must not hand live content ownership to legacy snapshots.
+ * Kept only so older tests/imports do not break; content policy uses phase only.
+ */
 export const AGENT_STREAM_SILENCE_MS = 12_000
 
 export function createAgentSessionStreamState(): AgentSessionStreamState {
@@ -55,18 +58,28 @@ export function isAgentStreamActive(stream: AgentSessionStreamState | undefined)
 }
 
 /**
- * Prefer the normalized agent:stream path only while it is active and not silent.
- * After silence timeout, legacy chat paths fail open so a lost done/event cannot freeze the UI.
+ * Single source of truth for live transcript ownership.
+ *
+ * While the normalized turn is open (running / waiting_permission / cancelling),
+ * `agent:stream` alone owns message content. Legacy `chat:update` / `chat:patch`
+ * / poll must not replace the transcript mid-turn — even after long silence.
+ *
+ * History of the broken model (why patches never stuck):
+ * - Backend dual-emits agent:stream + legacy chat for every bridge event.
+ * - Silence fail-open (12s) reassigned content to legacy mid-turn.
+ * - Legacy rows lack streamItemId / partial / toolUseId shape → UI frozen,
+ *   bubble forks, tool groups stuck — each fix patched one symptom then
+ *   regressed another.
+ *
+ * Terminal recovery (lost `done`) still works: legacy `streaming:false`
+ * always bypasses this gate and converges the phase.
  */
 export function shouldPreferAgentStream(
   stream: AgentSessionStreamState | undefined,
-  now: number = Date.now(),
+  _now: number = Date.now(),
 ): boolean {
-  if (!isAgentStreamActive(stream)) return false
-  const lastEventAt = stream!.lastEventAt
-  // No timestamp yet (e.g. manually seeded active state) — keep preferring stream.
-  if (lastEventAt == null) return true
-  return now - lastEventAt < AGENT_STREAM_SILENCE_MS
+  void _now
+  return isAgentStreamActive(stream)
 }
 
 /**

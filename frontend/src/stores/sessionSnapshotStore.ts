@@ -13,7 +13,6 @@ import {
 } from '../core/chat/chatCore'
 import { createAgentStreamBatcher } from '../core/chat/agentStreamBatch'
 import {
-  annotateLivePartialFlags,
   convergeAgentStreamOnLegacyEnd,
   createAgentSessionStreamState,
   isAgentStreamActive,
@@ -361,36 +360,41 @@ export const useSessionStore = create<SessionState>((set, get) => {
   },
 
   pollChat: async (id) => {
-    // Fail-open: only skip poll while stream is preferred (active + not silent).
-    if (shouldPreferAgentStream(get().agentStreams[id])) return
     try {
+      // Always poll so a lost agent:stream `done` can still be discovered via
+      // legacy streaming:false. Content apply is gated below.
       const patch = await chatCore.poll(snapshotOf(get()), id)
-      if (patch) {
-        set(state => {
-          const stream = state.agentStreams[id]
-          const converged = patch.streaming === false
-            ? convergeAgentStreamOnLegacyEnd(stream)
-            : undefined
-          // Only re-stamp partials while an agent stream turn is still open
-          // (silence fail-open). Plain legacy sessions keep raw poll snapshots.
-          const messages = patch.messages
-            ? (isAgentStreamActive(stream)
-              ? annotateLivePartialFlags(patch.messages, Boolean(patch.streaming))
-              : patch.messages)
-            : undefined
-          return {
-            ...patch,
-            ...(messages ? { messages } : {}),
-            ...(converged
-              ? { agentStreams: { ...state.agentStreams, [id]: converged } }
-              : {}),
-            // Always keep the per-session buffer warm, even for background sessions.
-            ...(messages
-              ? { agentStreamMessages: { ...state.agentStreamMessages, [id]: messages } }
-              : {}),
-          }
-        })
+      if (!patch) {
+        void get().flushPendingMessages(id)
+        return
       }
+
+      const streamBefore = get().agentStreams[id]
+      // Active stream owns the live transcript. Ignore mid-turn snapshots even
+      // after long silence — only terminal (streaming:false) may reconcile.
+      if (shouldPreferAgentStream(streamBefore) && patch.streaming !== false) {
+        return
+      }
+
+      set(state => {
+        const stream = state.agentStreams[id]
+        const converged = patch.streaming === false
+          ? convergeAgentStreamOnLegacyEnd(stream)
+          : undefined
+        // Terminal reconcile may land while phase is still active (before
+        // converge). Do not re-stamp partials onto a finished snapshot.
+        const messages = patch.messages
+        return {
+          ...patch,
+          ...(messages ? { messages } : {}),
+          ...(converged
+            ? { agentStreams: { ...state.agentStreams, [id]: converged } }
+            : {}),
+          ...(messages
+            ? { agentStreamMessages: { ...state.agentStreamMessages, [id]: messages } }
+            : {}),
+        }
+      })
       // flushPendingMessages itself re-checks selected streaming / agent stream activity.
       void get().flushPendingMessages(id)
     } catch (err: unknown) {
@@ -401,17 +405,13 @@ export const useSessionStore = create<SessionState>((set, get) => {
   handleChatUpdate: (data) => {
     const state = get()
     const stream = state.agentStreams[data.sessionId]
-    // Prefer stream only while active and not silent; always fail-open on explicit end.
+    // agent:stream owns live content while the turn is open. Explicit
+    // streaming:false is the only legacy path that may replace the transcript.
     if (shouldPreferAgentStream(stream) && data.streaming !== false) return
 
     const patch = chatCore.applyChatUpdate(snapshotOf(state), data)
-    // Silence fail-open can replace the stream transcript with a legacy snapshot
-    // that omits partial flags. Re-stamp live tails so the UI keeps refreshing
-    // until a real terminal event arrives. Only while stream phase is active.
-    const rawMessages = data.messages ?? []
-    const messages = isAgentStreamActive(stream)
-      ? annotateLivePartialFlags(rawMessages, data.streaming)
-      : rawMessages
+    // Final snapshot after turn end — use as-is (no live partial re-stamp).
+    const messages = data.messages ?? []
     const converged = data.streaming === false
       ? convergeAgentStreamOnLegacyEnd(stream)
       : undefined
@@ -440,10 +440,11 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const isUserAppend = data.type === 'append' && data.message?.role === 'user'
     const legacyEnded = data.streaming === false
 
-    // Normalized agent:stream owns the live transcript, but user turns still
-    // arrive via legacy chat:patch and must never be dropped — including when
-    // the user has already switched to a child session.
-    // Fail-open: silence timeout or explicit streaming:false unblocks legacy.
+    // Normalized agent:stream owns the live transcript. Exceptions:
+    // 1) user turns still arrive via chat:patch (including background sessions)
+    // 2) streaming:false terminal reconcile
+    // Silence must NEVER re-open mid-turn content from legacy (historical
+    // regression: replace stream rows → missing partial/toolUseId → cascade).
     if (preferStream && !isUserAppend && !legacyEnded) {
       const sessions = chatCore.syncRuntimeStatus(state.sessions, data.sessionId, data.streaming)
       if (sessions !== state.sessions) set({ sessions })
@@ -454,10 +455,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const baseMessages = selected
       ? state.messages
       : (state.agentStreamMessages[data.sessionId] || [])
-    const patched = chatCore.applyMessagePatch(baseMessages, data)
-    const nextMessages = isAgentStreamActive(stream)
-      ? annotateLivePartialFlags(patched, data.streaming)
-      : patched
+    const nextMessages = chatCore.applyMessagePatch(baseMessages, data)
     const sessions = chatCore.syncRuntimeStatus(state.sessions, data.sessionId, data.streaming)
     const converged = legacyEnded ? convergeAgentStreamOnLegacyEnd(stream) : undefined
 

@@ -736,15 +736,25 @@ describe('sessionStore runtime status sync', () => {
     expect(state.streaming).toBe(true)
   })
 
-  it('fail-opens legacy chat paths after agent stream silence timeout', async () => {
+  it('does not hand mid-turn content to legacy after silence (historical dual-path bug)', async () => {
+    // Regression lock: 9ed7265 silence fail-open + 2660bcf annotate cascade.
+    // After 12s+ silence, legacy chat:update/patch with streaming:true must NOT
+    // replace agent:stream rows (missing partial/toolUseId → frozen tools / forked bubbles).
     const silencedAt = Date.now() - 20_000
+    const streamMessages = [
+      { role: 'user', content: 'hello' } as never,
+      {
+        role: 'assistant',
+        content: 'from stream',
+        partial: true,
+        streamItemId: 'reply-1',
+      } as never,
+    ]
     useSessionStore.setState({
       selectedId: 'session-1',
       sessions: [makeSession({ status: 'running' })],
-      messages: [{ role: 'user', content: 'hello' } as never],
-      agentStreamMessages: {
-        'session-1': [{ role: 'user', content: 'hello' } as never],
-      },
+      messages: streamMessages,
+      agentStreamMessages: { 'session-1': streamMessages },
       streaming: true,
       agentStreams: {
         'session-1': { phase: 'running', lastSequence: 2, lastEventAt: silencedAt },
@@ -758,21 +768,6 @@ describe('sessionStore runtime status sync', () => {
       streaming: true,
       error: '',
     })
-
-    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual([
-      'hello',
-      'recovered via patch',
-    ])
-    // Silence fail-open re-stamps trailing narrative as partial so later stream
-    // deltas keep merging into the live bubble.
-    expect(useSessionStore.getState().messages[1]).toEqual(expect.objectContaining({
-      content: 'recovered via patch',
-      partial: true,
-    }))
-    expect(useSessionStore.getState().streaming).toBe(true)
-    // Still active phase after streaming:true recovery; silence only unblocks legacy.
-    expect(useSessionStore.getState().agentStreams['session-1']?.phase).toBe('running')
-
     useSessionStore.getState().handleChatUpdate({
       sessionId: 'session-1',
       messages: [
@@ -782,15 +777,35 @@ describe('sessionStore runtime status sync', () => {
       streaming: true,
       error: '',
     })
+
+    // Stream transcript must win — silence is not a content ownership transfer.
     expect(useSessionStore.getState().messages.map(m => m.content)).toEqual([
       'hello',
-      'final from update',
+      'from stream',
     ])
     expect(useSessionStore.getState().messages[1]).toEqual(expect.objectContaining({
-      content: 'final from update',
+      content: 'from stream',
       partial: true,
+      streamItemId: 'reply-1',
     }))
+    expect(useSessionStore.getState().agentStreams['session-1']?.phase).toBe('running')
 
+    // Mid-turn poll while still streaming must also leave stream content alone.
+    serviceMocks.processService.GetChatState.mockResolvedValue({
+      messages: [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'polled mid-turn overwrite' },
+      ],
+      streaming: true,
+      error: '',
+    })
+    await useSessionStore.getState().pollChat('session-1')
+    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual([
+      'hello',
+      'from stream',
+    ])
+
+    // Terminal discovery via poll still works without silence handoff.
     serviceMocks.processService.GetChatState.mockResolvedValue({
       messages: [
         { role: 'user', content: 'hello' },
@@ -799,15 +814,6 @@ describe('sessionStore runtime status sync', () => {
       streaming: false,
       error: '',
     })
-    // Re-silence so poll is allowed (handleChatUpdate above did not refresh lastEventAt).
-    useSessionStore.setState(state => ({
-      agentStreams: {
-        ...state.agentStreams,
-        'session-1': { phase: 'running', lastSequence: 2, lastEventAt: silencedAt },
-      },
-      streaming: true,
-    }))
-
     await useSessionStore.getState().pollChat('session-1')
 
     const afterPoll = useSessionStore.getState()

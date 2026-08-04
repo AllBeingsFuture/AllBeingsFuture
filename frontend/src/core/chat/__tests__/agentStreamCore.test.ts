@@ -30,7 +30,7 @@ describe('agentStreamCore', () => {
     expect(shouldPreferAgentStream(second.stream)).toBe(true)
   })
 
-  it('stamps lastEventAt and fails open after silence timeout', () => {
+  it('stamps lastEventAt and keeps preferring stream through silence (no content handoff)', () => {
     const applied = reduceAgentStreamEvent([], undefined, {
       type: 'text_delta',
       sessionId: 'session-1',
@@ -42,13 +42,16 @@ describe('agentStreamCore', () => {
     expect(applied.stream.lastEventAt).toBe(Date.parse('2026-01-01T00:00:00.000Z'))
     expect(isAgentStreamActive(applied.stream)).toBe(true)
     expect(shouldPreferAgentStream(applied.stream, applied.stream.lastEventAt! + 1000)).toBe(true)
+    // Historical bug: silence used to return false and hand content to legacy.
+    // Ownership is phase-only now — long silence must still prefer agent:stream.
     expect(shouldPreferAgentStream(
       applied.stream,
-      applied.stream.lastEventAt! + AGENT_STREAM_SILENCE_MS,
-    )).toBe(false)
+      applied.stream.lastEventAt! + AGENT_STREAM_SILENCE_MS + 60_000,
+    )).toBe(true)
 
     // Missing lastEventAt still prefers an active stream (safe default).
     expect(shouldPreferAgentStream({ phase: 'running', lastSequence: 1 })).toBe(true)
+    expect(shouldPreferAgentStream({ phase: 'done', lastSequence: 1 })).toBe(false)
     expect(convergeAgentStreamOnLegacyEnd(applied.stream)).toEqual(expect.objectContaining({
       phase: 'done',
       permission: undefined,
