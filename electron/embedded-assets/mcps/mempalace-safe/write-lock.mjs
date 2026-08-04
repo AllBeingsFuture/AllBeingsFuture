@@ -11,14 +11,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** Default total wall-clock budget for lock acquire (fail fast under contention). */
-export const DEFAULT_LOCK_MAX_WAIT_MS = 5000
+/** Default total wall-clock budget for lock acquire (aligns with agent 15–20s retry window). */
+export const DEFAULT_LOCK_MAX_WAIT_MS = 18_000
 /** Safety cap on acquire attempts; wall-clock deadline usually binds first. */
-export const DEFAULT_LOCK_RETRIES = 40
+export const DEFAULT_LOCK_RETRIES = 80
 /** Minimum per-attempt backoff sleep. */
 export const DEFAULT_LOCK_BACKOFF_MIN_MS = 50
 /** Maximum per-attempt backoff sleep (not total wait). */
-export const DEFAULT_LOCK_BACKOFF_MAX_MS = 500
+export const DEFAULT_LOCK_BACKOFF_MAX_MS = 800
 /** Stale lock age threshold (dead PID always reclaimable; aged also reclaimable). */
 export const DEFAULT_STALE_MS = 30_000
 

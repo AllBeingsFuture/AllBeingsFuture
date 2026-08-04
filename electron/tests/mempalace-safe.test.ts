@@ -52,11 +52,11 @@ test('wrapMempalaceConfigIfNeeded rewrites command to safe proxy', () => {
   assert.equal(wrapped.env.ABF_MEMPALACE_ARGS, JSON.stringify(['--palace', '/tmp/p']))
   assert.equal(wrapped.env.MEMPALACE_MCP_ALLOW_PEER_WRITER, '1')
   assert.equal(wrapped.env.FOO, '1')
-  // Bounded timeout defaults injected only when unset
-  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_MS, '5000')
-  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_MAX_MS, '12000')
-  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_RETRIES, '2')
-  assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, '10000')
+  // Bounded timeout defaults injected only when unset (align with agent 15–20s window)
+  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_MS, '18000')
+  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_MAX_MS, '30000')
+  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_RETRIES, '3')
+  assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, '15000')
 })
 
 test('wrapMempalaceConfigIfNeeded does not override user timeout env', () => {
@@ -109,15 +109,15 @@ test('applyMempalaceSafeProxy only rewrites mempalace keys', () => {
   assert.equal(out.other.command, 'echo')
 })
 
-test('write-lock defaults are bounded (fail-fast under contention)', async () => {
+test('write-lock defaults align with multi-agent 15–20s retry window', async () => {
   assert.ok(existsSync(writeLockPath), 'write-lock.mjs must exist')
   const mod = await import(pathToFileUrl(writeLockPath))
-  assert.equal(mod.DEFAULT_LOCK_MAX_WAIT_MS, 5000)
-  assert.equal(mod.DEFAULT_LOCK_RETRIES, 40)
+  assert.equal(mod.DEFAULT_LOCK_MAX_WAIT_MS, 18_000)
+  assert.equal(mod.DEFAULT_LOCK_RETRIES, 80)
   assert.equal(mod.DEFAULT_LOCK_BACKOFF_MIN_MS, 50)
-  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MAX_MS, 500)
+  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MAX_MS, 800)
   assert.equal(mod.DEFAULT_STALE_MS, 30_000)
-  // Proxy env defaults must align with bounded write budget
+  // Proxy env defaults must align with tool budget (lock wait + child write + retries)
   const proxySrc = readFileSync(proxyPath, 'utf8')
   assert.match(proxySrc, /ABF_MEMPALACE_LOCK_MAX_MS/)
   assert.match(proxySrc, /ABF_MEMPALACE_TOOL_MAX_MS/)
@@ -125,12 +125,16 @@ test('write-lock defaults are bounded (fail-fast under contention)', async () =>
   assert.match(proxySrc, /DEFAULT_LOCK_RETRIES/)
   assert.match(proxySrc, /parseEnvInt\('ABF_MEMPALACE_TOOL_RETRIES',\s*DEFAULT_TOOL_RETRIES\)/)
   assert.match(proxySrc, /parseEnvInt\('ABF_MEMPALACE_TOOL_MAX_MS',\s*DEFAULT_TOOL_MAX_MS\)/)
-  assert.match(proxySrc, /DEFAULT_TOOL_MAX_MS\s*=\s*12_000/)
-  assert.match(proxySrc, /DEFAULT_TOOL_RETRIES\s*=\s*2/)
-  assert.match(proxySrc, /DEFAULT_CHILD_TIMEOUT_MS\s*=\s*10_000/)
+  assert.match(proxySrc, /DEFAULT_TOOL_MAX_MS\s*=\s*30_000/)
+  assert.match(proxySrc, /DEFAULT_TOOL_RETRIES\s*=\s*3/)
+  assert.match(proxySrc, /DEFAULT_CHILD_TIMEOUT_MS\s*=\s*15_000/)
   assert.match(proxySrc, /DEFAULT_READ_TIMEOUT_MS\s*=\s*60_000/)
   assert.match(proxySrc, /code:\s*-32002/)
   assert.match(proxySrc, /Math\.min\(1000,\s*80\s*\*\s*2\s*\*\*\s*attempt\)/)
+  // Critical: lock-busy must retry inside tool budget, not return immediately
+  assert.match(proxySrc, /ABF_WRITE_LOCK_BUSY/)
+  assert.match(proxySrc, /canRetry/)
+  assert.match(proxySrc, /continue/)
 })
 
 test('write-lock serializes concurrent acquires (second waits then succeeds)', async () => {
@@ -602,7 +606,261 @@ rl.on('line', async (line) => {
   }
 })
 
-test('proxy: lock contention returns busy error within lock max (not hang)', async () => {
+test('proxy: lock held then released — wait and succeed (not busy)', async () => {
+  assert.ok(existsSync(proxyPath))
+  const mockChild = path.join(proxyDir, '_test_mock_contend_ok.mjs')
+  const mockSource = `
+import { createInterface } from 'node:readline'
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
+rl.on('line', async (line) => {
+  const req = JSON.parse(line)
+  if (req.method === 'initialize') {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0', id: req.id,
+      result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'mock-contend', version: '0' } }
+    }) + '\\n')
+    return
+  }
+  if (req.method === 'tools/call') {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0', id: req.id,
+      result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, waited: true }) }] }
+    }) + '\\n')
+    return
+  }
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: {} }) + '\\n')
+})
+`
+  const { writeFileSync, unlinkSync } = await import('node:fs')
+  writeFileSync(mockChild, mockSource, 'utf8')
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mpcontend-'))
+  const lockFile = path.join(dir, 'abf_write.lock')
+  // Hold lock with live PID for ~1.2s then release — proxy should wait and succeed
+  writeFileSync(lockFile, `${process.pid}\n`, 'utf8')
+  const releaseTimer = setTimeout(() => {
+    try { unlinkSync(lockFile) } catch { /* ignore */ }
+  }, 1200)
+
+  try {
+    const body = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [proxyPath, '--', process.execPath, mockChild],
+        {
+          env: {
+            ...process.env,
+            ABF_MEMPALACE_WRITE_LOCK: lockFile,
+            ABF_MEMPALACE_WRITE_RETRIES: '40',
+            ABF_MEMPALACE_LOCK_MAX_MS: '3000',
+            ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS: '100',
+            ABF_MEMPALACE_TOOL_RETRIES: '2',
+            ABF_MEMPALACE_TOOL_MAX_MS: '10000',
+            ABF_MEMPALACE_CHILD_TIMEOUT_MS: '3000',
+            MEMPALACE_MCP_ALLOW_PEER_WRITER: '1',
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
+      )
+      let out = ''
+      child.stdout.on('data', (c) => { out += c.toString() })
+      child.stderr.on('data', () => { /* ignore */ })
+      child.on('error', reject)
+
+      const send = (obj: unknown) => {
+        child.stdin.write(JSON.stringify(obj) + '\n')
+      }
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+      setTimeout(() => {
+        send({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: {
+            name: 'mempalace_checkpoint',
+            arguments: { items: [{ wing: 't', room: 't', content: 'contend-ok' }] },
+          },
+        })
+      }, 30)
+
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`contend-then-success wall timeout out=${out}`))
+      }, 12000)
+
+      const tryFinish = () => {
+        const lines = out.split('\n').map((l) => l.trim()).filter(Boolean)
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line) as { id?: number; error?: unknown; result?: unknown }
+            if (msg.id !== 2) continue
+            clearTimeout(timer)
+            try { child.stdin.end() } catch { /* ignore */ }
+            setTimeout(() => {
+              child.kill('SIGTERM')
+              resolve(out)
+            }, 30)
+            return
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      child.stdout.on('data', tryFinish)
+    })
+
+    const msgs = body
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        try { return JSON.parse(l) } catch { return null }
+      })
+      .filter(Boolean) as Array<{ id?: number; result?: { content?: Array<{ text?: string }> }; error?: unknown }>
+    const writeResp = msgs.find((m) => m.id === 2)
+    assert.ok(writeResp, `missing tools/call response: ${body}`)
+    assert.equal(writeResp.error, undefined, `should wait and succeed, got error: ${body}`)
+    const contentText = writeResp.result?.content?.[0]?.text
+    assert.ok(contentText, `missing content: ${body}`)
+    const payload = JSON.parse(contentText)
+    assert.equal(payload.ok, true)
+  } finally {
+    clearTimeout(releaseTimer)
+    rmSync(dir, { recursive: true, force: true })
+    try { rmSync(mockChild, { force: true }) } catch { /* ignore */ }
+  }
+})
+
+test('proxy: lock-busy retries within tool budget then succeeds', async () => {
+  assert.ok(existsSync(proxyPath))
+  const mockChild = path.join(proxyDir, '_test_mock_busy_retry.mjs')
+  const mockSource = `
+import { createInterface } from 'node:readline'
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
+rl.on('line', async (line) => {
+  const req = JSON.parse(line)
+  if (req.method === 'initialize') {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0', id: req.id,
+      result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'mock-busy-retry', version: '0' } }
+    }) + '\\n')
+    return
+  }
+  if (req.method === 'tools/call') {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0', id: req.id,
+      result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, via: 'busy-retry' }) }] }
+    }) + '\\n')
+    return
+  }
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: {} }) + '\\n')
+})
+`
+  const { writeFileSync, unlinkSync } = await import('node:fs')
+  writeFileSync(mockChild, mockSource, 'utf8')
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mpbusyretry-'))
+  const lockFile = path.join(dir, 'abf_write.lock')
+  // Hold lock longer than a single short maxWait (500ms) but release before tool deadline
+  // so the proxy must retry lock-busy (not return immediately after first acquire fail)
+  writeFileSync(lockFile, `${process.pid}\n`, 'utf8')
+  const releaseTimer = setTimeout(() => {
+    try { unlinkSync(lockFile) } catch { /* ignore */ }
+  }, 900)
+
+  try {
+    const body = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [proxyPath, '--', process.execPath, mockChild],
+        {
+          env: {
+            ...process.env,
+            ABF_MEMPALACE_WRITE_LOCK: lockFile,
+            ABF_MEMPALACE_WRITE_RETRIES: '20',
+            // Short per-acquire wait so first attempt fails with BUSY while lock held
+            ABF_MEMPALACE_LOCK_MAX_MS: '400',
+            ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS: '50',
+            // Multiple tool retries + enough overall budget to re-acquire after release
+            ABF_MEMPALACE_TOOL_RETRIES: '5',
+            ABF_MEMPALACE_TOOL_MAX_MS: '8000',
+            ABF_MEMPALACE_CHILD_TIMEOUT_MS: '2000',
+            MEMPALACE_MCP_ALLOW_PEER_WRITER: '1',
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
+      )
+      let out = ''
+      child.stdout.on('data', (c) => { out += c.toString() })
+      child.stderr.on('data', () => { /* ignore */ })
+      child.on('error', reject)
+
+      const send = (obj: unknown) => {
+        child.stdin.write(JSON.stringify(obj) + '\n')
+      }
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+      setTimeout(() => {
+        send({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: {
+            name: 'mempalace_checkpoint',
+            arguments: { items: [{ wing: 't', room: 't', content: 'busy-retry' }] },
+          },
+        })
+      }, 30)
+
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`lock-busy retry wall timeout out=${out}`))
+      }, 12000)
+
+      const tryFinish = () => {
+        const lines = out.split('\n').map((l) => l.trim()).filter(Boolean)
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line) as { id?: number; error?: unknown; result?: unknown }
+            if (msg.id !== 2) continue
+            clearTimeout(timer)
+            try { child.stdin.end() } catch { /* ignore */ }
+            setTimeout(() => {
+              child.kill('SIGTERM')
+              resolve(out)
+            }, 30)
+            return
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      child.stdout.on('data', tryFinish)
+    })
+
+    const msgs = body
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        try { return JSON.parse(l) } catch { return null }
+      })
+      .filter(Boolean) as Array<{ id?: number; result?: { content?: Array<{ text?: string }> }; error?: unknown }>
+    const writeResp = msgs.find((m) => m.id === 2)
+    assert.ok(writeResp, `missing tools/call response: ${body}`)
+    assert.equal(writeResp.error, undefined, `lock-busy should retry and succeed, got: ${body}`)
+    const contentText = writeResp.result?.content?.[0]?.text
+    assert.ok(contentText, `missing content: ${body}`)
+    const payload = JSON.parse(contentText)
+    assert.equal(payload.ok, true)
+    assert.equal(payload.via, 'busy-retry')
+  } finally {
+    clearTimeout(releaseTimer)
+    rmSync(dir, { recursive: true, force: true })
+    try { rmSync(mockChild, { force: true }) } catch { /* ignore */ }
+  }
+})
+
+test('proxy: permanent lock contention returns busy within short maxWait (not hang)', async () => {
   assert.ok(existsSync(proxyPath))
   const mockChild = path.join(proxyDir, '_test_mock_busy.mjs')
   const mockSource = `
@@ -632,7 +890,7 @@ rl.on('line', async (line) => {
 
   const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mpbusy-'))
   const lockFile = path.join(dir, 'abf_write.lock')
-  // Hold lock with live PID so proxy cannot steal via stale recovery
+  // Hold lock with live PID so proxy cannot steal via stale recovery (permanent hold)
   writeFileSync(lockFile, `${process.pid}\n`, 'utf8')
 
   try {
@@ -648,6 +906,7 @@ rl.on('line', async (line) => {
             ABF_MEMPALACE_WRITE_RETRIES: '40',
             ABF_MEMPALACE_LOCK_MAX_MS: '400',
             ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS: '50',
+            // No tool-level retries: exhaust on first lock-busy within short maxWait
             ABF_MEMPALACE_TOOL_RETRIES: '0',
             ABF_MEMPALACE_TOOL_MAX_MS: '3000',
             ABF_MEMPALACE_CHILD_TIMEOUT_MS: '1000',

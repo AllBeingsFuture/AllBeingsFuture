@@ -17,12 +17,12 @@
  *   ABF_MEMPALACE_COMMAND  — child executable (default: mempalace-mcp)
  *   ABF_MEMPALACE_ARGS     — JSON array of child args
  *   ABF_MEMPALACE_WRITE_LOCK — lock file path (optional)
- *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 40)
- *   ABF_MEMPALACE_LOCK_MAX_MS — total lock wait budget ms (default 5000)
- *   ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS — per-sleep backoff cap ms (default 500)
- *   ABF_MEMPALACE_TOOL_RETRIES — peer-lock response retries (default 2)
- *   ABF_MEMPALACE_TOOL_MAX_MS — overall write tools/call deadline ms (default 12000)
- *   ABF_MEMPALACE_CHILD_TIMEOUT_MS — per-attempt child response timeout on writes (default 10000)
+ *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 80)
+ *   ABF_MEMPALACE_LOCK_MAX_MS — total lock wait budget ms (default 18000)
+ *   ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS — per-sleep backoff cap ms (default 800)
+ *   ABF_MEMPALACE_TOOL_RETRIES — peer/lock-busy response retries (default 3)
+ *   ABF_MEMPALACE_TOOL_MAX_MS — overall write tools/call deadline ms (default 30000)
+ *   ABF_MEMPALACE_CHILD_TIMEOUT_MS — per-attempt child response timeout on writes (default 15000)
  *   MEMPALACE_MCP_ALLOW_PEER_WRITER — default forced to "1" unless already set
  *
  * Argv: node proxy.mjs [--] <command> [args...]
@@ -40,12 +40,12 @@ import {
   DEFAULT_LOCK_BACKOFF_MAX_MS,
 } from './write-lock.mjs'
 
-/** Default overall write budget (peer retries + child waits). */
-const DEFAULT_TOOL_MAX_MS = 12_000
-/** Default peer-lock retries (deadline usually binds first). */
-const DEFAULT_TOOL_RETRIES = 2
+/** Default overall write budget (lock wait + peer retries + child waits). */
+const DEFAULT_TOOL_MAX_MS = 30_000
+/** Default peer/lock-busy retries (deadline usually binds first). */
+const DEFAULT_TOOL_RETRIES = 3
 /** Default per-attempt child wait on write path. */
-const DEFAULT_CHILD_TIMEOUT_MS = 10_000
+const DEFAULT_CHILD_TIMEOUT_MS = 15_000
 /** Default wait for non-write child responses (reads / initialize). */
 const DEFAULT_READ_TIMEOUT_MS = 60_000
 
@@ -78,18 +78,33 @@ function parseChildLaunch() {
   return { command, args }
 }
 
+function peerLockMarkersIn(blob) {
+  const s = String(blob || '').toLowerCase()
+  return (
+    s.includes('未写入') ||
+    s.includes('peer-writer') ||
+    s.includes('palace lock') ||
+    s.includes('palace peer lock') ||
+    s.includes('read-only for mutating') ||
+    s.includes('minealreadyrunning') ||
+    s.includes('another mempalace writer') ||
+    (s.includes('peer') && s.includes('lock'))
+  )
+}
+
 function isPeerLockResponse(msg) {
   if (!msg || typeof msg !== 'object') return false
-  if (!msg.error) return false
-  const blob = JSON.stringify(msg.error).toLowerCase()
-  return (
-    blob.includes('peer') ||
-    blob.includes('palace lock') ||
-    blob.includes('peer-writer') ||
-    blob.includes('read-only for mutating') ||
-    blob.includes('minealreadyrunning') ||
-    blob.includes('another mempalace writer')
-  )
+  if (msg.error) {
+    if (peerLockMarkersIn(JSON.stringify(msg.error))) return true
+  }
+  // Defensive: some servers surface lock failures in result content text
+  const content = msg.result?.content
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (part && typeof part.text === 'string' && peerLockMarkersIn(part.text)) return true
+    }
+  }
+  return false
 }
 
 function toolNameFromRequest(req) {
@@ -205,8 +220,25 @@ function peerRetryBackoffMs(attempt) {
   return Math.min(1000, 80 * 2 ** attempt)
 }
 
+function busyLockErrorResponse(req, message, attempt) {
+  return {
+    jsonrpc: '2.0',
+    id: req.id,
+    error: {
+      code: -32001,
+      message,
+      data: {
+        tool: toolNameFromRequest(req),
+        retried: attempt,
+        hint: 'Another ABF session is writing the palace; retry later',
+      },
+    },
+  }
+}
+
 async function handleWriteCall(req) {
   let lastPeerErr = null
+  let lastLockBusyMessage = null
   const toolStart = Date.now()
   const toolDeadline = toolMaxMs > 0 ? toolStart + toolMaxMs : Number.POSITIVE_INFINITY
 
@@ -215,31 +247,39 @@ async function handleWriteCall(req) {
 
     let lock
     try {
+      // Cap single acquire wait by remaining overall tool budget
+      const remainingForLock = toolDeadline - Date.now()
+      if (remainingForLock <= 0) break
+      const effectiveMaxWait =
+        lockMaxMs > 0 ? Math.min(lockMaxMs, Math.max(0, remainingForLock)) : lockMaxMs
       lock = await acquireWriteLock({
         lockPath,
         retries: lockRetries,
-        maxWaitMs: lockMaxMs,
+        maxWaitMs: effectiveMaxWait,
         minMs: 50,
         maxMs: lockBackoffMaxMs,
       })
     } catch (err) {
-      const message =
-        err && err.code === 'ABF_WRITE_LOCK_BUSY'
-          ? err.message
-          : `mempalace write lock failed: ${err?.message || err}`
-      return {
-        jsonrpc: '2.0',
-        id: req.id,
-        error: {
-          code: -32001,
-          message,
-          data: {
-            tool: toolNameFromRequest(req),
-            retried: attempt,
-            hint: 'Another ABF session is writing the palace; retry later',
-          },
-        },
+      if (err && err.code === 'ABF_WRITE_LOCK_BUSY') {
+        lastLockBusyMessage = err.message
+        // Retry lock-busy inside the tool budget (like peer-lock), not fail-fast on first busy
+        const canRetry = attempt < toolRetries && Date.now() < toolDeadline
+        if (!canRetry) {
+          return busyLockErrorResponse(req, err.message, attempt)
+        }
+        const sleepFor = peerRetryBackoffMs(attempt)
+        const remaining = toolDeadline - Date.now()
+        if (remaining <= 0) {
+          return busyLockErrorResponse(req, err.message, attempt)
+        }
+        await new Promise((r) => setTimeout(r, Math.min(sleepFor, remaining)))
+        continue
       }
+      return busyLockErrorResponse(
+        req,
+        `mempalace write lock failed: ${err?.message || err}`,
+        attempt,
+      )
     }
 
     let response
@@ -311,8 +351,11 @@ async function handleWriteCall(req) {
     await new Promise((r) => setTimeout(r, Math.min(sleepFor, remaining)))
   }
 
-  // Exhausted peer retries / deadline — return last child error (never invent success)
+  // Exhausted peer/lock-busy retries / deadline — return last real error (never invent success)
   if (lastPeerErr) return lastPeerErr
+  if (lastLockBusyMessage) {
+    return busyLockErrorResponse(req, lastLockBusyMessage, toolRetries)
+  }
   return {
     jsonrpc: '2.0',
     id: req.id,
