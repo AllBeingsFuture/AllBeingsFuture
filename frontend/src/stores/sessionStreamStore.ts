@@ -19,13 +19,6 @@ import type {
   SessionStreamEntry,
 } from '../types/sessionStreamTypes'
 
-/**
- * Feature flag for Turn-Commit Split Surface data layer.
- * When false, sessionSnapshotStore keeps the legacy mixed reduce path only.
- * Default ON for Phase 1 dual-write.
- */
-export const STREAM_SPLIT_SURFACE = true
-
 function createEmptyEntry(): SessionStreamEntry {
   return {
     stream: createAgentSessionStreamState(),

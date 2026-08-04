@@ -16,7 +16,6 @@ import {
   convergeAgentStreamOnLegacyEnd,
   createAgentSessionStreamState,
   isAgentStreamActive,
-  reduceAgentStreamEvent,
   requestAgentStreamCancellation,
   resolveAgentStreamPermission,
   shouldPreferAgentStream,
@@ -26,7 +25,6 @@ import type { AgentSessionStreamState, AgentStreamEvent } from '../types/agentSt
 import { useDraftStore } from './draftStore'
 import { commitTurn } from '../core/chat/turnCommit'
 import {
-  STREAM_SPLIT_SURFACE,
   projectMixedMessages,
   useSessionStreamStore,
 } from './sessionStreamStore'
@@ -111,9 +109,7 @@ export function disposeAgentStreamBatches(): void {
   agentStreamBatcher.dispose()
   agentStreamBatcher = createStoreAgentStreamBatcher()
   // Keep turn-commit store aligned with session store resets in tests.
-  if (STREAM_SPLIT_SURFACE) {
-    useSessionStreamStore.getState().resetForTests()
-  }
+  useSessionStreamStore.getState().resetForTests()
 }
 
 /** Reset sessions epoch (tests only). */
@@ -125,73 +121,41 @@ export const useSessionStore = create<SessionState>((set, get) => {
   applyAgentStreamBatch = (sessionId, events) => {
     if (events.length === 0) return
 
-    // Reduce inside set() so a concurrent handleChatPatch (user append) that
-    // lands mid-batch is visible in `current` and not overwritten.
+    // Turn-commit split is source of truth; project mixed for old UI.
+    // Reduce via stream store so concurrent handleChatPatch (user append) that
+    // lands mid-batch is visible after dual-write projection.
     let shouldFlushPending = false
 
-    if (STREAM_SPLIT_SURFACE) {
-      // Turn-commit split is source of truth; project mixed for old UI.
-      const streamStore = useSessionStreamStore.getState()
-      // Seed from legacy buffer when this session has never been split-hydrated.
-      if (!streamStore.getEntry(sessionId)) {
-        const snapshot = get()
-        const isSelected = snapshot.selectedId === sessionId
-        const seedMessages = snapshot.agentStreamMessages[sessionId]
-          || (isSelected ? snapshot.messages : [])
-        const seedStream = snapshot.agentStreams[sessionId]
-        streamStore.hydrateFromMixed(sessionId, seedMessages, seedStream)
-      }
-      streamStore.applyBatch(sessionId, events)
-      const entry = useSessionStreamStore.getState().getEntry(sessionId)
-      if (!entry) return
-      const mixed = projectMixedMessages(entry.committed, entry.live)
-      const streaming = isAgentStreamActive(entry.stream)
-      const error = entry.stream.phase === 'error' ? (entry.stream.terminalReason || '') : ''
-      shouldFlushPending = !streaming
-      set(current => {
-        const isSelected = current.selectedId === sessionId
-        return {
-          agentStreams: { ...current.agentStreams, [sessionId]: entry.stream },
-          agentStreamMessages: { ...current.agentStreamMessages, [sessionId]: mixed },
-          sessions: chatCore.syncRuntimeStatus(current.sessions, sessionId, streaming),
-          ...(isSelected ? {
-            messages: mixed,
-            streaming,
-            chatError: error,
-          } : {}),
-        }
-      })
-    } else {
-      set(current => {
-        const isSelected = current.selectedId === sessionId
-        let currentStream = current.agentStreams[sessionId]
-        let messages = current.agentStreamMessages[sessionId] || (isSelected ? current.messages : [])
-        let lastApplied: ReturnType<typeof reduceAgentStreamEvent> | null = null
-
-        for (const event of events) {
-          const reduction = reduceAgentStreamEvent(messages, currentStream, event)
-          if (reduction.ignored) continue
-          messages = reduction.messages
-          currentStream = reduction.stream
-          lastApplied = reduction
-        }
-
-        if (!lastApplied) return current
-
-        const applied = lastApplied
-        shouldFlushPending = !applied.streaming
-        return {
-          agentStreams: { ...current.agentStreams, [sessionId]: applied.stream },
-          agentStreamMessages: { ...current.agentStreamMessages, [sessionId]: applied.messages },
-          sessions: chatCore.syncRuntimeStatus(current.sessions, sessionId, applied.streaming),
-          ...(isSelected ? {
-            messages: applied.messages,
-            streaming: applied.streaming,
-            chatError: applied.error,
-          } : {}),
-        }
-      })
+    const streamStore = useSessionStreamStore.getState()
+    // Seed from legacy buffer when this session has never been split-hydrated.
+    if (!streamStore.getEntry(sessionId)) {
+      const snapshot = get()
+      const isSelected = snapshot.selectedId === sessionId
+      const seedMessages = snapshot.agentStreamMessages[sessionId]
+        || (isSelected ? snapshot.messages : [])
+      const seedStream = snapshot.agentStreams[sessionId]
+      streamStore.hydrateFromMixed(sessionId, seedMessages, seedStream)
     }
+    streamStore.applyBatch(sessionId, events)
+    const entry = useSessionStreamStore.getState().getEntry(sessionId)
+    if (!entry) return
+    const mixed = projectMixedMessages(entry.committed, entry.live)
+    const streaming = isAgentStreamActive(entry.stream)
+    const error = entry.stream.phase === 'error' ? (entry.stream.terminalReason || '') : ''
+    shouldFlushPending = !streaming
+    set(current => {
+      const isSelected = current.selectedId === sessionId
+      return {
+        agentStreams: { ...current.agentStreams, [sessionId]: entry.stream },
+        agentStreamMessages: { ...current.agentStreamMessages, [sessionId]: mixed },
+        sessions: chatCore.syncRuntimeStatus(current.sessions, sessionId, streaming),
+        ...(isSelected ? {
+          messages: mixed,
+          streaming,
+          chatError: error,
+        } : {}),
+      }
+    })
 
     if (shouldFlushPending) {
       void get().flushPendingMessages(sessionId)
@@ -257,7 +221,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         [state.selectedId]: state.messages,
       }
       // Keep split entry committed/live in sync with the departing selection.
-      if (STREAM_SPLIT_SURFACE && state.selectedId) {
+      if (state.selectedId) {
         const departing = state.selectedId
         const streamStore = useSessionStreamStore.getState()
         const departingStream = state.agentStreams[departing]
@@ -269,7 +233,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     // Optimistic paint from buffer only — force poll below is the source of truth
     // for finished/background children whose cache may lag the process state.
     let bufferedMessages = id ? agentStreamMessages[id] : undefined
-    if (STREAM_SPLIT_SURFACE && id) {
+    if (id) {
       useSessionStreamStore.getState().pinFollowOnSelect(id)
       // Align split entry with dual-write buffer so setState fixtures and
       // background caches paint correctly before force poll settles.
@@ -316,11 +280,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
     // Optimistic UI: drop subtree immediately so delete never looks stuck while
     // stop/worktree/backend cascade runs (network-bound remote branch cleanup, etc.).
     sessionsEpoch++
-    if (STREAM_SPLIT_SURFACE) {
-      const streamStore = useSessionStreamStore.getState()
-      for (const sessionId of targetIds) {
-        streamStore.clearSession(sessionId)
-      }
+    const streamStore = useSessionStreamStore.getState()
+    for (const sessionId of targetIds) {
+      streamStore.clearSession(sessionId)
     }
     set(current => {
       const agentStreams = { ...current.agentStreams }
@@ -378,9 +340,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       if (!(id in current.agentStreams) && !(id in current.agentStreamMessages)) {
         return current
       }
-      if (STREAM_SPLIT_SURFACE) {
-        useSessionStreamStore.getState().clearSession(id)
-      }
+      useSessionStreamStore.getState().clearSession(id)
       const agentStreams = { ...current.agentStreams }
       const agentStreamMessages = { ...current.agentStreamMessages }
       delete agentStreams[id]
@@ -494,11 +454,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
           set(state => {
             if (state.selectedId !== id) return state
             let live = state.agentStreamMessages[id]
-            if (STREAM_SPLIT_SURFACE) {
-              const entry = useSessionStreamStore.getState().getEntry(id)
-              if (entry) {
-                live = projectMixedMessages(entry.committed, entry.live)
-              }
+            const entry = useSessionStreamStore.getState().getEntry(id)
+            if (entry) {
+              live = projectMixedMessages(entry.committed, entry.live)
             }
             if (!live) return state
             return {
@@ -531,57 +489,36 @@ export const useSessionStore = create<SessionState>((set, get) => {
         }
 
         if (messages) {
-          if (STREAM_SPLIT_SURFACE) {
-            const streamStore = useSessionStreamStore.getState()
-            const entry = streamStore.getEntry(id)
-            const active = isAgentStreamActive(converged || stream)
-            if (active) {
-              // Settled prefix reload only — keep live intact.
-              streamStore.replaceCommitted(id, messages)
-            } else {
-              streamStore.hydrateFromMixed(id, messages, converged || stream)
-            }
-            const after = useSessionStreamStore.getState().getEntry(id)
-            const projected = after
-              ? projectMixedMessages(after.committed, after.live)
-              : messages
-            next.agentStreamMessages = {
-              ...state.agentStreamMessages,
-              [id]: projected,
-            }
-            if (isSelected) {
-              next.messages = projected
-              if (polledStreaming !== undefined) next.streaming = polledStreaming
-              if (force) {
-                next.chatError = chatCore.localizeChatError(polledError)
-              } else if (patch && 'chatError' in patch) {
-                next.chatError = patch.chatError
-              }
-            } else {
-              delete next.messages
-              delete next.streaming
-              delete next.chatError
+          const streamStore = useSessionStreamStore.getState()
+          const active = isAgentStreamActive(converged || stream)
+          if (active) {
+            // Settled prefix reload only — keep live intact.
+            streamStore.replaceCommitted(id, messages)
+          } else {
+            streamStore.hydrateFromMixed(id, messages, converged || stream)
+          }
+          const after = useSessionStreamStore.getState().getEntry(id)
+          const projected = after
+            ? projectMixedMessages(after.committed, after.live)
+            : messages
+          next.agentStreamMessages = {
+            ...state.agentStreamMessages,
+            [id]: projected,
+          }
+          if (isSelected) {
+            next.messages = projected
+            if (polledStreaming !== undefined) next.streaming = polledStreaming
+            if (force) {
+              next.chatError = chatCore.localizeChatError(polledError)
+            } else if (patch && 'chatError' in patch) {
+              next.chatError = patch.chatError
             }
           } else {
-            next.agentStreamMessages = {
-              ...state.agentStreamMessages,
-              [id]: messages,
-            }
-            if (isSelected) {
-              next.messages = messages
-              if (polledStreaming !== undefined) next.streaming = polledStreaming
-              if (force) {
-                next.chatError = chatCore.localizeChatError(polledError)
-              } else if (patch && 'chatError' in patch) {
-                next.chatError = patch.chatError
-              }
-            } else {
-              // Drop selected-view fields that may have been included because the
-              // session was selected when the poll *started* but is no longer.
-              delete next.messages
-              delete next.streaming
-              delete next.chatError
-            }
+            // Drop selected-view fields that may have been included because the
+            // session was selected when the poll *started* but is no longer.
+            delete next.messages
+            delete next.streaming
+            delete next.chatError
           }
         } else if (!isSelected) {
           delete next.messages
@@ -616,14 +553,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const converged = data.streaming === false
       ? convergeAgentStreamOnLegacyEnd(stream)
       : undefined
-    if (STREAM_SPLIT_SURFACE) {
-      // Settled reload of full transcript; clear live when turn ended.
-      useSessionStreamStore.getState().hydrateFromMixed(
-        data.sessionId,
-        messages,
-        converged || stream,
-      )
-    }
+    // Settled reload of full transcript; clear live when turn ended.
+    useSessionStreamStore.getState().hydrateFromMixed(
+      data.sessionId,
+      messages,
+      converged || stream,
+    )
     const selectedPatch = patch && state.selectedId === data.sessionId
       ? { ...patch, messages }
       : patch
@@ -669,21 +604,19 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const converged = legacyEnded ? convergeAgentStreamOnLegacyEnd(stream) : undefined
 
     let projected = nextMessages
-    if (STREAM_SPLIT_SURFACE) {
-      const streamForEntry = converged || stream
-      const activeStream = isAgentStreamActive(streamForEntry)
-      useSessionStreamStore.getState().hydrateFromMixed(
-        data.sessionId,
-        nextMessages,
-        streamForEntry,
-      )
-      // Only re-project when agent stream owns an active live buffer. Legacy
-      // chat patches must keep exact message objects (timestamps / partial).
-      if (activeStream) {
-        const entry = useSessionStreamStore.getState().getEntry(data.sessionId)
-        if (entry) {
-          projected = projectMixedMessages(entry.committed, entry.live)
-        }
+    const streamForEntry = converged || stream
+    const activeStream = isAgentStreamActive(streamForEntry)
+    useSessionStreamStore.getState().hydrateFromMixed(
+      data.sessionId,
+      nextMessages,
+      streamForEntry,
+    )
+    // Only re-project when agent stream owns an active live buffer. Legacy
+    // chat patches must keep exact message objects (timestamps / partial).
+    if (activeStream) {
+      const entry = useSessionStreamStore.getState().getEntry(data.sessionId)
+      if (entry) {
+        projected = projectMixedMessages(entry.committed, entry.live)
       }
     }
 
@@ -729,16 +662,14 @@ export const useSessionStore = create<SessionState>((set, get) => {
     const current = state.agentStreams[sessionId]
     const nextStream = resolveAgentStreamPermission(current, requestId)
     if (nextStream === current) return
-    if (STREAM_SPLIT_SURFACE) {
-      const entry = useSessionStreamStore.getState().getEntry(sessionId)
-      if (entry) {
-        useSessionStreamStore.setState({
-          entries: {
-            ...useSessionStreamStore.getState().entries,
-            [sessionId]: { ...entry, stream: nextStream },
-          },
-        })
-      }
+    const entry = useSessionStreamStore.getState().getEntry(sessionId)
+    if (entry) {
+      useSessionStreamStore.setState({
+        entries: {
+          ...useSessionStreamStore.getState().entries,
+          [sessionId]: { ...entry, stream: nextStream },
+        },
+      })
     }
     set({
       agentStreams: { ...state.agentStreams, [sessionId]: nextStream },
@@ -749,16 +680,14 @@ export const useSessionStore = create<SessionState>((set, get) => {
   stopProcess: async (id) => {
     const before = get()
     const cancelling = requestAgentStreamCancellation(before.agentStreams[id])
-    if (STREAM_SPLIT_SURFACE) {
-      const entry = useSessionStreamStore.getState().getEntry(id)
-      if (entry) {
-        useSessionStreamStore.setState({
-          entries: {
-            ...useSessionStreamStore.getState().entries,
-            [id]: { ...entry, stream: cancelling },
-          },
-        })
-      }
+    const cancellingEntry = useSessionStreamStore.getState().getEntry(id)
+    if (cancellingEntry) {
+      useSessionStreamStore.setState({
+        entries: {
+          ...useSessionStreamStore.getState().entries,
+          [id]: { ...cancellingEntry, stream: cancelling },
+        },
+      })
     }
     set({
       agentStreams: { ...before.agentStreams, [id]: cancelling },
@@ -769,23 +698,21 @@ export const useSessionStore = create<SessionState>((set, get) => {
       const state = get()
       const current = state.agentStreams[id] || createAgentSessionStreamState()
       const cancelled = { ...current, phase: 'cancelled' as const, permission: undefined }
-      if (STREAM_SPLIT_SURFACE) {
-        const entry = useSessionStreamStore.getState().getEntry(id)
-        if (entry) {
-          // Cancel settles the turn: commit any remaining live buffer.
-          const settled = commitTurn(entry.committed, entry.live)
-          useSessionStreamStore.setState({
-            entries: {
-              ...useSessionStreamStore.getState().entries,
-              [id]: {
-                ...entry,
-                stream: cancelled,
-                committed: settled.committed,
-                live: null,
-              },
+      const entry = useSessionStreamStore.getState().getEntry(id)
+      if (entry) {
+        // Cancel settles the turn: commit any remaining live buffer.
+        const settled = commitTurn(entry.committed, entry.live)
+        useSessionStreamStore.setState({
+          entries: {
+            ...useSessionStreamStore.getState().entries,
+            [id]: {
+              ...entry,
+              stream: cancelled,
+              committed: settled.committed,
+              live: null,
             },
-          })
-        }
+          },
+        })
       }
       set({
         agentStreams: {
@@ -806,22 +733,20 @@ export const useSessionStore = create<SessionState>((set, get) => {
         terminalReason: message,
         permission: undefined,
       }
-      if (STREAM_SPLIT_SURFACE) {
-        const entry = useSessionStreamStore.getState().getEntry(id)
-        if (entry) {
-          const settled = commitTurn(entry.committed, entry.live, message)
-          useSessionStreamStore.setState({
-            entries: {
-              ...useSessionStreamStore.getState().entries,
-              [id]: {
-                ...entry,
-                stream: errored,
-                committed: settled.committed,
-                live: null,
-              },
+      const entry = useSessionStreamStore.getState().getEntry(id)
+      if (entry) {
+        const settled = commitTurn(entry.committed, entry.live, message)
+        useSessionStreamStore.setState({
+          entries: {
+            ...useSessionStreamStore.getState().entries,
+            [id]: {
+              ...entry,
+              stream: errored,
+              committed: settled.committed,
+              live: null,
             },
-          })
-        }
+          },
+        })
       }
       set({
         agentStreams: {
