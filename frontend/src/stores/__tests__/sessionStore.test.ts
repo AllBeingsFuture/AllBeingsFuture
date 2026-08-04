@@ -682,6 +682,138 @@ describe('sessionStore runtime status sync', () => {
     ])
   })
 
+  it('force-reloads child transcript from GetChatState on select (stale background cache)', async () => {
+    // Child finished while grandpa was selected; local buffer lagged behind process state.
+    serviceMocks.processService.GetChatState.mockResolvedValue({
+      messages: [
+        { role: 'user', content: 'task' },
+        { role: 'assistant', content: 'latest child output' },
+      ],
+      streaming: false,
+      error: '',
+    })
+
+    useSessionStore.setState({
+      selectedId: 'grandpa-1',
+      sessions: [
+        makeSession({ id: 'grandpa-1', status: 'idle', name: 'Grandpa' }),
+        { ...makeSession({ id: 'child-1', status: 'idle', name: 'Father' }), parentSessionId: 'grandpa-1' } as Session,
+      ],
+      messages: [{ role: 'assistant', content: 'grandpa live' } as never],
+      agentStreamMessages: {
+        'child-1': [{ role: 'assistant', content: 'stale child cache' } as never],
+      },
+      agentStreams: {
+        'child-1': { phase: 'done', lastSequence: 9 },
+      },
+    })
+
+    useSessionStore.getState().select('child-1')
+
+    // Optimistic paint uses the stale buffer first.
+    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual(['stale child cache'])
+
+    await vi.waitFor(() => {
+      expect(useSessionStore.getState().messages.map(m => m.content)).toEqual([
+        'task',
+        'latest child output',
+      ])
+    })
+    expect(useSessionStore.getState().agentStreamMessages['child-1']?.map(m => m.content)).toEqual([
+      'task',
+      'latest child output',
+    ])
+    expect(serviceMocks.processService.GetChatState).toHaveBeenCalledWith('child-1')
+  })
+
+  it('does not clobber newly selected transcript with a late poll for the previous session', async () => {
+    let resolveGrandpa: ((value: {
+      messages: Array<{ role: string; content: string }>
+      streaming: boolean
+      error: string
+    }) => void) | undefined
+    const grandpaPoll = new Promise<{
+      messages: Array<{ role: string; content: string }>
+      streaming: boolean
+      error: string
+    }>((resolve) => {
+      resolveGrandpa = resolve
+    })
+
+    serviceMocks.processService.GetChatState.mockImplementation((sessionId: string) => {
+      if (sessionId === 'grandpa-1') return grandpaPoll
+      return Promise.resolve({
+        messages: [{ role: 'assistant', content: 'child latest' }],
+        streaming: false,
+        error: '',
+      })
+    })
+
+    useSessionStore.setState({
+      selectedId: 'grandpa-1',
+      sessions: [
+        makeSession({ id: 'grandpa-1', status: 'idle', name: 'Grandpa' }),
+        { ...makeSession({ id: 'child-1', status: 'idle', name: 'Father' }), parentSessionId: 'grandpa-1' } as Session,
+      ],
+      messages: [{ role: 'assistant', content: 'grandpa' } as never],
+      streaming: false,
+      chatError: '',
+    })
+
+    const latePoll = useSessionStore.getState().pollChat('grandpa-1')
+    useSessionStore.getState().select('child-1')
+
+    await vi.waitFor(() => {
+      expect(useSessionStore.getState().messages.map(m => m.content)).toEqual(['child latest'])
+    })
+
+    resolveGrandpa?.({
+      messages: [{ role: 'assistant', content: 'grandpa LATE poll' }],
+      streaming: false,
+      error: '',
+    })
+    await latePoll
+
+    expect(useSessionStore.getState().selectedId).toBe('child-1')
+    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual(['child latest'])
+    expect(useSessionStore.getState().agentStreamMessages['grandpa-1']?.map(m => m.content)).toEqual([
+      'grandpa LATE poll',
+    ])
+  })
+
+  it('force-select into an actively streaming child keeps the live stream buffer', async () => {
+    serviceMocks.processService.GetChatState.mockResolvedValue({
+      messages: [{ role: 'assistant', content: 'mid-turn GetChatState lag' }],
+      streaming: true,
+      error: '',
+    })
+
+    const liveChild = [
+      { role: 'user', content: 'go' } as never,
+      { role: 'assistant', content: 'streaming live…', partial: true } as never,
+    ]
+    useSessionStore.setState({
+      selectedId: 'grandpa-1',
+      sessions: [
+        makeSession({ id: 'grandpa-1', status: 'idle', name: 'Grandpa' }),
+        { ...makeSession({ id: 'child-1', status: 'running', name: 'Father' }), parentSessionId: 'grandpa-1' } as Session,
+      ],
+      messages: [{ role: 'assistant', content: 'grandpa' } as never],
+      agentStreamMessages: { 'child-1': liveChild },
+      agentStreams: {
+        'child-1': { phase: 'running', lastSequence: 4, lastEventAt: Date.now() },
+      },
+    })
+
+    useSessionStore.getState().select('child-1')
+    await vi.waitFor(() => {
+      expect(serviceMocks.processService.GetChatState).toHaveBeenCalledWith('child-1')
+    })
+    // Prefer live agent:stream buffer over a concurrent mid-turn snapshot.
+    expect(useSessionStore.getState().messages.map(m => m.content)).toEqual(['go', 'streaming live…'])
+    expect(useSessionStore.getState().streaming).toBe(true)
+  })
+
   it('flushes session-scoped pending composer messages after the parent turn becomes idle', async () => {
     serviceMocks.processService.SendMessage.mockResolvedValue(undefined)
     useDraftStore.getState().enqueuePending('parent-1', { text: 'queued while streaming' })
