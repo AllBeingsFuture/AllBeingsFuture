@@ -525,10 +525,10 @@ export class ProcessService {
 
     if (enabledSkills.length > 0) {
       sections.push([
-        '## 本地技能',
-        '应用已经从 skills/ 目录加载了一批本地技能。',
-        '当用户输入以 / 开头的命令时，宿主会在发送前自动展开匹配的技能提示词。',
-        '当前启用的技能包括：',
+        '## Local skills',
+        'The app has loaded local skills from the skills/ directory.',
+        'When the user types a command starting with /, the host expands the matching skill prompt before send.',
+        'Currently enabled skills:',
         ...enabledSkills.map(skill => `- /${skill.slashCommand || skill.name}: ${skill.description || skill.name}`),
       ].join('\n'))
     }
@@ -537,10 +537,10 @@ export class ProcessService {
       const supportsNativeMcp = ProviderCapabilityRegistry.supportsNativeMcp(providerId)
         || this.isAcpAdapter(adapterType)
       sections.push([
-        '## MCP 服务',
+        '## MCP services',
         supportsNativeMcp
-          ? '当前会话已经注入以下已启用的 MCP 服务，适合时请直接调用，不要假设未列出的 MCP 可用。'
-          : '应用里安装了以下 MCP 服务，但当前 Provider 不支持原生 MCP 调用，这里仅作为背景信息，不要把它们当成可直接调用的工具。',
+          ? 'This session has the following enabled MCP services injected. Call them when useful; do not assume unlisted MCPs are available.'
+          : 'The app has these MCP services installed, but the current Provider does not support native MCP calls. Treat this as background only — do not treat them as directly callable tools.',
         ...enabledMcps.map(server => `- ${server.serverIdentifier}: ${server.description || server.name}`),
       ].join('\n'))
     }

@@ -169,7 +169,7 @@ test('git service deletes remote isolation branches on worktree cleanup', () => 
 test('close_agent tool text requires close after accept; handlers expose UI CloseChildSession', () => {
   const mcp = read('electron/embedded-assets/mcps/agent-control/server.mjs')
   assert.match(mcp, /REQUIRED after you accept\/merge/)
-  assert.match(mcp, /idle\/待命 is NOT finished/)
+  assert.match(mcp, /idle\/standby is NOT finished/)
   const handlers = read('electron/ipc/handlers.ts')
   assert.match(handlers, /ProcessService\.CloseChildSession/)
   assert.match(handlers, /closeChildSession/)

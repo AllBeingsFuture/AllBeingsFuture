@@ -8,14 +8,14 @@ import { v4 as uuidv4 } from 'uuid'
 import type { Database } from './database.js'
 
 const ROLE_TEMPLATES = [
-  { id: 'architect', name: '架构师', category: 'engineering', description: '负责系统架构设计和技术决策' },
-  { id: 'developer', name: '开发者', category: 'engineering', description: '负责代码实现和功能开发' },
-  { id: 'reviewer', name: '审查员', category: 'engineering', description: '负责代码审查和质量把控' },
-  { id: 'tester', name: '测试员', category: 'qa', description: '负责测试用例设计和执行' },
-  { id: 'pm', name: '项目经理', category: 'management', description: '负责项目计划和进度管理' },
-  { id: 'designer', name: '设计师', category: 'design', description: '负责界面设计和用户体验' },
-  { id: 'researcher', name: '研究员', category: 'research', description: '负责技术调研和方案评估' },
-  { id: 'writer', name: '文档作者', category: 'documentation', description: '负责技术文档和用户手册' },
+  { id: 'architect', name: 'Architect', category: 'engineering', description: 'Responsible for system architecture design and technical decisions' },
+  { id: 'developer', name: 'Developer', category: 'engineering', description: 'Responsible for code implementation and feature development' },
+  { id: 'reviewer', name: 'Reviewer', category: 'engineering', description: 'Responsible for code review and quality control' },
+  { id: 'tester', name: 'Tester', category: 'qa', description: 'Responsible for test case design and execution' },
+  { id: 'pm', name: 'Project Manager', category: 'management', description: 'Responsible for project planning and progress management' },
+  { id: 'designer', name: 'Designer', category: 'design', description: 'Responsible for UI design and user experience' },
+  { id: 'researcher', name: 'Researcher', category: 'research', description: 'Responsible for technical research and solution evaluation' },
+  { id: 'writer', name: 'Technical Writer', category: 'documentation', description: 'Responsible for technical documentation and user manuals' },
 ]
 
 export class MissionService {

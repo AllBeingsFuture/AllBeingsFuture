@@ -500,11 +500,11 @@ export class AgentLifecycleManager {
       parentState.messages.push({
         role: 'system',
         content: [
-          `[子Agent "${child.name}" 已关闭]`,
+          `[Child agent "${child.name}" closed]`,
           '',
-          `最终输出: ${result.slice(0, 2000)}`,
+          `Final output: ${result.slice(0, 2000)}`,
           '',
-          '注意: close 已删除子 worktree；若关闭前未将变更 merge/cherry-pick 进父 workDir，未合入改动可能已丢失。',
+          'Note: close has removed the child worktree; if you did not merge/cherry-pick into the parent workDir before close, unmerged changes may be lost.',
         ].join('\n'),
         timestamp: new Date().toISOString(),
       })
@@ -562,11 +562,11 @@ export class AgentLifecycleManager {
     parentState.messages.push({
       role: 'system',
       content: [
-        `[子Agent "${child.name}" 完成]`,
+        `[Child agent "${child.name}" completed]`,
         '',
         result.slice(0, 2000),
         '',
-        `提示: 请将子 workDir${childWorkDir ? ` (${childWorkDir})` : ''} 的变更 merge/cherry-pick 到父 workDir 后再 close_agent（close 会删除子 worktree）。`,
+        `Hint: merge/cherry-pick changes from the child workDir${childWorkDir ? ` (${childWorkDir})` : ''} into the parent workDir before close_agent (close deletes the child worktree).`,
       ].join('\n'),
       timestamp: new Date().toISOString(),
     })

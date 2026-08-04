@@ -210,11 +210,11 @@ test('sendMessage dual-insurance marks persistent child running when turn starts
 test('injectChildResult includes name and workDir merge hint; close cleans worktree', () => {
   const lifecyclePath = path.join(electronRoot, 'services/agent-lifecycle.ts')
   const lifecycle = readFileSync(lifecyclePath, 'utf8')
-  assert.match(lifecycle, /子Agent/)
+  assert.match(lifecycle, /Child agent/)
   assert.match(lifecycle, /workDir/)
   assert.match(lifecycle, /merge\/cherry-pick|close_agent/)
   assert.match(lifecycle, /cleanupChildWorktree/)
-  assert.match(lifecycle, /已关闭/)
+  assert.match(lifecycle, /closed/)
 })
 
 test('closeChildSession removes tracker entry, cleans child worktree, emits removed for UI', () => {
