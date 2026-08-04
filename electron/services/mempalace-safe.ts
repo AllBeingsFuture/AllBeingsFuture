@@ -107,11 +107,13 @@ export function wrapMempalaceConfigIfNeeded(
     if (process.env[keyName] !== undefined && String(process.env[keyName]).trim() !== '') return
     env[keyName] = value
   }
-  // Concurrent multi-agent writers: queue budgets so writers succeed (not busy-skip)
-  withTimeoutDefaults('ABF_MEMPALACE_LOCK_MAX_MS', '90000')
-  withTimeoutDefaults('ABF_MEMPALACE_TOOL_MAX_MS', '120000')
-  withTimeoutDefaults('ABF_MEMPALACE_TOOL_RETRIES', '8')
-  withTimeoutDefaults('ABF_MEMPALACE_CHILD_TIMEOUT_MS', '25000')
+  // Concurrent multi-agent writers: queue budgets so writers succeed (not busy-skip).
+  // Budgets cover embed/chroma latency + multi-agent serialization (not agent 15–20s skip window).
+  withTimeoutDefaults('ABF_MEMPALACE_LOCK_MAX_MS', '180000')
+  withTimeoutDefaults('ABF_MEMPALACE_TOOL_MAX_MS', '180000')
+  withTimeoutDefaults('ABF_MEMPALACE_TOOL_RETRIES', '12')
+  withTimeoutDefaults('ABF_MEMPALACE_CHILD_TIMEOUT_MS', '90000')
+  withTimeoutDefaults('ABF_MEMPALACE_LOCK_MAX_HOLD_MS', '180000')
 
   return {
     ...config,
