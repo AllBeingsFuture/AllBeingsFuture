@@ -80,6 +80,13 @@ export function useConversationScroll({
   /** Last non-programmatic vertical intent: up = reading history, down = toward live tail. */
   const lastUserScrollIntentRef = useRef<'up' | 'down' | null>(null)
   const lastUserScrollDeltaRef = useRef(0)
+  /**
+   * While detached, the user must have been *truly* far from the bottom at least
+   * once before we allow near-bottom re-attach. Virtual list under-estimates make
+   * mid-history look "near bottom"; trackpad micro-down then falsely re-sticks
+   * and the user cannot stay scrolled up ("有时往上滑会滑不上去").
+   */
+  const wasFarFromBottomWhileDetachedRef = useRef(false)
 
   /**
    * Mark a scrollTop write as programmatic. Prefer passing the target scrollTop so
@@ -158,6 +165,8 @@ export function useConversationScroll({
     userDetachedRef.current = true
     lastUserScrollIntentRef.current = 'up'
     forceScrollUntilRef.current = 0
+    // Do not clear wasFarFromBottom here — first detach may still be "near" a
+    // false bottom; the flag is set only after a real far distance is observed.
     cancelPendingAutoScroll()
     lastUserScrollDeltaRef.current = -Math.abs(overscanMagnitudePx || lastUserScrollDeltaRef.current || HISTORY_OVERSCAN_BOOST_PX)
     commitScrollMetrics(historyOverscanBoost(Math.abs(overscanMagnitudePx) || HISTORY_OVERSCAN_BOOST_PX))
@@ -232,6 +241,7 @@ export function useConversationScroll({
     lastUserScrollIntentRef.current = 'down'
     userInputActiveRef.current = false
     isNearBottomRef.current = true
+    wasFarFromBottomWhileDetachedRef.current = false
     // Short force window so early streaming ResizeObserver growth still sticks.
     forceScrollUntilRef.current = Date.now() + FORCE_SCROLL_WINDOW_MS
     scrollToBottom(true)
@@ -304,16 +314,29 @@ export function useConversationScroll({
       }
     }
 
-    // Re-attach only when the user intentionally scrolls back into the live tail.
+    // Record a real "far from bottom" sample while detached (not the false
+    // near-bottom created by a short virtual spacer during streaming).
+    if (
+      !isProgrammatic
+      && userDetachedRef.current
+      && distanceFromBottom > NEAR_BOTTOM_THRESHOLD_PX
+    ) {
+      wasFarFromBottomWhileDetachedRef.current = true
+    }
+
+    // Re-attach only when the user intentionally scrolls back into the live tail
+    // after having been truly far — never from a false-bottom micro-down.
     if (
       !isProgrammatic
       && scrolledDown
       && distanceFromBottom <= USER_REATTACH_THRESHOLD_PX
       && lastUserScrollIntentRef.current === 'down'
+      && wasFarFromBottomWhileDetachedRef.current
     ) {
       userDetachedRef.current = false
       userInputActiveRef.current = false
       lastUserScrollIntentRef.current = 'down'
+      wasFarFromBottomWhileDetachedRef.current = false
     }
 
     isNearBottomRef.current = nextIsNearBottom
@@ -377,6 +400,7 @@ export function useConversationScroll({
     userInputActiveRef.current = false
     lastUserScrollIntentRef.current = null
     lastUserScrollDeltaRef.current = 0
+    wasFarFromBottomWhileDetachedRef.current = false
   }, [sessionId])
 
   useLayoutEffect(() => {

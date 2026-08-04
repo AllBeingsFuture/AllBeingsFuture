@@ -304,7 +304,7 @@ describe('useConversationScroll', () => {
     expect(el.scrollTop).toBe(1600)
   })
 
-  it('re-attaches when the user scrolls back near the bottom', () => {
+  it('re-attaches when the user scrolls back near the bottom after being far', () => {
     const { el, metrics } = createScrollContainer({ scrollHeight: 1000, clientHeight: 280 })
 
     const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
@@ -322,6 +322,7 @@ describe('useConversationScroll', () => {
     act(() => {
       vi.advanceTimersByTime(3100)
       result.current.handleWheel({ deltaY: -40 } as WheelEvent)
+      // Truly far from bottom (distance ≫ 150) so re-attach is allowed later.
       el.scrollTop = 100
       result.current.handleScroll()
     })
@@ -340,6 +341,58 @@ describe('useConversationScroll', () => {
     flushAnimationFrames()
 
     expect(el.scrollTop).toBe(1020)
+  })
+
+  it('does not re-attach from a false near-bottom after short upward nudge (virtual under-estimate)', () => {
+    // Historical "有时往上滑会滑不上去": under-estimated totalHeight keeps
+    // distanceFromBottom tiny; trackpad micro-down used to re-stick and yank back.
+    const { el, metrics } = createScrollContainer({
+      scrollHeight: 500,
+      clientHeight: 400,
+      scrollTop: 90,
+    })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 6, streaming: true },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 6, streaming: true })
+    flushAnimationFrames()
+
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      result.current.handleWheel({ deltaY: -40 } as WheelEvent)
+      // Still inside the 150px near-bottom band (false bottom).
+      el.scrollTop = 40
+      result.current.handleScroll()
+    })
+
+    // Micro-down while still never having been "far" must not re-attach.
+    act(() => {
+      result.current.handleWheel({ deltaY: 20 } as WheelEvent)
+      el.scrollTop = 70
+      result.current.handleScroll()
+    })
+
+    const pinned = el.scrollTop
+    metrics.scrollHeight = 900
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+    act(() => {
+      rerender({ sessionId: 's1', length: 8, streaming: true })
+    })
+    flushAnimationFrames()
+
+    // Stayed detached: growth must not yank to new bottom (900 - 400 = 500).
+    expect(el.scrollTop).toBe(pinned)
+    expect(result.current.shouldSuppressPositiveScrollCompensation()).toBe(true)
   })
 
   it('stays detached after wheel-up even when streaming growth keeps distanceFromBottom small', () => {

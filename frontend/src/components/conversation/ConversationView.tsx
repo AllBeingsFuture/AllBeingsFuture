@@ -203,11 +203,44 @@ function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup
   return groups
 }
 
-function getGroupKey(sessionId: string, group: MessageGroup): string {
+/**
+ * Stable virtual-list key for a message group.
+ *
+ * DO NOT key only by `group.index`: during a live turn tools insert mid-list and
+ * later groups shift their start index → remount, lost measured height, blank
+ * gaps, and "can't scroll up" thrash. Prefer stream/tool ids; fall back to
+ * role+timestamp; index is last resort.
+ */
+export function getGroupKey(sessionId: string, group: MessageGroup): string {
   if (group.type === 'child_agent') {
-    return `${sessionId}-${group.type}-${group.childSessionId || 'unknown'}-${group.index}`
+    return `${sessionId}-child-${group.childSessionId || 'unknown'}`
   }
-  return `${sessionId}-${group.type}-${group.index}`
+
+  const first = group.messages[0] as ChatMessage & {
+    id?: string
+    streamItemId?: string
+    sourceItemId?: string
+    toolUseId?: string
+    toolCallId?: string
+    timestamp?: string
+  } | undefined
+  const stableId = first
+    ? (
+      first.id
+      || first.streamItemId
+      || first.sourceItemId
+      || first.toolUseId
+      || first.toolCallId
+      || (first.timestamp ? `${first.role || 'msg'}-${first.timestamp}` : '')
+    )
+    : ''
+
+  if (stableId) {
+    return `${sessionId}-${group.type}-${stableId}`
+  }
+  // Legacy rows with no ids: index is unstable under inserts but better than
+  // content-length keys (those change every token and remount the live tail).
+  return `${sessionId}-${group.type}-i${group.index}`
 }
 
 /** Collapsed ThinkingBlock is a single compact row (~32–48px); expand raises height via measure. */
