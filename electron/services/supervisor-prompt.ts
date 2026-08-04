@@ -109,17 +109,17 @@ export function buildWorkerRulesContent(): string {
  */
 export const WORKER_TASK_MEMPALACE_HINT = [
   '## Memory (if mempalace MCP is available)',
-  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. Host safe-proxy **queues** concurrent palace writes — a single tools/call may wait up to ~2 minutes; do **not** abandon a still-running call. On **peer lock / write lock busy / 未写入 / timeout returned by the tool**: retry at most 1–2 times; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
+  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. Host safe-proxy **queues** concurrent palace writes — a single tools/call may wait up to ~2 minutes; do **not** abandon a still-running call. On **peer lock / write lock busy / `未写入` (not written) / timeout returned by the tool**: retry at most 1–2 times; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
 ].join('\n')
 
 /**
- * Extremely short Memory instruction for nested-child (儿子) appendSystemPrompt.
+ * Extremely short Memory instruction for nested-child (son) appendSystemPrompt.
  * Full abf-worker.md is intentionally NOT injected for sons.
  * Same obligation strength as father/grandpa when mempalace is present.
  */
 export const NESTED_CHILD_MEMPALACE_MEMORY_PROMPT = [
   '## Memory (mempalace)',
-  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. Host safe-proxy queues concurrent writes (one tools/call may wait up to ~2 minutes — do not abandon mid-call). On **peer lock / write lock busy / 未写入 / timeout returned by the tool**: retry at most 1–2 times; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
+  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. Host safe-proxy queues concurrent writes (one tools/call may wait up to ~2 minutes — do not abandon mid-call). On **peer lock / write lock busy / `未写入` (not written) / timeout returned by the tool**: retry at most 1–2 times; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
 ].join('\n')
 
 /** True when enabled user MCP configs look like mempalace (by key/command/args). */
