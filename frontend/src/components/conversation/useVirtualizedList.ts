@@ -49,12 +49,6 @@ export interface BuildVirtualLayoutOptions<T> {
   overscanPx: number
   scrollTop: number
   viewportHeight: number
-  /**
-   * When true for an item, layout height may grow with the estimate even if a
-   * smaller measured size is cached (streaming partial tails). Never shrinks
-   * below the last measured height.
-   */
-  shouldPreferGrowingEstimate?: (item: T, index: number) => boolean
 }
 
 export interface VirtualizedListOptions<T> extends Omit<BuildVirtualLayoutOptions<T>, 'measuredSizes'> {
@@ -147,16 +141,8 @@ function getItemFingerprint(item: unknown, index: number, estimatedSize: number)
 }
 
 /**
- * Max px a streaming estimate may lead a real ResizeObserver measurement.
- * Uncapped max(measured, estimate) locked totalHeight to overestimated formulas
- * and left multi-kpx blank gaps under the last assistant bubble while stick-to-bottom.
- * A modest lead still lets the spacer advance one frame ahead of RO during token growth.
- */
-const GROWING_ESTIMATE_MAX_LEAD_PX = 360
-
-/**
  * Prefer the last measured size for a key even when content fingerprint changes.
- * Streaming tokens rewrite fingerprints constantly; discarding measurements caused
+ * Content rewrites fingerprints constantly; discarding measurements caused
  * estimate↔measured thrash and visible scroll jumps. ResizeObserver still pushes
  * the true height when the DOM size actually changes.
  *
@@ -164,37 +150,22 @@ const GROWING_ESTIMATE_MAX_LEAD_PX = 360
  * max(estimate, measured) permanently locked collapsed thinking rows (real ~40px)
  * to content-length estimates of hundreds/thousands of px, inflating totalHeight
  * and leaving huge empty gaps in the virtual list.
- *
- * Streaming partial tails may still grow with the estimate, but only up to
- * measured + GROWING_ESTIMATE_MAX_LEAD_PX so overestimates cannot pin a blank gap.
  */
-function resolveGrowingSize(measured: number, estimate: number): number {
-  if (estimate <= measured) return measured
-  return Math.min(estimate, measured + GROWING_ESTIMATE_MAX_LEAD_PX)
-}
-
 function resolveMeasuredSize<T>(
   entry: MeasuredSizeCacheValue | undefined,
   item: T,
   index: number,
   estimatedSize: number,
-  preferGrowingEstimate = false,
 ): { fingerprint: string; size: number } {
   const fingerprint = getItemFingerprint(item, index, estimatedSize)
   const safeEstimate = Math.max(1, estimatedSize)
 
   if (typeof entry === 'number') {
     const measured = entry > 0 ? entry : safeEstimate
-    // Streaming tails: let the estimate pull the spacer forward before RO catches up,
-    // but never open a permanent overestimate blank gap under the live bubble.
-    if (preferGrowingEstimate) return { fingerprint, size: resolveGrowingSize(measured, safeEstimate) }
     return { fingerprint, size: measured }
   }
 
   if (entry && typeof entry.size === 'number' && entry.size > 0) {
-    if (preferGrowingEstimate) {
-      return { fingerprint, size: resolveGrowingSize(entry.size, safeEstimate) }
-    }
     return { fingerprint, size: entry.size }
   }
 
@@ -224,7 +195,6 @@ export function buildVirtualLayout<T>({
   overscanPx,
   scrollTop,
   viewportHeight,
-  shouldPreferGrowingEstimate,
 }: BuildVirtualLayoutOptions<T>): VirtualizedLayout<T> {
   const fingerprints = new Map<string, string>()
   const startsMap = new Map<string, number>()
@@ -237,13 +207,11 @@ export function buildVirtualLayout<T>({
     const key = getItemKey(item, index)
     keys[index] = key
     const estimatedSize = estimateSize(item, index)
-    const preferGrowing = Boolean(shouldPreferGrowingEstimate?.(item, index))
     const resolved = resolveMeasuredSize(
       measuredSizes?.get(key),
       item,
       index,
       estimatedSize,
-      preferGrowing,
     )
     fingerprints.set(key, resolved.fingerprint)
     resolvedSizes[index] = resolved.size
@@ -300,7 +268,6 @@ export function useVirtualizedList<T>({
   getScrollElement,
   markProgrammaticScroll,
   shouldSuppressPositiveScrollCompensation,
-  shouldPreferGrowingEstimate,
 }: VirtualizedListOptions<T>): VirtualizedListResult<T> {
   const measuredSizesRef = useRef(new Map<string, MeasuredSizeCacheValue>())
   const observersRef = useRef(new Map<string, ResizeObserver>())
@@ -311,8 +278,7 @@ export function useVirtualizedList<T>({
   const getScrollElementRef = useRef(getScrollElement)
   const markProgrammaticScrollRef = useRef(markProgrammaticScroll)
   const shouldSuppressPositiveScrollCompensationRef = useRef(shouldSuppressPositiveScrollCompensation)
-  const shouldPreferGrowingEstimateRef = useRef(shouldPreferGrowingEstimate)
-  /** Coalesce ResizeObserver height samples per key to one commit per frame (streaming). */
+  /** Coalesce ResizeObserver height samples per key to one commit per frame. */
   const pendingResizeHeightsRef = useRef(new Map<string, number>())
   const resizeFlushFrameRef = useRef<number | null>(null)
   const [sizeVersion, setSizeVersion] = useState(0)
@@ -320,7 +286,6 @@ export function useVirtualizedList<T>({
   getScrollElementRef.current = getScrollElement
   markProgrammaticScrollRef.current = markProgrammaticScroll
   shouldSuppressPositiveScrollCompensationRef.current = shouldSuppressPositiveScrollCompensation
-  shouldPreferGrowingEstimateRef.current = shouldPreferGrowingEstimate
 
   useEffect(() => {
     return () => {
@@ -381,7 +346,6 @@ export function useVirtualizedList<T>({
       overscanPx,
       scrollTop,
       viewportHeight,
-      shouldPreferGrowingEstimate,
     })
 
     // Parent already decided virtualization is worth it. Always keep the spacer
@@ -404,7 +368,6 @@ export function useVirtualizedList<T>({
     items,
     overscanPx,
     scrollTop,
-    shouldPreferGrowingEstimate,
     sizeVersion,
     viewportHeight,
   ])
@@ -438,7 +401,7 @@ export function useVirtualizedList<T>({
     }
 
     // Content fingerprint changed but DOM height did not: update cache quietly.
-    // Bumping sizeVersion here was a major source of scroll thrash during streaming.
+    // Bumping sizeVersion here was a major source of scroll thrash on content churn.
     if (cachedSize === normalized) {
       measuredSizesRef.current.set(key, {
         fingerprint,

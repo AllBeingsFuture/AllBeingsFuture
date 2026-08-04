@@ -5,13 +5,6 @@ interface UseConversationScrollOptions {
   messagesLength: number
   streaming: boolean
   bottomOffset: number
-  /**
-   * Bumps when the live tail content changes without changing messagesLength
-   * (token deltas / upsert_last). While stick-to-bottom is active, this must
-   * re-pin so virtual-list spacer growth does not leave the latest text below
-   * the fold waiting on ResizeObserver alone.
-   */
-  liveTailRevision?: number | string
 }
 
 interface ScrollMetrics {
@@ -55,7 +48,6 @@ export function useConversationScroll({
   messagesLength,
   streaming,
   bottomOffset,
-  liveTailRevision = 0,
 }: UseConversationScrollOptions) {
   const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>({
     scrollTop: 0,
@@ -233,9 +225,8 @@ export function useConversationScroll({
       return
     }
 
-    // Sync pin every time height may have changed (liveTailRevision / RO).
-    // Follow-up rAF is coalesced inside queueFollowUpAutoScroll so dual observers
-    // + layout effect do not stack multiple post-paint frames per token.
+    // Sync pin, then coalesced multi-frame follow-up so RO / layout settle
+    // height commits do not leave the viewport one frame short of bottom.
     applyScrollToBottom()
     queueFollowUpAutoScroll()
   }, [applyScrollToBottom, cancelPendingAutoScroll, queueFollowUpAutoScroll])
@@ -352,8 +343,8 @@ export function useConversationScroll({
 
     // Content growth inflates distanceFromBottom while scrollTop is still at the
     // previous bottom. Demoting isNearBottom from growth alone self-invalidates
-    // stick-to-bottom before RO / liveTailRevision can re-pin. Only demote on
-    // real user upward movement or clear mid-history geometry after user scroll.
+    // stick-to-bottom before RO can re-pin. Only demote on real user upward
+    // movement or clear mid-history geometry after user scroll.
     const contentGrew = el.scrollHeight > lastContentHeightRef.current
     if (
       contentGrew
@@ -474,12 +465,9 @@ export function useConversationScroll({
     scrollToBottom(true)
   }, [bottomOffset, scrollToBottom, shouldStickToBottom, syncScrollMetrics])
 
-  // useLayoutEffect so stick happens before paint when token deltas grow the
-  // virtual spacer — avoids one-frame "latest text below fold" flashes.
-  // While shouldStickToBottom(), re-pin on liveTailRevision even after stream
-  // settle (plain→Markdown / tool collapse / virtualizer remeasure). The hard
-  // gate already blocks mid-history and user scroll-up — streaming-only was
-  // redundant and left settle height jumps clipped below the fold.
+  // Re-pin only when the message list grows or streaming settles (true→false).
+  // Content-only churn while length is stable is handled by ResizeObserver via
+  // preserveScrollAnchorOnContentResize — no layout-effect re-pin on every token.
   useLayoutEffect(() => {
     const previousCount = prevMsgCountRef.current
     prevMsgCountRef.current = messagesLength
@@ -493,17 +481,11 @@ export function useConversationScroll({
       return
     }
 
-    // Streaming true→false: force multi-frame follow-up so settle height commits pin.
+    // Streaming true→false: multi-frame follow-up so settle height commits pin.
     if (wasStreaming && !streaming && messagesLength > 0) {
       scrollToBottom(true)
-      return
     }
-
-    // liveTailRevision / content growth while attached (streaming or settled).
-    if (messagesLength > 0) {
-      scrollToBottom(true)
-    }
-  }, [liveTailRevision, messagesLength, scrollToBottom, shouldStickToBottom, streaming])
+  }, [messagesLength, scrollToBottom, shouldStickToBottom, streaming])
 
   return {
     bottomRef,

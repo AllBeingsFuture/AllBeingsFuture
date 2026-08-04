@@ -239,33 +239,6 @@ describe('buildVirtualLayout', () => {
     expect(layout.totalHeight).toBeLessThan(80 + 3200)
   })
 
-  it('caps growing-estimate lead so partial overestimates cannot pin a blank gap', () => {
-    // While streaming, preferGrowing lets estimate lead RO — but not by multi-kpx.
-    const rows = [
-      { id: 'tail', size: 2800, partial: true },
-      { id: 'done', size: 50, partial: false },
-    ]
-    const measured = new Map([
-      ['tail', { size: 400, fingerprint: 'mid-stream' }],
-    ])
-    const layout = buildVirtualLayout({
-      items: rows,
-      getItemKey: (item) => item.id,
-      estimateSize: (item) => item.size,
-      measuredSizes: measured,
-      overscanPx: 0,
-      scrollTop: 0,
-      viewportHeight: 500,
-      shouldPreferGrowingEstimate: (item) => item.partial,
-    })
-
-    const tailSize = layout.sizes.get('tail') ?? 0
-    // Leads measured, but only by the growing-lead cap (360), not the full 2800 estimate.
-    expect(tailSize).toBeGreaterThan(400)
-    expect(tailSize).toBeLessThanOrEqual(400 + 360)
-    expect(layout.totalHeight).toBe(tailSize + 50)
-  })
-
   it('binary-searches the visible window on long lists and returns full sizes', () => {
     const longItems = Array.from({ length: 500 }, (_, index) => ({
       id: `row-${index}`,
@@ -379,8 +352,9 @@ describe('useVirtualizedList', () => {
     expect(result.current.totalHeight).toBe(320)
   })
 
-  it('grows layout height with estimate for streaming partial items before RO catches up', () => {
-    type Row = { id: string; size: number; partial?: boolean; content: string }
+  it('keeps sticky measured size when estimate grows without remeasure', () => {
+    // Default estimate/measure: measured wins over a larger estimate (no growing-estimate path).
+    type Row = { id: string; size: number; content: string }
     const { result, rerender } = renderHook(({ items }) => useVirtualizedList({
       items,
       enabled: true,
@@ -389,11 +363,10 @@ describe('useVirtualizedList', () => {
       overscanPx: 0,
       scrollTop: 0,
       viewportHeight: 200,
-      shouldPreferGrowingEstimate: (item) => Boolean(item.partial),
     }), {
       initialProps: {
         items: [
-          { id: 'a', size: 80, partial: true, content: 'hi' },
+          { id: 'a', size: 80, content: 'hi' },
           { id: 'b', size: 50, content: 'done' },
         ] as Row[],
       },
@@ -405,86 +378,31 @@ describe('useVirtualizedList', () => {
     })
     expect(result.current.totalHeight).toBe(130)
 
-    // Content estimate grows while measured cache still holds 80 — spacer follows max (within lead).
+    // Estimate grows; layout height stays on last measured until RO updates.
     rerender({
       items: [
-        { id: 'a', size: 160, partial: true, content: 'hi there longer' },
-        { id: 'b', size: 50, content: 'done' },
-      ],
-    })
-    expect(result.current.totalHeight).toBe(210)
-
-    // Completed (non-partial) keeps sticky measured size even if estimate is larger.
-    rerender({
-      items: [
-        { id: 'a', size: 300, partial: false, content: 'finalized long body' },
+        { id: 'a', size: 160, content: 'hi there longer' },
         { id: 'b', size: 50, content: 'done' },
       ],
     })
     expect(result.current.totalHeight).toBe(130)
-  })
 
-  it('partial growth then settle does not leave a permanent overestimate gap', () => {
-    type Row = { id: string; size: number; partial?: boolean; content: string }
-    const { result, rerender } = renderHook(({ items }) => useVirtualizedList({
-      items,
-      enabled: true,
-      getItemKey: (item) => item.id,
-      estimateSize: (item) => item.size,
-      overscanPx: 0,
-      scrollTop: 0,
-      viewportHeight: 400,
-      shouldPreferGrowingEstimate: (item) => Boolean(item.partial),
-    }), {
-      initialProps: {
-        items: [
-          { id: 'assistant', size: 200, partial: true, content: 'start' },
-        ] as Row[],
-      },
-    })
-
-    const node = createFakeNode(200)
-    act(() => {
-      result.current.measureElement('assistant')(node)
-    })
-    expect(result.current.totalHeight).toBe(200)
-
-    // Mid-stream: estimate jumps far ahead of last RO sample (formula overshoot).
+    // Large overestimate still does not inflate totalHeight past measured.
     rerender({
       items: [
-        { id: 'assistant', size: 2400, partial: true, content: 'x'.repeat(4000) },
+        { id: 'a', size: 300, content: 'finalized long body' },
+        { id: 'b', size: 50, content: 'done' },
       ],
     })
-    // Lead-capped: must not pin totalHeight to the full 2400 overestimate.
-    expect(result.current.totalHeight).toBeLessThanOrEqual(200 + 360)
-    expect(result.current.totalHeight).toBeGreaterThan(200)
+    expect(result.current.totalHeight).toBe(130)
 
-    // RO catches real growth during stream. While still partial, estimate may lead
-    // measured by at most the growing-lead cap (not the full overestimate).
+    // RO reports real growth → totalHeight follows measured.
     act(() => {
-      node.__height = 520
+      node.__height = 200
       resizeObserverInstances[0]?.trigger(node as unknown as Element)
     })
     flushAnimationFrames()
-    expect(result.current.totalHeight).toBeLessThanOrEqual(520 + 360)
-    expect(result.current.totalHeight).toBeGreaterThanOrEqual(520)
-    expect(result.current.totalHeight).toBeLessThan(2400)
-
-    // Settled with a large completed estimate — measured must win (no permanent blank gap).
-    rerender({
-      items: [
-        { id: 'assistant', size: 3800, partial: false, content: 'x'.repeat(4000) },
-      ],
-    })
-    expect(result.current.totalHeight).toBe(520)
-
-    // Collapse / reflow after settle still shrinks totalHeight via RO.
-    act(() => {
-      node.__height = 480
-      resizeObserverInstances[0]?.trigger(node as unknown as Element)
-    })
-    flushAnimationFrames()
-    expect(result.current.totalHeight).toBe(480)
+    expect(result.current.totalHeight).toBe(250)
   })
 
   it('coalesces multiple ResizeObserver samples into one commit per animation frame', () => {

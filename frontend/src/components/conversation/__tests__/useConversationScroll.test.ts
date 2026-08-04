@@ -125,7 +125,6 @@ type ScrollHookTestProps = {
   sessionId: string
   length: number
   streaming: boolean
-  liveTailRevision?: number | string
 }
 
 /** Attach container and re-bind observers via a session change after the ref is set. */
@@ -523,55 +522,20 @@ describe('useConversationScroll', () => {
     expect(el.scrollTop).toBe(520)
   })
 
-  it('re-pins to bottom when liveTailRevision changes without messagesLength growth', () => {
-    // Streaming text_delta keeps length stable; without revision stick, the latest
-    // tokens can grow below the fold until ResizeObserver catches up.
+  it('does not re-pin on length-stable re-render after the user detaches', () => {
+    // Content churn with stable messagesLength must not yank detached history.
     const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
 
-    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
-      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
-        sessionId,
-        messagesLength: length,
-        streaming,
-        bottomOffset: 96,
-        liveTailRevision,
-      }),
-      {
-        initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
-      },
-    )
-
-    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' })
-    flushAnimationFrames()
-    expect(el.scrollTop).toBe(360)
-
-    metrics.scrollHeight = 900
-    act(() => {
-      // Content revision only — messagesLength stays 2.
-      rerender({ sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:240' })
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 2, streaming: true },
     })
-    flushAnimationFrames()
 
-    expect(el.scrollTop).toBe(620)
-  })
-
-  it('does not re-pin on liveTailRevision after the user detaches', () => {
-    const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
-
-    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
-      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
-        sessionId,
-        messagesLength: length,
-        streaming,
-        bottomOffset: 96,
-        liveTailRevision,
-      }),
-      {
-        initialProps: { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' },
-      },
-    )
-
-    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:10' })
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true })
     flushAnimationFrames()
 
     act(() => {
@@ -584,7 +548,7 @@ describe('useConversationScroll', () => {
 
     metrics.scrollHeight = 1000
     act(() => {
-      rerender({ sessionId: 's1', length: 2, streaming: true, liveTailRevision: '2:a:400' })
+      rerender({ sessionId: 's1', length: 2, streaming: true })
     })
     flushAnimationFrames()
     expect(el.scrollTop).toBe(80)
@@ -627,7 +591,7 @@ describe('useConversationScroll', () => {
     flushAnimationFrames()
     expect(el.scrollTop).toBe(400)
 
-    // liveTailRevision-style length-stable re-render must not re-pin when settled.
+    // Length-stable re-render must not re-pin when settled and detached.
     act(() => {
       rerender({ sessionId: 's1', length: 12, streaming: false })
     })
@@ -670,41 +634,31 @@ describe('useConversationScroll', () => {
   })
 
   it('attached + settled: after streaming flips false, content height growth still sticks to bottom', () => {
-    // Stream settle used to stop re-pinning on liveTailRevision / RO because of the
-    // streaming-only gate and isNearBottom self-invalidation on content growth.
+    // Stream settle multi-frame re-pin + RO preserveScrollAnchor keep attached viewport on tail.
     const { el, metrics } = createScrollContainer({ scrollHeight: 800, clientHeight: 300 })
 
-    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
-      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
-        sessionId,
-        messagesLength: length,
-        streaming,
-        bottomOffset: 96,
-        liveTailRevision,
-      }),
-      {
-        initialProps: { sessionId: 's1', length: 3, streaming: true, liveTailRevision: '3:a:100' },
-      },
-    )
-
-    attachContainer(result, el, rerender, {
-      sessionId: 's1',
-      length: 3,
-      streaming: true,
-      liveTailRevision: '3:a:100',
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 3, streaming: true },
     })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 3, streaming: true })
     flushAnimationFrames()
     expect(el.scrollTop).toBe(500)
 
     // Turn settles; user remains attached near bottom.
     act(() => {
       vi.advanceTimersByTime(3100)
-      rerender({ sessionId: 's1', length: 3, streaming: false, liveTailRevision: '3:100:0' })
+      rerender({ sessionId: 's1', length: 3, streaming: false })
     })
     flushAnimationFrames()
     expect(el.scrollTop).toBe(500)
 
-    // Post-settle height growth (markdown mount / virtualizer remeasure).
+    // Post-settle height growth (markdown mount / virtualizer remeasure) via RO.
     metrics.scrollHeight = 1200
     act(() => {
       resizeObserverInstances.forEach((observer) => observer.trigger())
@@ -712,10 +666,10 @@ describe('useConversationScroll', () => {
     flushAnimationFrames()
     expect(el.scrollTop).toBe(900)
 
-    // liveTailRevision churn after settle (partial flip / content length) also re-pins.
+    // Further RO growth after settle continues to stick while attached.
     metrics.scrollHeight = 1400
     act(() => {
-      rerender({ sessionId: 's1', length: 3, streaming: false, liveTailRevision: '3:400:0' })
+      resizeObserverInstances.forEach((observer) => observer.trigger())
     })
     flushAnimationFrames()
     expect(el.scrollTop).toBe(1100)
@@ -723,32 +677,23 @@ describe('useConversationScroll', () => {
 
   it('long message settle height growth still sticks while attached near bottom', () => {
     // Near-bottom attached viewport: after settle, scrollHeight jumps (long message
-    // plain→Markdown) without messagesLength growth — must re-pin to new bottom.
+    // plain→Markdown) without messagesLength growth — RO re-pins to new bottom.
     const { el, metrics } = createScrollContainer({
       scrollHeight: 2000,
       clientHeight: 400,
       scrollTop: 1900,
     })
 
-    const { result, rerender } = renderHook<ReturnType<typeof useConversationScroll>, ScrollHookTestProps>(
-      ({ sessionId, length, streaming, liveTailRevision }) => useConversationScroll({
-        sessionId,
-        messagesLength: length,
-        streaming,
-        bottomOffset: 96,
-        liveTailRevision,
-      }),
-      {
-        initialProps: { sessionId: 's1', length: 5, streaming: true, liveTailRevision: '5:200' },
-      },
-    )
-
-    attachContainer(result, el, rerender, {
-      sessionId: 's1',
-      length: 5,
-      streaming: true,
-      liveTailRevision: '5:200',
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 5, streaming: true },
     })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 5, streaming: true })
     flushAnimationFrames()
     // Initial pin forces bottom (2000 - 400 = 1600).
     expect(el.scrollTop).toBe(1600)
@@ -758,7 +703,7 @@ describe('useConversationScroll', () => {
       // Still near bottom after force window.
       el.scrollTop = 1600
       result.current.handleScroll()
-      rerender({ sessionId: 's1', length: 5, streaming: false, liveTailRevision: '5:200:0' })
+      rerender({ sessionId: 's1', length: 5, streaming: false })
     })
     flushAnimationFrames()
 
@@ -775,13 +720,47 @@ describe('useConversationScroll', () => {
 
     expect(el.scrollTop).toBe(2800)
 
-    // Further liveTailRevision after settle continues to stick.
+    // Further RO growth after settle continues to stick while attached.
     metrics.scrollHeight = 3500
     act(() => {
-      rerender({ sessionId: 's1', length: 5, streaming: false, liveTailRevision: '5:900:0' })
+      resizeObserverInstances.forEach((observer) => observer.trigger())
     })
     flushAnimationFrames()
     expect(el.scrollTop).toBe(3100)
+  })
+
+  it('messagesLength growth re-pins while attached; length-stable re-render does not', () => {
+    const { el, metrics } = createScrollContainer({ scrollHeight: 640, clientHeight: 280 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 2, streaming: true },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 2, streaming: true })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(360)
+
+    // Length-stable re-render alone must not re-pin (RO owns content growth).
+    metrics.scrollHeight = 900
+    act(() => {
+      rerender({ sessionId: 's1', length: 2, streaming: true })
+    })
+    flushAnimationFrames()
+    // Without RO trigger, layout effect should not force scrollTop to new bottom.
+    expect(el.scrollTop).toBe(360)
+
+    // messagesLength growth while attached does re-pin.
+    metrics.scrollHeight = 1000
+    act(() => {
+      rerender({ sessionId: 's1', length: 4, streaming: true })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(720)
   })
 
   it('stickToBottomNow re-attaches after detach and follows later content growth', () => {
