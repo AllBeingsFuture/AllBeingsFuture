@@ -12,7 +12,7 @@
 |------|------|--------|
 | ✅ 已做 | 终态 finalize 清除 `tool_use.isDelta`、收敛 open `toolStatus` | `74df920` |
 | ✅ 已做 | **结构性**：取消 silence fail-open 抢内容权；活跃 turn 只认 `agent:stream` | `8f362cc` |
-| ✅ 已做 | **滚动**：假贴底禁止误 re-attach；虚拟列表 group key 稳定化 | `589ceae` |
+| ✅ 已做 | **滚动**：假贴底禁止误 re-attach；虚拟列表 group key 稳定化 | `2fc2d70` |
 | ✅ 已做 | 回归测试：双通道 silence、finalize、假贴底 re-attach、getGroupKey | 同上 |
 | ❌ 未做 | 后端停双发 `chat:update`（仍双 emit，前端已忽略 mid-turn） | — |
 | ❌ 未做 | Conversation 模块整体重写 / 换前端栈 | 不建议，见 §D |
@@ -34,7 +34,7 @@
 | **Stick-to-bottom** | `3179eab` · `2cbbb6c` · `0fc9351` · `90f73e1` · `2129b4d` · `4df2b6c` | 上滑 detach、rAF batch、发送再贴底、token 增高 re-pin | **贴底 vs 上滑** 反复对打 | 假贴底 re-attach、key 漂移未锁 |
 | **虚拟列表空白** | `f0f040d` thinking · `bb87272` growing estimate lead · `7d39dd0` bottom-align | 估高/估低 spacer | 估高空白 vs 估低假贴底 | 估低 → 误 re-attach 再贴底 |
 | **工具组 UI** | `23755c8` · `a1dae9d` · `bd98d02` | 默认折叠 vs 流式展开 | 产品语义反复 | 与 live 标记纠缠 |
-| **本会话收敛** | `74df920` · `8f362cc` · `589ceae` | 终态 live 标记 + **内容所有权** + **假贴底/key** | 统一方向 | 后端双发仍在，需靠前端纪律 |
+| **本会话收敛** | `74df920` · `8f362cc` · `2fc2d70` | 终态 live 标记 + **内容所有权** + **假贴底/key** | 统一方向 | 后端双发仍在，需靠前端纪律 |
 
 ### A.2 「修 A 坏 B」模式（用户失去耐心的原因）
 
@@ -173,6 +173,6 @@ cd frontend && npm test -- --run
 
 1. `74df920` — `fix(chat): clear live tool markers on stream terminal events`  
 2. `8f362cc` — `fix(chat): stop silence fail-open from stealing stream content`  
-3. `589ceae` — `fix(chat): block false-bottom reattach and stabilize virtual keys`  
+3. `2fc2d70` — `fix(chat): block false-bottom reattach and stabilize virtual keys`  
 
 （未 push / 未开 PR。）
