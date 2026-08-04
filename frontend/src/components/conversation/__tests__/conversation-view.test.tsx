@@ -34,6 +34,8 @@ const storeState = {
   handleChatPatch: vi.fn(),
   handleAgentUpdate: vi.fn(),
   stopProcess: vi.fn(),
+  respondToPermission: vi.fn().mockResolvedValue(undefined),
+  agentStreams: {} as Record<string, unknown>,
   childToParent: {} as Record<string, unknown>,
 }
 
@@ -378,50 +380,58 @@ describe('ConversationView session boot', () => {
     deferredValueState.value = [
       { role: 'assistant', content: 'deferred snapshot' } as ChatMessage,
     ]
+    // partial: open assistant is live (LiveStage) under split surface.
     storeState.messages = [
-      { role: 'assistant', content: 'live streaming output' } as ChatMessage,
+      { role: 'assistant', content: 'live streaming output', partial: true } as ChatMessage,
     ]
     storeState.streaming = true
 
     renderWithProviders(<ConversationView session={makeSession('running')} />)
 
     await waitFor(() => {
-      expect(screen.getByText('live streaming output')).toBeInTheDocument()
+      // Split surface: open assistant text is in LiveStage, not deferred transcript.
+      expect(screen.getByTestId('live-stage-assistant-text')).toHaveTextContent('live streaming output')
     })
     expect(screen.queryByText('deferred snapshot')).not.toBeInTheDocument()
   })
 
-  it('keeps rendering the live snapshot briefly after streaming settles to avoid flashback flicker', async () => {
-    vi.useFakeTimers()
-    try {
-      deferredValueState.enabled = true
-      deferredValueState.value = [
-        { role: 'assistant', content: 'stale deferred snapshot' } as ChatMessage,
-      ]
-      storeState.messages = [
-        { role: 'assistant', content: 'latest live output' } as ChatMessage,
-      ]
-      storeState.streaming = true
+  it('split surface uses committed messages directly (no LIVE_RENDER_HOLD deferred flashback path)', async () => {
+    // STREAM_SPLIT_SURFACE: transcript groups from committed only; preferLiveMessages /
+    // LIVE_RENDER_HOLD_MS are not used. Deferred lag must not replace committed content.
+    deferredValueState.enabled = true
+    deferredValueState.value = [
+      { role: 'assistant', content: 'stale deferred snapshot' } as ChatMessage,
+    ]
+    storeState.messages = [
+      { role: 'user', content: 'prompt' } as ChatMessage,
+      { role: 'assistant', content: 'latest live output' } as ChatMessage,
+    ]
+    storeState.streaming = false
 
-      const view = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const view = renderWithProviders(<ConversationView session={makeSession('idle')} />)
 
-      expect(screen.getByText('latest live output')).toBeInTheDocument()
-      expect(screen.queryByText('stale deferred snapshot')).not.toBeInTheDocument()
+    expect(screen.getByText('latest live output')).toBeInTheDocument()
+    expect(screen.queryByText('stale deferred snapshot')).not.toBeInTheDocument()
 
-      storeState.streaming = false
-      view.rerender(<ConversationView session={makeSession('idle')} />)
+    view.rerender(<ConversationView session={makeSession('idle')} />)
 
-      expect(screen.getByText('latest live output')).toBeInTheDocument()
-      expect(screen.queryByText('stale deferred snapshot')).not.toBeInTheDocument()
+    expect(screen.getByText('latest live output')).toBeInTheDocument()
+    expect(screen.queryByText('stale deferred snapshot')).not.toBeInTheDocument()
+  })
 
-      act(() => {
-        vi.advanceTimersByTime(701)
-      })
+  it('places LiveStage outside the transcript scroll container when split surface is on', async () => {
+    const { container } = renderWithProviders(<ConversationView session={makeSession('running')} />)
+    const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
 
-      expect(screen.getByText('stale deferred snapshot')).toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
+    await waitFor(() => {
+      expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
+    })
+
+    // LiveStage mounts only when live/stream has content; with empty live it is null.
+    // Structure contract: composer is a sibling under the section, not inside scroll.
+    const composerShell = container.querySelector('[data-message-input-shell]')
+    expect(composerShell).toBeInTheDocument()
+    expect(scrollContainer.contains(composerShell)).toBe(false)
   })
 
   it('does not steal scroll position after the user scrolls away from the latest activity', async () => {
