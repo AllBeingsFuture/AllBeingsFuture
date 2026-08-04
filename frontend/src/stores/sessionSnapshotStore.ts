@@ -40,7 +40,12 @@ interface SessionState extends ChatSnapshot {
   end: (id: string) => Promise<void>
   initProcess: (id: string) => Promise<void>
   sendMessage: (id: string, text: string, images?: Array<{data: string, mimeType: string}>) => Promise<void>
-  pollChat: (id: string) => Promise<void>
+  /**
+   * Reload transcript from backend for `id`.
+   * Pass `{ force: true }` on session switch so UI does not trust a stale
+   * agentStreamMessages cache (child agents often finish while unselected).
+   */
+  pollChat: (id: string, options?: { force?: boolean }) => Promise<void>
   handleChatUpdate: (data: ChatUpdateEvent) => void
   handleChatPatch: (data: ChatPatchEvent) => void
   handleAgentUpdate: (data: AgentUpdateEvent) => void
@@ -209,6 +214,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
     }
 
     const stream = id ? state.agentStreams[id] : undefined
+    // Optimistic paint from buffer only — force poll below is the source of truth
+    // for finished/background children whose cache may lag the process state.
     const bufferedMessages = id ? agentStreamMessages[id] : undefined
     set({
       ...patch,
@@ -216,7 +223,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
       ...(bufferedMessages ? { messages: bufferedMessages } : {}),
       streaming: isAgentStreamActive(stream),
     })
-    if (id) void get().pollChat(id)
+    // Force reload: do not trust stale agentStreamMessages for father/son sessions
+    // that streamed while unselected. Grandpa stays correct via the same path.
+    if (id) void get().pollChat(id, { force: true })
   },
 
   rename: async (id, name) => {
@@ -359,41 +368,116 @@ export const useSessionStore = create<SessionState>((set, get) => {
     }
   },
 
-  pollChat: async (id) => {
+  pollChat: async (id, options) => {
     try {
+      const force = options?.force === true
+      // Flush pending stream deltas first so a force-select does not race a
+      // half-applied agent:stream batch against GetChatState.
+      if (force) flushAgentStreamBatches(id)
+
       // Always poll so a lost agent:stream `done` can still be discovered via
       // legacy streaming:false. Content apply is gated below.
-      const patch = await chatCore.poll(snapshotOf(get()), id)
-      if (!patch) {
-        void get().flushPendingMessages(id)
-        return
+      // Force path bypasses sameMessages short-circuit: session switch must
+      // re-hydrate agentStreamMessages even when the optimistic buffer matches
+      // an already-stale selected snapshot.
+      let polledMessages: ChatMessage[] | undefined
+      let polledStreaming: boolean | undefined
+      let polledError = ''
+      let patch: Partial<ChatSnapshot> | null = null
+
+      if (force) {
+        const chatState = await chatCore.pollRaw(id)
+        if (!chatState) {
+          void get().flushPendingMessages(id)
+          return
+        }
+        polledMessages = chatState.messages ?? []
+        polledStreaming = chatState.streaming
+        polledError = chatState.error || ''
+      } else {
+        patch = await chatCore.poll(snapshotOf(get()), id)
+        if (!patch) {
+          void get().flushPendingMessages(id)
+          return
+        }
+        polledMessages = patch.messages
+        polledStreaming = patch.streaming
+        polledError = typeof patch.chatError === 'string' ? patch.chatError : ''
       }
 
       const streamBefore = get().agentStreams[id]
       // Active stream owns the live transcript. Ignore mid-turn snapshots even
       // after long silence — only terminal (streaming:false) may reconcile.
-      if (shouldPreferAgentStream(streamBefore) && patch.streaming !== false) {
+      // Force-select still respects an *active* mid-turn stream (live buffer is
+      // newer than a concurrent GetChatState mid-turn snapshot).
+      if (shouldPreferAgentStream(streamBefore) && polledStreaming !== false) {
+        // Still paint selected view from the live buffer after a switch.
+        if (force) {
+          set(state => {
+            if (state.selectedId !== id) return state
+            const live = state.agentStreamMessages[id]
+            if (!live) return state
+            return {
+              messages: live,
+              streaming: true,
+              chatError: '',
+            }
+          })
+        }
         return
       }
 
       set(state => {
         const stream = state.agentStreams[id]
-        const converged = patch.streaming === false
+        const converged = polledStreaming === false
           ? convergeAgentStreamOnLegacyEnd(stream)
           : undefined
-        // Terminal reconcile may land while phase is still active (before
-        // converge). Do not re-stamp partials onto a finished snapshot.
-        const messages = patch.messages
-        return {
-          ...patch,
-          ...(messages ? { messages } : {}),
+        // Prefer explicit polled messages (force) or patch messages (normal).
+        const messages = polledMessages
+        const isSelected = state.selectedId === id
+        // Non-force path may only carry session meta (messages undefined) when
+        // the polled session was not selected at poll start — still allow
+        // sessions/status updates from patch, but never clobber the *currently*
+        // selected transcript with another session's mid-flight poll.
+        const next: Partial<SessionState> = {
+          ...(patch || {}),
           ...(converged
             ? { agentStreams: { ...state.agentStreams, [id]: converged } }
             : {}),
-          ...(messages
-            ? { agentStreamMessages: { ...state.agentStreamMessages, [id]: messages } }
-            : {}),
         }
+
+        if (messages) {
+          next.agentStreamMessages = {
+            ...state.agentStreamMessages,
+            [id]: messages,
+          }
+          if (isSelected) {
+            next.messages = messages
+            if (polledStreaming !== undefined) next.streaming = polledStreaming
+            if (force) {
+              next.chatError = chatCore.localizeChatError(polledError)
+            } else if (patch && 'chatError' in patch) {
+              next.chatError = patch.chatError
+            }
+          } else {
+            // Drop selected-view fields that may have been included because the
+            // session was selected when the poll *started* but is no longer.
+            delete next.messages
+            delete next.streaming
+            delete next.chatError
+          }
+        } else if (!isSelected) {
+          delete next.messages
+          delete next.streaming
+          delete next.chatError
+        }
+
+        // Force path always refreshes session runtime status from polled streaming.
+        if (force && polledStreaming !== undefined) {
+          next.sessions = chatCore.syncRuntimeStatus(state.sessions, id, polledStreaming)
+        }
+
+        return next
       })
       // flushPendingMessages itself re-checks selected streaming / agent stream activity.
       void get().flushPendingMessages(id)

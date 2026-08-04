@@ -3,7 +3,8 @@
  *
  * 顶层 Supervisor：只注入 abf-supervisor.md（文件 + 可选 append）
  * 直接子 Agent Worker：appendSystemPrompt + 隔离 worktree 上的 worker 文件
- * 孙 Agent：默认不注入软件提示词文件
+ * 孙 Agent：默认不注入软件提示词文件；隔离 worktree 上需剥离继承的 ABF 块
+ *   （git worktree checkout 会带上已提交的 AGENTS.md / abf-*.md）
  *
  * 不再注入 common / providers / git / codex 手册。
  *
@@ -12,6 +13,9 @@
  * - 多数 CLI: AGENTS.md 注入块（body 为 supervisor 或 worker 角色）
  * - Gemini/Qwen: 额外 GEMINI.md / QWEN.md
  * - openai-api: appendSystemPrompt
+ *
+ * cleanupSupervisorPrompt / stripInheritedSoftwarePromptFiles：删除 abf-*.md 并剥离
+ * AGENTS.md 等文件中的 ABF 注入块。会话销毁清理与 nested-child 隔离 worktree 共用。
  */
 
 import * as path from 'node:path'
@@ -105,7 +109,7 @@ export function buildWorkerRulesContent(): string {
  */
 export const WORKER_TASK_MEMPALACE_HINT = [
   '## Memory (if mempalace MCP is available)',
-  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. On **peer lock / write lock busy / 未写入 / timeout**: retry at most 1–2 times within ~15–20s total; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
+  'Before finishing: for **important conclusions / decisions / facts worth reusing**, call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing=project, default `allbeingsfuture`; room=short topic; content=concrete durable points). Skip if MCP unavailable. Host safe-proxy **queues** concurrent palace writes — a single tools/call may wait up to ~2 minutes; do **not** abandon a still-running call. On **peer lock / write lock busy / 未写入 / timeout returned by the tool**: retry at most 1–2 times; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
 ].join('\n')
 
 /**
@@ -115,7 +119,7 @@ export const WORKER_TASK_MEMPALACE_HINT = [
  */
 export const NESTED_CHILD_MEMPALACE_MEMORY_PROMPT = [
   '## Memory (mempalace)',
-  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. On **peer lock / write lock busy / 未写入 / timeout**: retry at most 1–2 times within ~15–20s total; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
+  'If mempalace MCP is available: for **important conclusions / decisions / facts**, you **must** call `mempalace_checkpoint` with items `[{ wing, room, content }]` (wing default `allbeingsfuture`). **Before finishing**, checkpoint at least once when anything durable exists. Host safe-proxy queues concurrent writes (one tools/call may wait up to ~2 minutes — do not abandon mid-call). On **peer lock / write lock busy / 未写入 / timeout returned by the tool**: retry at most 1–2 times; if still failing, skip and report skipped (busy/timeout). Never claim a write succeeded if the tool did not return success. Do not loop until the user interrupts.',
 ].join('\n')
 
 /** True when enabled user MCP configs look like mempalace (by key/command/args). */
@@ -168,11 +172,6 @@ export function buildAgentsMdRulesContent(
     appLog('warn', '[Supervisor] Failed to load abf-supervisor.md', 'supervisor-prompt')
     return ''
   }
-}
-
-/** @deprecated 与 buildAllRulesContent 相同，不再附带 codex 手册 */
-export function buildCodexRulesContent(availableProviders: string[] = []): string {
-  return buildAllRulesContent(availableProviders, true)
 }
 
 function stripInjectedAgentsRules(content: string): string {
@@ -315,23 +314,6 @@ export function resolveContextFilesForProvider(providerId: string, extraFiles: s
   return Array.from(new Set([AGENTS_MD_FILE, ...extras, ...extraFiles]))
 }
 
-export function injectAgentsMd(
-  workDir: string,
-  availableProviders: string[] = [],
-  options: AgentsMdInjectOptions = {},
-): void {
-  const body = buildAgentsMdRulesContent(availableProviders, options)
-  const files = resolveContextFilesForProvider('', options.extraFiles || [])
-  for (const filename of files) {
-    injectRulesIntoFile(path.join(workDir, filename), body)
-  }
-  appLog(
-    'info',
-    `[Supervisor] Injected rules into: ${files.map(f => path.join(workDir, f)).join(', ')}`,
-    'supervisor-prompt',
-  )
-}
-
 export function injectProviderRules(
   workDir: string,
   providerId: string,
@@ -385,11 +367,14 @@ export function hasWorkerPromptFiles(workDir: string, providerId: string = ''): 
   }
 }
 
-/** @deprecated 使用 injectProviderRules */
-export function injectCodexAgentsMd(workDir: string, availableProviders: string[] = []): void {
-  injectProviderRules(workDir, 'codex', availableProviders)
-}
-
+/**
+ * Remove ABF software-prompt files/blocks under workDir:
+ * - delete .claude/rules/abf-*.md (active + legacy)
+ * - strip <!-- ABF:CODEX-RULES --> blocks from AGENTS.md / GEMINI.md / QWEN.md
+ *
+ * Used for session teardown cleanup, and to clear inherited Supervisor/Worker
+ * rules checked out into a nested-child (儿子) isolated git worktree.
+ */
 export function cleanupSupervisorPrompt(workDir: string): void {
   const rulesDir = path.join(workDir, '.claude', 'rules')
   for (const filename of ABF_RULES_FILES) {
@@ -411,3 +396,6 @@ export function cleanupSupervisorPrompt(workDir: string): void {
 
   appLog('info', `[Supervisor] Cleaned up rule files from: ${workDir}`, 'supervisor-prompt')
 }
+
+/** Alias: strip inherited ABF software prompts from nested-child isolated worktrees. */
+export const stripInheritedSoftwarePromptFiles = cleanupSupervisorPrompt

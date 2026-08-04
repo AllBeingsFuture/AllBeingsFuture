@@ -601,6 +601,24 @@ export const chatCore = {
     return buildChatStatePatch(snapshot, id, state.messages ?? [], state.streaming, state.error || '')
   },
 
+  /**
+   * Raw GetChatState without sameMessages short-circuit. Used on session switch
+   * so a stale optimistic buffer cannot suppress re-hydration.
+   */
+  async pollRaw(id: string): Promise<{
+    messages: ChatMessage[]
+    streaming: boolean
+    error: string
+  } | null> {
+    const state = await ProcessService.GetChatState(id)
+    if (!state) return null
+    return {
+      messages: state.messages ?? [],
+      streaming: Boolean(state.streaming),
+      error: state.error || '',
+    }
+  },
+
   applyChatUpdate(snapshot: ChatSnapshot, data: ChatUpdateEvent) {
     return buildChatStatePatch(snapshot, data.sessionId, data.messages ?? [], data.streaming, data.error || '')
   },

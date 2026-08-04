@@ -105,20 +105,6 @@ export class MessageScheduler {
   }
 
   /**
-   * Get the number of pending messages.
-   */
-  pendingCount(): number {
-    return this.queue.length
-  }
-
-  /**
-   * Get a snapshot of all pending messages (for inspection/display).
-   */
-  getPending(): Array<{ id: string; text: string; queuedAt: string }> {
-    return this.queue.map(m => ({ id: m.id, text: m.text, queuedAt: m.queuedAt }))
-  }
-
-  /**
    * Discard all pending messages.
    */
   clear(): number {

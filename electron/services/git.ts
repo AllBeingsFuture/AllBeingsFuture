@@ -443,24 +443,4 @@ export class GitService {
     }
   }
 
-  // Legacy methods
-  async merge(workDir: string, branch: string): Promise<any> {
-    const result = await this.git(['merge', branch, '--no-ff'], workDir)
-    return { success: true, output: result }
-  }
-
-  async deleteBranch(workDir: string, branch: string): Promise<void> {
-    await this.git(['branch', '-d', branch], workDir)
-  }
-
-  async getWorktreeDiff(worktreePath: string): Promise<any> {
-    const diff = await this.git(['diff', '--stat', 'HEAD'], worktreePath).catch(() => '')
-    return { diff }
-  }
-
-  async getRemoteStatus(workDir: string): Promise<any> {
-    await this.git(['fetch', '--quiet'], workDir).catch(() => {})
-    const ahead = await this.git(['rev-list', '--count', 'HEAD...@{upstream}'], workDir).catch(() => '0')
-    return { ahead: parseInt(ahead, 10) || 0 }
-  }
 }

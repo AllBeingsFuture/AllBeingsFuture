@@ -10,4 +10,4 @@ Internal runtime server used by the process layer for child-agent control. It is
 
 ## `mempalace-safe/`
 
-Internal stdio proxy used when an enabled user MCP looks like mempalace. Cross-process exclusive write queue (file lock) + in-process write chain; reads unguarded; wait/retry until tool budget (defaults: lock 90s, tool 120s, child 25s) so concurrent multi-agent writers succeed. Auto-wired by `MCPService.getEnabledServerConfigs()` — not a user-facing catalog entry.
+Internal stdio proxy used when an enabled user MCP looks like mempalace. Each agent session still spawns its own proxy+backend (ACP stdio cannot share one connection). Serialization is cross-process via shared `~/.mempalace/locks/abf_write.lock` (heartbeat + max-hold reclaim) + in-process write chain; reads unguarded; wait/retry until tool budget (defaults: lock/tool 180s, child 90s) so concurrent multi-agent writers succeed; child kill+respawn on write timeout to release OS flocks. Host always materializes budgets + lock path into MCP `config.env` (agent CLI spawn does not inherit Electron env reliably). Auto-wired by `MCPService.getEnabledServerConfigs()` — not a user-facing catalog entry.

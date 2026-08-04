@@ -35,6 +35,7 @@ import {
   injectProviderRules,
   injectWorkerPromptFiles,
   cleanupSupervisorPrompt,
+  stripInheritedSoftwarePromptFiles,
   buildAllRulesContent,
   buildWorkerRulesContent,
   hasSupervisorPromptFiles,
@@ -42,6 +43,7 @@ import {
   enabledMcpsIncludeMempalace,
   NESTED_CHILD_MEMPALACE_MEMORY_PROMPT,
 } from './supervisor-prompt.js'
+import { isMempalaceSafeWrapped, isMempalaceServer } from './mempalace-safe.js'
 import { OutputParser } from '../parser/OutputParser.js'
 import { StateInference } from '../parser/StateInference.js'
 import type { NotificationManager } from './notification-manager.js'
@@ -677,6 +679,21 @@ export class ProcessService {
       if (Object.keys(mcpServers).length > 0) {
         config.mcpServers = mcpServers
       }
+      // Diagnostic: each session spawns its own MCP stdio process; mempalace
+      // concurrent writes rely on safe-proxy wrap + shared abf_write.lock.
+      if (mempalaceEnabled) {
+        for (const [mcpKey, mcpCfg] of Object.entries(mcpServers)) {
+          if (!isMempalaceServer(mcpKey, mcpCfg.command, mcpCfg.args || [])) continue
+          const wrapped = isMempalaceSafeWrapped(mcpCfg.command, mcpCfg.args || [])
+          appLog(
+            wrapped ? 'info' : 'warn',
+            wrapped
+              ? `Session ${sessionId}: mempalace MCP "${mcpKey}" behind safe proxy (per-session process; shared write lock)`
+              : `Session ${sessionId}: mempalace MCP "${mcpKey}" NOT behind safe proxy — multi-agent peer lock / 未写入 likely`,
+            'process',
+          )
+        }
+      }
       if (sessionRole === 'nested-child') {
         appLog(
           'info',
@@ -800,6 +817,31 @@ export class ProcessService {
         appLog('warn', `Failed to inject worker prompt files for child: ${errMsg}`, 'process')
       }
     } else if (isChild) {
+      // Son: strip inherited ABF software prompts from isolated worktree only.
+      // git worktree add checks out committed AGENTS.md (Supervisor/Worker blocks);
+      // inject skips nested-child, so we must strip here. Never strip when sharing
+      // parent cwd — that would wipe the father's live AGENTS.md.
+      try {
+        const workDir = String(config.workDir || '')
+        const parentWorkDir = parentSession
+          ? (parentSession.worktreePath || parentSession.workingDirectory || '')
+          : ''
+        const sameCwd = workDir
+          && parentWorkDir
+          && path.resolve(workDir) === path.resolve(parentWorkDir)
+        if (workDir && !sameCwd) {
+          stripInheritedSoftwarePromptFiles(workDir)
+          appLog(
+            'info',
+            `Stripped inherited software prompt files for nested child ${sessionId} in ${workDir}`,
+            'process',
+          )
+        }
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        appLog('warn', `Failed to strip inherited software prompts for nested child: ${errMsg}`, 'process')
+      }
+
       // Son: skip full worker software prompt + agent-control; still inject short Memory when mempalace is on.
       if (mempalaceEnabled) {
         try {
@@ -1578,16 +1620,6 @@ export class ProcessService {
 
   isStreaming(sessionId: string): boolean {
     return this.sessionStates.get(sessionId)?.streaming || false
-  }
-
-  /** Get the output parser instance */
-  getOutputParser(): OutputParser {
-    return this.outputParser
-  }
-
-  /** Get the state inference instance */
-  getStateInference(): StateInference {
-    return this.stateInference
   }
 
   /**

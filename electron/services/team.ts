@@ -114,33 +114,7 @@ export class TeamService {
       .map((r: any) => ({ ...r, members: JSON.parse(r.members_json || '[]'), messages: JSON.parse(r.messages_json || '[]'), results: JSON.parse(r.results_json || '[]') }))
   }
 
-  updateInstanceStatus(id: string, status: string): void {
-    this.db.raw.prepare('UPDATE team_instances SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id)
-  }
-
-  // ---- Members ----
-  getMembers(instanceId: string): any[] { return this.getInstance(instanceId)?.members || [] }
-
-  updateMemberStatus(memberId: string, status: string): void {
-    for (const inst of this.listInstances()) {
-      const idx = inst.members.findIndex((m: any) => m.instanceMemberId === memberId || m.id === memberId)
-      if (idx >= 0) {
-        inst.members[idx].status = status
-        this.db.raw.prepare('UPDATE team_instances SET members_json = ?, updated_at = ? WHERE id = ?')
-          .run(JSON.stringify(inst.members), new Date().toISOString(), inst.id)
-        break
-      }
-    }
-  }
-
   // ---- Messages ----
-  sendMessage(instanceId: string, fromRole: string, toRole: string, content: string, msgType: string = 'text'): any {
-    const id = uuidv4(); const now = new Date().toISOString()
-    this.db.raw.prepare('INSERT INTO team_messages (id, instance_id, from_role, to_role, content, msg_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, instanceId, fromRole, toRole, content, msgType, now)
-    return { id, instanceId, fromRole, toRole, content, msgType, createdAt: now }
-  }
-
   getMessages(instanceId: string, limit: number = 100): any[] {
     return this.db.raw.prepare('SELECT * FROM team_messages WHERE instance_id = ? ORDER BY created_at DESC LIMIT ?').all(instanceId, limit) as any[]
   }
@@ -155,24 +129,5 @@ export class TeamService {
 
   getTasks(instanceId: string): any[] {
     return this.db.raw.prepare('SELECT * FROM team_tasks WHERE instance_id = ? ORDER BY created_at').all(instanceId) as any[]
-  }
-
-  updateTaskStatus(taskId: string, status: string, completedBy: string = ''): void {
-    this.db.raw.prepare('UPDATE team_tasks SET status = ?, completed_by = ?, updated_at = ? WHERE id = ?')
-      .run(status, completedBy, new Date().toISOString(), taskId)
-  }
-
-  // Legacy
-  getDefinitions(): any[] { return this.listDefinitions() }
-  getInstances(): any[] { return this.listInstances() }
-  createInstance(data: any): any { return this.startInstance(data.definitionId || '', data.workingDir || '', data.task || '') }
-  updateInstance(id: string, data: any): void {
-    this.db.raw.prepare('UPDATE team_instances SET status = ?, members_json = ?, messages_json = ?, results_json = ?, updated_at = ? WHERE id = ?')
-      .run(data.status || 'idle', JSON.stringify(data.members || []), JSON.stringify(data.messages || []), JSON.stringify(data.results || []), new Date().toISOString(), id)
-  }
-  deleteInstance(id: string): void {
-    this.db.raw.prepare('DELETE FROM team_tasks WHERE instance_id = ?').run(id)
-    this.db.raw.prepare('DELETE FROM team_messages WHERE instance_id = ?').run(id)
-    this.db.raw.prepare('DELETE FROM team_instances WHERE id = ?').run(id)
   }
 }

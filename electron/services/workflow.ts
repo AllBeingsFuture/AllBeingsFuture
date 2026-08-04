@@ -94,10 +94,4 @@ export class WorkflowService {
     return (this.db.raw.prepare('SELECT * FROM workflow_executions ORDER BY started_at DESC LIMIT ?').all(limit) as any[])
       .map((r: any) => ({ ...r, results: JSON.parse(r.results_json || '[]') }))
   }
-
-  // Legacy methods
-  getAll(): any[] { return this.getAllWorkflows() }
-  create(data: any): any { return this.createWorkflow(data.name || '', data.description || '', JSON.stringify(data.steps || [])) }
-  update(id: string, data: any): void { this.updateWorkflow(id, data.name || '', data.description || '', JSON.stringify(data.steps || [])) }
-  delete(id: string): void { this.deleteWorkflow(id) }
 }

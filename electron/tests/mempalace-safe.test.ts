@@ -12,6 +12,8 @@ import {
   applyMempalaceSafeProxy,
   isMempalaceSafeWrapped,
   isMempalaceServer,
+  MEMPALACE_SAFE_DEFAULTS,
+  resolveSharedWriteLockPath,
   wrapMempalaceConfigIfNeeded,
 } from '../services/mempalace-safe.js'
 
@@ -53,10 +55,13 @@ test('wrapMempalaceConfigIfNeeded rewrites command to safe proxy', () => {
   assert.equal(wrapped.env.MEMPALACE_MCP_ALLOW_PEER_WRITER, '1')
   assert.equal(wrapped.env.FOO, '1')
   // Concurrent multi-agent write budgets (queue-and-succeed, not busy-skip)
-  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_MS, '90000')
-  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_MAX_MS, '120000')
-  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_RETRIES, '8')
-  assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, '25000')
+  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_MS, MEMPALACE_SAFE_DEFAULTS.LOCK_MAX_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_MAX_MS, MEMPALACE_SAFE_DEFAULTS.TOOL_MAX_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_TOOL_RETRIES, MEMPALACE_SAFE_DEFAULTS.TOOL_RETRIES)
+  assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, MEMPALACE_SAFE_DEFAULTS.CHILD_TIMEOUT_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_LOCK_MAX_HOLD_MS, MEMPALACE_SAFE_DEFAULTS.LOCK_MAX_HOLD_MS)
+  assert.equal(wrapped.env.ABF_MEMPALACE_WRITE_LOCK, resolveSharedWriteLockPath())
+  assert.match(wrapped.env.ABF_MEMPALACE_WRITE_LOCK, /abf_write\.lock$/)
 })
 
 test('wrapMempalaceConfigIfNeeded does not override user timeout env', () => {
@@ -80,7 +85,7 @@ test('wrapMempalaceConfigIfNeeded does not override user timeout env', () => {
   assert.equal(wrapped.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, '20000')
 })
 
-test('wrapMempalaceConfigIfNeeded is no-op for non-mempalace and already wrapped', () => {
+test('wrapMempalaceConfigIfNeeded is no-op for non-mempalace; already wrapped still gets budgets', () => {
   const other = wrapMempalaceConfigIfNeeded(
     'web',
     { command: 'npx', args: ['web'], env: {} },
@@ -95,6 +100,17 @@ test('wrapMempalaceConfigIfNeeded is no-op for non-mempalace and already wrapped
   )
   assert.equal(once.command, 'node')
   assert.deepEqual(once.args, [proxyPath])
+  // Already-wrapped configs still materialize queue budgets + shared lock path
+  assert.equal(once.env.ABF_MEMPALACE_TOOL_MAX_MS, MEMPALACE_SAFE_DEFAULTS.TOOL_MAX_MS)
+  assert.equal(once.env.ABF_MEMPALACE_CHILD_TIMEOUT_MS, MEMPALACE_SAFE_DEFAULTS.CHILD_TIMEOUT_MS)
+  assert.equal(once.env.ABF_MEMPALACE_WRITE_LOCK, resolveSharedWriteLockPath())
+  assert.equal(once.env.MEMPALACE_MCP_ALLOW_PEER_WRITER, '1')
+})
+
+test('resolveSharedWriteLockPath is absolute HOME-based by default', () => {
+  const p = resolveSharedWriteLockPath()
+  assert.ok(path.isAbsolute(p))
+  assert.match(p, /[\\/]\.mempalace[\\/]locks[\\/]abf_write\.lock$/)
 })
 
 test('applyMempalaceSafeProxy only rewrites mempalace keys', () => {
@@ -112,30 +128,40 @@ test('applyMempalaceSafeProxy only rewrites mempalace keys', () => {
 test('write-lock defaults align with multi-agent concurrent write queue', async () => {
   assert.ok(existsSync(writeLockPath), 'write-lock.mjs must exist')
   const mod = await import(pathToFileUrl(writeLockPath))
-  assert.equal(mod.DEFAULT_LOCK_MAX_WAIT_MS, 90_000)
-  assert.equal(mod.DEFAULT_LOCK_RETRIES, 200)
-  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MIN_MS, 30)
-  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MAX_MS, 400)
+  assert.equal(mod.DEFAULT_LOCK_MAX_WAIT_MS, 180_000)
+  assert.equal(mod.DEFAULT_LOCK_RETRIES, 400)
+  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MIN_MS, 25)
+  assert.equal(mod.DEFAULT_LOCK_BACKOFF_MAX_MS, 250)
   assert.equal(mod.DEFAULT_STALE_MS, 120_000)
+  assert.equal(mod.DEFAULT_MAX_HOLD_MS, 180_000)
   assert.equal(typeof mod.tryRemoveStale, 'function')
+  assert.equal(typeof mod.touchLock, 'function')
+  assert.equal(typeof mod.formatHolder, 'function')
   // Proxy env defaults must align with tool budget (queue wait + child write + retries)
   const proxySrc = readFileSync(proxyPath, 'utf8')
   assert.match(proxySrc, /ABF_MEMPALACE_LOCK_MAX_MS/)
   assert.match(proxySrc, /ABF_MEMPALACE_TOOL_MAX_MS/)
   assert.match(proxySrc, /ABF_MEMPALACE_CHILD_TIMEOUT_MS/)
+  assert.match(proxySrc, /ABF_MEMPALACE_LOCK_MAX_HOLD_MS/)
   assert.match(proxySrc, /DEFAULT_LOCK_RETRIES/)
   assert.match(proxySrc, /parseEnvInt\('ABF_MEMPALACE_TOOL_RETRIES',\s*DEFAULT_TOOL_RETRIES\)/)
   assert.match(proxySrc, /parseEnvInt\('ABF_MEMPALACE_TOOL_MAX_MS',\s*DEFAULT_TOOL_MAX_MS\)/)
-  assert.match(proxySrc, /DEFAULT_TOOL_MAX_MS\s*=\s*120_000/)
-  assert.match(proxySrc, /DEFAULT_TOOL_RETRIES\s*=\s*8/)
-  assert.match(proxySrc, /DEFAULT_CHILD_TIMEOUT_MS\s*=\s*25_000/)
+  assert.match(proxySrc, /DEFAULT_TOOL_MAX_MS\s*=\s*180_000/)
+  assert.match(proxySrc, /DEFAULT_TOOL_RETRIES\s*=\s*12/)
+  assert.match(proxySrc, /DEFAULT_CHILD_TIMEOUT_MS\s*=\s*90_000/)
   assert.match(proxySrc, /DEFAULT_READ_TIMEOUT_MS\s*=\s*60_000/)
   assert.match(proxySrc, /code:\s*-32002/)
-  assert.match(proxySrc, /Math\.min\(1500,\s*80\s*\*\s*2\s*\*\*\s*attempt\)/)
+  assert.match(proxySrc, /Math\.min\(2000,\s*100\s*\*\s*2\s*\*\*\s*attempt\)/)
   // Critical: lock-busy must retry inside tool budget, not return immediately
   assert.match(proxySrc, /ABF_WRITE_LOCK_BUSY/)
   assert.match(proxySrc, /canRetry/)
   assert.match(proxySrc, /continue/)
+  // Child hang: kill+respawn so mine_palace flock is released
+  assert.match(proxySrc, /restartChild/)
+  assert.match(proxySrc, /write-timeout/)
+  // MineAlreadyRunning / is held by must be treated as retryable peer lock
+  assert.match(proxySrc, /is held by/)
+  assert.match(proxySrc, /minealreadyrunning/)
   // Strategy comment: queue until tool budget
   assert.match(proxySrc, /cross-process exclusive write queue/)
 })
@@ -216,22 +242,20 @@ test('write-lock maxWaitMs deadline stops busy wait without inventing success', 
   assert.ok(elapsed >= 200, `should actually wait some backoff, elapsed=${elapsed}`)
 })
 
-test('write-lock: live holder is never stolen by stale reclaim', async () => {
+test('write-lock: live holder with fresh heartbeat is never stolen', async () => {
   const { acquireWriteLock, tryRemoveStale } = await import(pathToFileUrl(writeLockPath))
   const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mplock-live-'))
   const lockFile = path.join(dir, 'abf_write.lock')
-  const { writeFileSync, utimesSync, existsSync: fsExists } = await import('node:fs')
+  const { writeFileSync, existsSync: fsExists } = await import('node:fs')
 
-  // Create lock held by this live process
-  writeFileSync(lockFile, `${process.pid}\n`, 'utf8')
-  // Age mtime far beyond any stale threshold — live PID must still not be reclaimed
-  const old = new Date(Date.now() - 10 * 60 * 1000) // 10 minutes ago
-  utimesSync(lockFile, old, old)
+  // Create lock held by this live process with fresh heartbeat (body format: pid/start/hb)
+  const now = Date.now()
+  writeFileSync(lockFile, `${process.pid}\n${now}\n${now}\n`, 'utf8')
 
   try {
-    // Direct tryRemoveStale must refuse to reclaim live holder
-    const removed = tryRemoveStale(lockFile, { staleMs: 1_000 })
-    assert.equal(removed, false, 'tryRemoveStale must not reclaim live PID')
+    // Direct tryRemoveStale must refuse to reclaim live PID with fresh heartbeat
+    const removed = tryRemoveStale(lockFile, { staleMs: 1_000, maxHoldMs: 60_000 })
+    assert.equal(removed, false, 'tryRemoveStale must not reclaim live PID with fresh heartbeat')
     assert.equal(fsExists(lockFile), true, 'lock file must remain after tryRemoveStale')
 
     // Second acquire with short maxWait must get BUSY; lock still present
@@ -243,7 +267,8 @@ test('write-lock: live holder is never stolen by stale reclaim', async () => {
         minMs: 10,
         maxMs: 30,
         maxWaitMs: 150,
-        staleMs: 1_000, // well under aged mtime — still must not steal live PID
+        staleMs: 1_000,
+        maxHoldMs: 60_000,
       })
     } catch (e) {
       err = e as { code?: string; message?: string }
@@ -251,7 +276,68 @@ test('write-lock: live holder is never stolen by stale reclaim', async () => {
     assert.ok(err, 'must throw ABF_WRITE_LOCK_BUSY against live holder')
     assert.equal(err!.code, 'ABF_WRITE_LOCK_BUSY')
     assert.match(String(err!.message), /write lock busy/i)
+    assert.match(String(err!.message), /pid/)
     assert.equal(fsExists(lockFile), true, 'live holder lock must still be present after failed acquire')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('write-lock: stuck live holder (stale heartbeat) is reclaimed via maxHold', async () => {
+  const { acquireWriteLock, tryRemoveStale } = await import(pathToFileUrl(writeLockPath))
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mplock-maxhold-'))
+  const lockFile = path.join(dir, 'abf_write.lock')
+  const { writeFileSync, existsSync: fsExists } = await import('node:fs')
+
+  // Live PID but heartbeat aged beyond maxHoldMs → stuck holder reclaim
+  const oldHb = Date.now() - 10_000
+  writeFileSync(lockFile, `${process.pid}\n${oldHb}\n${oldHb}\n`, 'utf8')
+
+  try {
+    const removed = tryRemoveStale(lockFile, { staleMs: 3_600_000, maxHoldMs: 1_000 })
+    assert.equal(removed, true, 'tryRemoveStale must reclaim stuck live holder')
+    assert.equal(fsExists(lockFile), false, 'lock file must be gone after max-hold reclaim')
+
+    // Re-create stuck lock and acquire should succeed by reclaiming
+    writeFileSync(lockFile, `${process.pid}\n${oldHb}\n${oldHb}\n`, 'utf8')
+    const handle = await acquireWriteLock({
+      lockPath: lockFile,
+      retries: 5,
+      minMs: 10,
+      maxMs: 30,
+      maxWaitMs: 1000,
+      maxHoldMs: 1_000,
+    })
+    assert.equal(typeof handle.release, 'function')
+    assert.equal(typeof handle.touch, 'function')
+    handle.touch()
+    handle.release()
+    assert.equal(fsExists(lockFile), false, 'lock released after acquire+release')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('write-lock: release does not unlink successor lock after steal', async () => {
+  const { acquireWriteLock } = await import(pathToFileUrl(writeLockPath))
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'abf-mplock-own-'))
+  const lockFile = path.join(dir, 'abf_write.lock')
+  const { writeFileSync, readFileSync: rf, existsSync: fsExists } = await import('node:fs')
+
+  try {
+    // Simulate: we "held" lock, then someone stole it by rewriting with another pid body
+    // after our acquire — ownership check on release must not wipe successor.
+    const handle = await acquireWriteLock({
+      lockPath: lockFile,
+      retries: 3,
+      maxWaitMs: 1000,
+    })
+    // Externally overwrite with a different "owner" (successor after max-hold steal)
+    writeFileSync(lockFile, `1\n${Date.now()}\n${Date.now()}\n`, 'utf8')
+    handle.release()
+    assert.equal(fsExists(lockFile), true, 'successor lock must survive late release')
+    const body = rf(lockFile, 'utf8')
+    assert.match(body, /^1\b/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

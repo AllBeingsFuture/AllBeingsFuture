@@ -146,6 +146,9 @@ test('process.ts wires global getEnabledServerConfigs + role policy (source cont
   // agent-control only via shouldInjectAgentControl path — not unconditionally for every child
   assert.match(source, /Skipped worker prompt \+ agent-control for nested child/)
   assert.match(source, /Nested child .+ user MCPs injected, skipped/)
+  // Mempalace wrap diagnostics: warn when safe proxy missing for multi-agent sessions
+  assert.match(source, /isMempalaceSafeWrapped/)
+  assert.match(source, /behind safe proxy|NOT behind safe proxy/)
   // Must not re-introduce old injectAgentControlMcp-for-all-children pattern name without role gate
   assert.doesNotMatch(
     source,

@@ -104,9 +104,11 @@ test('abf-supervisor Memory requires mempalace_checkpoint for important conclusi
   assert.match(source, /must.*call|you \*\*must\*\* call/i)
   assert.match(source, /Orchestration sessions still file|reusable conclusions/i)
   assert.match(source, /peer lock|write lock busy/i)
-  assert.match(source, /1\s*[–-]\s*2\s*times|15\s*[–-]\s*20s|retry at most/i)
+  assert.match(source, /1\s*[–-]\s*2\s*times|retry at most/i)
+  assert.match(source, /2\s*min|queues?|do not abandon|still-running/i)
   assert.match(source, /skip checkpoint|report skipped|skip and report/i)
-  assert.doesNotMatch(source, /2\s*min(?:ute)?(?:\s*deadline)?|retry until success or\s*~?2/i)
+  // Must not reintroduce abandon-early 15–20s guidance (conflicts with ~2min proxy queue)
+  assert.doesNotMatch(source, /15\s*[–-]\s*20s/)
 })
 
 test('abf-worker prompt documents worktree isolation, commit, mempalace, must close sons', () => {
@@ -121,9 +123,10 @@ test('abf-worker prompt documents worktree isolation, commit, mempalace, must cl
   // Finish-gate: at least one checkpoint before done
   assert.match(source, /Before finishing.*mempalace_checkpoint|at least once/i)
   assert.match(source, /peer lock|write lock busy/i)
-  assert.match(source, /1\s*[–-]\s*2\s*times|15\s*[–-]\s*20s|retry at most/i)
+  assert.match(source, /1\s*[–-]\s*2\s*times|retry at most/i)
+  assert.match(source, /2\s*min|queues?|do not abandon|still-running/i)
   assert.match(source, /skip checkpoint|report skipped|skip and report/i)
-  assert.doesNotMatch(source, /2\s*min(?:ute)?(?:\s*deadline)?|retry until success or\s*~?2/i)
+  assert.doesNotMatch(source, /15\s*[–-]\s*20s/)
 })
 
 test('abf-worker requires spawn sons for non-trivial when agent-control present', () => {
