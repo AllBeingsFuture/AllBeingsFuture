@@ -106,10 +106,6 @@ vi.mock('../../../../bindings/electron-api', async (importOriginal) => {
   }
 })
 
-vi.mock('../../../hooks/useIpcEvent', () => ({
-  useIpcEvent: vi.fn(),
-}))
-
 vi.mock('../../../../bindings/allbeingsfuture/internal/services', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../bindings/allbeingsfuture/internal/services')>()
   return {

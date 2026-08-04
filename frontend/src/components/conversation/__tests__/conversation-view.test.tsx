@@ -50,10 +50,6 @@ vi.mock('../../../stores/sessionStore', () => ({
     typeof selector === 'function' ? selector(storeState) : storeState,
 }))
 
-vi.mock('../../../hooks/useIpcEvent', () => ({
-  useIpcEvent: vi.fn(),
-}))
-
 vi.mock('../../../app/api/workbench', () => ({
   workbenchApi: {
     session: {
