@@ -6,23 +6,28 @@
  * palace holds a process-lifetime exclusive writer lease, so peers get:
  *   "Peer MCP writer active… / palace peer lock — 未写入"
  *
+ * Strategy:
+ *   cross-process exclusive write queue (file lock) + in-process write chain;
+ *   reads unguarded; wait/retry until tool budget so concurrent multi-agent
+ *   writers eventually succeed (not busy-skip as the normal path).
+ *
  * This proxy:
  * 1. Spawns the user's real mempalace command (from env / argv)
  * 2. Sets MEMPALACE_MCP_ALLOW_PEER_WRITER=1 so peers are not sticky read-only
  * 3. Serializes write tools with a cross-process file lock + exponential backoff
- * 4. On peer-lock JSON-RPC errors, re-acquires lock and retries the tools/call
- *    (never reports success without a successful child response)
+ * 4. On peer-lock / lock-busy, re-acquires lock and retries the tools/call
+ *    within the overall tool budget (never reports success without a child OK)
  *
  * Env:
  *   ABF_MEMPALACE_COMMAND  — child executable (default: mempalace-mcp)
  *   ABF_MEMPALACE_ARGS     — JSON array of child args
  *   ABF_MEMPALACE_WRITE_LOCK — lock file path (optional)
- *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 80)
- *   ABF_MEMPALACE_LOCK_MAX_MS — total lock wait budget ms (default 18000)
- *   ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS — per-sleep backoff cap ms (default 800)
- *   ABF_MEMPALACE_TOOL_RETRIES — peer/lock-busy response retries (default 3)
- *   ABF_MEMPALACE_TOOL_MAX_MS — overall write tools/call deadline ms (default 30000)
- *   ABF_MEMPALACE_CHILD_TIMEOUT_MS — per-attempt child response timeout on writes (default 15000)
+ *   ABF_MEMPALACE_WRITE_RETRIES — lock acquire retries (default 200)
+ *   ABF_MEMPALACE_LOCK_MAX_MS — total lock wait budget ms (default 90000)
+ *   ABF_MEMPALACE_LOCK_BACKOFF_MAX_MS — per-sleep backoff cap ms (default 400)
+ *   ABF_MEMPALACE_TOOL_RETRIES — peer/lock-busy response retries (default 8)
+ *   ABF_MEMPALACE_TOOL_MAX_MS — overall write tools/call deadline ms (default 120000)
+ *   ABF_MEMPALACE_CHILD_TIMEOUT_MS — per-attempt child response timeout on writes (default 25000)
  *   MEMPALACE_MCP_ALLOW_PEER_WRITER — default forced to "1" unless already set
  *
  * Argv: node proxy.mjs [--] <command> [args...]
@@ -37,17 +42,21 @@ import {
   defaultLockPath,
   DEFAULT_LOCK_MAX_WAIT_MS,
   DEFAULT_LOCK_RETRIES,
+  DEFAULT_LOCK_BACKOFF_MIN_MS,
   DEFAULT_LOCK_BACKOFF_MAX_MS,
 } from './write-lock.mjs'
 
-/** Default overall write budget (lock wait + peer retries + child waits). */
-const DEFAULT_TOOL_MAX_MS = 30_000
+/** Default overall write budget (queue wait + own write + peer retries). */
+const DEFAULT_TOOL_MAX_MS = 120_000
 /** Default peer/lock-busy retries (deadline usually binds first). */
-const DEFAULT_TOOL_RETRIES = 3
-/** Default per-attempt child wait on write path. */
-const DEFAULT_CHILD_TIMEOUT_MS = 15_000
+const DEFAULT_TOOL_RETRIES = 8
+/** Default per-attempt child wait on write path (slow real checkpoint; hang still bounded). */
+const DEFAULT_CHILD_TIMEOUT_MS = 25_000
 /** Default wait for non-write child responses (reads / initialize). */
 const DEFAULT_READ_TIMEOUT_MS = 60_000
+
+/** Min remaining tool budget (ms) to bother another lock-busy retry. */
+const MIN_RETRY_REMAINING_MS = 200
 
 function parseEnvInt(name, fallback) {
   const raw = process.env[name]
@@ -216,8 +225,8 @@ function forwardToClient(msg) {
 }
 
 function peerRetryBackoffMs(attempt) {
-  // Cap at 1s so peer retries stay within the overall write budget
-  return Math.min(1000, 80 * 2 ** attempt)
+  // Modest cap so peer retries stay within overall write budget (lease clear)
+  return Math.min(1500, 80 * 2 ** attempt)
 }
 
 function busyLockErrorResponse(req, message, attempt) {
@@ -230,7 +239,7 @@ function busyLockErrorResponse(req, message, attempt) {
       data: {
         tool: toolNameFromRequest(req),
         retried: attempt,
-        hint: 'Another ABF session is writing the palace; retry later',
+        hint: 'Another ABF session is writing the palace; queued writers retry until tool budget',
       },
     },
   }
@@ -247,7 +256,7 @@ async function handleWriteCall(req) {
 
     let lock
     try {
-      // Cap single acquire wait by remaining overall tool budget
+      // Single acquire can span full remaining tool budget (queue until front)
       const remainingForLock = toolDeadline - Date.now()
       if (remainingForLock <= 0) break
       const effectiveMaxWait =
@@ -256,22 +265,20 @@ async function handleWriteCall(req) {
         lockPath,
         retries: lockRetries,
         maxWaitMs: effectiveMaxWait,
-        minMs: 50,
+        minMs: DEFAULT_LOCK_BACKOFF_MIN_MS,
         maxMs: lockBackoffMaxMs,
       })
     } catch (err) {
       if (err && err.code === 'ABF_WRITE_LOCK_BUSY') {
         lastLockBusyMessage = err.message
-        // Retry lock-busy inside the tool budget (like peer-lock), not fail-fast on first busy
-        const canRetry = attempt < toolRetries && Date.now() < toolDeadline
+        // Retry lock-busy while budget remains (~200ms+) and attempts left
+        const remaining = toolDeadline - Date.now()
+        const canRetry =
+          attempt < toolRetries && remaining > MIN_RETRY_REMAINING_MS
         if (!canRetry) {
           return busyLockErrorResponse(req, err.message, attempt)
         }
         const sleepFor = peerRetryBackoffMs(attempt)
-        const remaining = toolDeadline - Date.now()
-        if (remaining <= 0) {
-          return busyLockErrorResponse(req, err.message, attempt)
-        }
         await new Promise((r) => setTimeout(r, Math.min(sleepFor, remaining)))
         continue
       }
@@ -339,15 +346,12 @@ async function handleWriteCall(req) {
     }
 
     lastPeerErr = response
-    const canRetry = attempt < toolRetries && Date.now() < toolDeadline
+    const remaining = toolDeadline - Date.now()
+    const canRetry = attempt < toolRetries && remaining > MIN_RETRY_REMAINING_MS
     if (!canRetry) {
       return response
     }
     const sleepFor = peerRetryBackoffMs(attempt)
-    const remaining = toolDeadline - Date.now()
-    if (remaining <= 0) {
-      return response
-    }
     await new Promise((r) => setTimeout(r, Math.min(sleepFor, remaining)))
   }
 

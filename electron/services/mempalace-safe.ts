@@ -107,10 +107,11 @@ export function wrapMempalaceConfigIfNeeded(
     if (process.env[keyName] !== undefined && String(process.env[keyName]).trim() !== '') return
     env[keyName] = value
   }
-  withTimeoutDefaults('ABF_MEMPALACE_LOCK_MAX_MS', '18000')
-  withTimeoutDefaults('ABF_MEMPALACE_TOOL_MAX_MS', '30000')
-  withTimeoutDefaults('ABF_MEMPALACE_TOOL_RETRIES', '3')
-  withTimeoutDefaults('ABF_MEMPALACE_CHILD_TIMEOUT_MS', '15000')
+  // Concurrent multi-agent writers: queue budgets so writers succeed (not busy-skip)
+  withTimeoutDefaults('ABF_MEMPALACE_LOCK_MAX_MS', '90000')
+  withTimeoutDefaults('ABF_MEMPALACE_TOOL_MAX_MS', '120000')
+  withTimeoutDefaults('ABF_MEMPALACE_TOOL_RETRIES', '8')
+  withTimeoutDefaults('ABF_MEMPALACE_CHILD_TIMEOUT_MS', '25000')
 
   return {
     ...config,
