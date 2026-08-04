@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronRight, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -15,14 +15,9 @@ import StickerCard from './StickerCard'
 import type { ConversationMessage, FileChangeInfo } from '../../types/conversationTypes'
 import { useConversationScroll } from './useConversationScroll'
 import { useVirtualizedList } from './useVirtualizedList'
-import { resolveProviderDisplayInfo } from '../../utils/providerDisplay'
-import AgentActivityPanel from './AgentActivityPanel'
 import LiveStage from './LiveStage'
 import { useSessionViewport } from './useSessionViewport'
-import {
-  STREAM_SPLIT_SURFACE,
-  useSessionStreamStore,
-} from '../../stores/sessionStreamStore'
+import { useSessionStreamStore } from '../../stores/sessionStreamStore'
 import { splitMessagesToCommittedAndLive } from '../../core/chat/turnCommit'
 import type { LiveBuffer, SessionStreamEntry } from '../../types/sessionStreamTypes'
 
@@ -96,8 +91,6 @@ const COMPOSER_BOTTOM_GAP = 12
  * bottomOffset still uses composerClearance so height changes re-pin stick-to-bottom.
  */
 const CONTENT_TAIL_PAD_PX = 16
-/** Legacy path only — not used when STREAM_SPLIT_SURFACE is on. */
-const LIVE_RENDER_HOLD_MS = 700
 
 /** Best-effort committed fallback: strip in-flight partial tool rows from transcript. */
 function stripInFlightLiveTools(messages: ChatMessage[]): ChatMessage[] {
@@ -862,70 +855,6 @@ const ChildAgentBlock = memo(function ChildAgentBlock({ name, messages, childSes
   && prev.isActive === next.isActive
 ))
 
-/** Streaming indicator that shows tool operations when available */
-function StreamingIndicator({ messages, providerId }: { messages: ChatMessage[]; providerId?: string }) {
-  const lastMsg = messages[messages.length - 1]
-  const toolUse = lastMsg?.role === 'assistant' ? (lastMsg as any).toolUse as Array<{ name: string; input?: any }> | undefined : undefined
-  const thinking = lastMsg?.role === 'assistant' ? (lastMsg as any).thinking as string | undefined : undefined
-  const latestTool = toolUse?.[toolUse.length - 1]
-  const providerLabel = resolveProviderDisplayInfo(providerId).label
-
-  let statusText = '正在思考...'
-  let statusDetail = ''
-
-  if (latestTool) {
-    const icon = TOOL_ICONS[latestTool.name] || '🧰'
-    statusText = `${icon} ${latestTool.name}`
-    if (latestTool.input?.command) {
-      statusDetail = latestTool.input.command.length > 60
-        ? latestTool.input.command.slice(0, 60) + '...'
-        : latestTool.input.command
-    } else if (latestTool.input?.file_path || latestTool.input?.path) {
-      statusDetail = latestTool.input.file_path || latestTool.input.path
-    } else if (latestTool.input?.pattern) {
-      statusDetail = latestTool.input.pattern
-    } else if (latestTool.input?.description) {
-      statusDetail = latestTool.input.description.length > 60
-        ? latestTool.input.description.slice(0, 60) + '...'
-        : latestTool.input.description
-    }
-  } else if (thinking) {
-    statusText = '💭 思考中...'
-  }
-
-  return (
-    <motion.div
-      className="flex w-full max-w-[42rem] justify-start"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.25 }}
-    >
-      <div className="flex min-w-0 flex-col gap-1 py-1">
-        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-          <span className="font-medium tracking-[0.01em] text-zinc-400/90">{providerLabel}</span>
-          <span className="h-1 w-1 rounded-full bg-zinc-600" />
-          <span>{statusText}</span>
-          {toolUse && toolUse.length > 1 && (
-            <span className="text-[10px] text-zinc-600">({toolUse.length} 个操作)</span>
-          )}
-        </div>
-        <div className="pl-0.5">
-          {statusDetail ? (
-            <span className="block max-w-[540px] truncate font-mono text-[12px] text-zinc-500">{statusDetail}</span>
-          ) : (
-            <span className="flex gap-1.5 py-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '0ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '150ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500/70" style={{ animationDelay: '300ms' }} />
-            </span>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  )
-}
-
 export default function ConversationView({ session }: Props) {
   const {
     messages,
@@ -958,10 +887,6 @@ export default function ConversationView({ session }: Props) {
       || agentStream.phase === 'cancelling'),
   )
   const liveStreaming = streaming || agentStreamLive
-  // Legacy non-split path only — split surface keeps live content in LiveStage.
-  const [preferLiveMessages, setPreferLiveMessages] = useState(
-    STREAM_SPLIT_SURFACE ? false : liveStreaming,
-  )
   const composerRef = useRef<HTMLDivElement | null>(null)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
   const hasComposer = !isEnded || isChildSession
@@ -974,34 +899,10 @@ export default function ConversationView({ session }: Props) {
   )
   const { scrollMode, setScrollMode, onTranscriptScroll } = useSessionViewport(session.id)
 
-  useEffect(() => {
-    if (STREAM_SPLIT_SURFACE) {
-      // Split path does not use preferLiveMessages / LIVE_RENDER_HOLD.
-      setPreferLiveMessages(false)
-      return
-    }
-    if (liveStreaming) {
-      setPreferLiveMessages(true)
-      return
-    }
-
-    // Hold on to the live array briefly after streaming settles so the
-    // deferred snapshot does not flash older content back into view.
-    const timer = window.setTimeout(() => {
-      setPreferLiveMessages(false)
-    }, LIVE_RENDER_HOLD_MS)
-
-    return () => window.clearTimeout(timer)
-  }, [liveStreaming, session.id])
-  const shouldRenderLiveMessages = STREAM_SPLIT_SURFACE
-    ? false
-    : (liveStreaming || preferLiveMessages)
-
-  // Split surface: transcript groups from committed only (no in-flight LIVE tools).
+  // Transcript groups from committed only (no in-flight LIVE tools).
   // pinFollowOnSelect creates an empty entry shell — do not blank transcript until
   // dual-write / poll has hydrated committed or live.
   const committedMessages = useMemo(() => {
-    if (!STREAM_SPLIT_SURFACE) return messages
     if (isStreamEntryHydrated(streamEntry)) return streamEntry!.committed
     if (liveStreaming) {
       return splitMessagesToCommittedAndLive(messages, true).committed
@@ -1010,30 +911,10 @@ export default function ConversationView({ session }: Props) {
   }, [messages, streamEntry, liveStreaming])
 
   const liveBuffer: LiveBuffer | null = useMemo(() => {
-    if (!STREAM_SPLIT_SURFACE) return null
     if (isStreamEntryHydrated(streamEntry)) return streamEntry!.live
     if (!liveStreaming) return null
     return splitMessagesToCommittedAndLive(messages, true).live
   }, [messages, streamEntry, liveStreaming])
-
-  // When split is on: stop feeding content-length liveTailRevision churn.
-  // Stick-to-bottom only re-pins on committed length / session select (Phase 3
-  // reworks useConversationScroll fully). Live token/tool growth must not re-pin.
-  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
-  const lastContentLen = lastMessage?.content?.length || 0
-  const lastPartial = (lastMessage as { partial?: boolean } | undefined)?.partial ? 1 : 0
-  const liveTailRevision = STREAM_SPLIT_SURFACE
-    ? committedMessages.length
-    : shouldRenderLiveMessages
-      ? [
-          messages.length,
-          lastMessage?.role || '',
-          lastContentLen,
-          lastPartial,
-          agentStream?.lastSequence ?? -1,
-          agentStream?.lastEventAt ?? 0,
-        ].join(':')
-      : `${messages.length}:${lastContentLen}:${lastPartial}`
 
   const {
     bottomRef,
@@ -1048,25 +929,22 @@ export default function ConversationView({ session }: Props) {
     stickToBottomNow,
   } = useConversationScroll({
     sessionId: session.id,
-    messagesLength: STREAM_SPLIT_SURFACE ? committedMessages.length : messages.length,
-    // Split path: do not treat live streaming as transcript stick churn.
-    streaming: STREAM_SPLIT_SURFACE ? false : shouldRenderLiveMessages,
+    messagesLength: committedMessages.length,
+    // Live growth is LiveStage, not transcript stick churn.
+    streaming: false,
     bottomOffset: composerClearance,
-    liveTailRevision,
   })
 
-  // Pin follow + stick once when selecting a session (split surface).
+  // Pin follow + stick once when selecting a session.
   useEffect(() => {
-    if (!STREAM_SPLIT_SURFACE) return
     stickToBottomNow()
   }, [session.id, stickToBottomNow])
 
   // Follow mode: re-pin transcript only when committed grows (settle / user append).
   useEffect(() => {
-    if (!STREAM_SPLIT_SURFACE) return
     if (scrollMode !== 'follow') return
     stickToBottomNow()
-  }, [STREAM_SPLIT_SURFACE, scrollMode, committedMessages.length, stickToBottomNow])
+  }, [scrollMode, committedMessages.length, stickToBottomNow])
 
   const getScrollElement = useCallback(() => scrollContainerRef.current, [scrollContainerRef])
 
@@ -1115,17 +993,8 @@ export default function ConversationView({ session }: Props) {
     return () => clearInterval(timer)
   }, [pollChat, session.id])
 
-  const deferredMessages = useDeferredValue(STREAM_SPLIT_SURFACE ? committedMessages : messages)
-  // 流式期间以及刚结束的短暂缓冲期内直接渲染实时消息，
-  // 避免 deferred 快照回退到旧内容，造成会话区闪屏。
-  // Split path: always group committed (live tools live in LiveStage).
-  const groupedMessagesSource = STREAM_SPLIT_SURFACE
-    ? committedMessages
-    : shouldRenderLiveMessages
-      ? messages
-      : deferredMessages.length === 0 && messages.length <= 1
-        ? messages
-        : deferredMessages
+  // Always group committed (live tools / partials live in LiveStage).
+  const groupedMessagesSource = committedMessages
   const messageGroups = useMemo(() => groupMessages(groupedMessagesSource, session.id), [groupedMessagesSource, session.id])
   const estimatedConversationHeight = useMemo(
     () => messageGroups.reduce((sum, group) => sum + estimateMessageGroupHeight(group), 0),
@@ -1156,9 +1025,6 @@ export default function ConversationView({ session }: Props) {
     getScrollElement,
     markProgrammaticScroll,
     shouldSuppressPositiveScrollCompensation,
-    // Partial streaming tails: grow spacer with estimate so token growth does not
-    // wait on RO before totalHeight moves (stick-to-bottom stays smooth).
-    shouldPreferGrowingEstimate: messageGroupHasPartial,
   })
   const handleSend = useCallback(async (text: string, images?: Array<{data: string; mimeType: string}>) => {
     // Re-attach before append so subsequent streaming ResizeObserver growth sticks.
@@ -1202,17 +1068,9 @@ export default function ConversationView({ session }: Props) {
   }, [hasComposer, measureComposerHeight, session.id])
 
   const renderMessageGroup = useCallback((group: MessageGroup) => {
-    const isLastGroup = group.index + group.messages.length >= groupedMessagesSource.length
-    // Tool groups: live while partial/delta OR open tool_use without a completed
-    // result. Do NOT treat "last group during a turn" alone as live, or finished
-    // "执行了 N 个操作" stays expanded after tools settle.
-    // Thinking / child / message groups: still treat last group as live so the
-    // active tail keeps streaming UI when partial flags lag.
-    const groupIsLive = shouldRenderLiveMessages && (
-      group.type === 'tool_group'
-        ? (messageGroupHasPartial(group) || toolGroupHasOpenOperations(group))
-        : (isLastGroup || messageGroupHasPartial(group))
-    )
+    // Transcript is never live-in-list; live partials belong in LiveStage.
+    // Residual partial flags still mark a group active; settled tools stay collapsed.
+    const groupIsLive = messageGroupHasPartial(group)
 
     if (group.type === 'tool_group' && group.convMessages) {
       const fileOps = extractFileChanges(group.convMessages)
@@ -1271,18 +1129,16 @@ export default function ConversationView({ session }: Props) {
       <MessageBubble
         key={`msg-${group.index}-${index}`}
         message={msg}
-        isStreaming={shouldRenderLiveMessages}
+        isStreaming={false}
         providerId={session.providerId}
       />
     ))
-  }, [groupedMessagesSource, session.providerId, shouldRenderLiveMessages])
+  }, [session.providerId])
 
   const handleTranscriptScroll = useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
       handleScroll(event)
-      if (STREAM_SPLIT_SURFACE) {
-        onTranscriptScroll(event.currentTarget)
-      }
+      onTranscriptScroll(event.currentTarget)
     },
     [handleScroll, onTranscriptScroll],
   )
@@ -1372,21 +1228,6 @@ export default function ConversationView({ session }: Props) {
             )
           )}
 
-          {!STREAM_SPLIT_SURFACE && (
-            <AgentActivityPanel
-              stream={agentStream}
-              onPermissionResponse={handlePermissionResponse}
-            />
-          )}
-
-          {!STREAM_SPLIT_SURFACE && (
-            <AnimatePresence>
-              {(shouldRenderLiveMessages || ['starting', 'running'].includes(session.status)) && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !(messages[messages.length - 1] as any)?.content?.trim())) && (
-                <StreamingIndicator messages={messages} providerId={session.providerId} />
-              )}
-            </AnimatePresence>
-          )}
-
           <AnimatePresence>
             {chatError && (
               <motion.div
@@ -1403,16 +1244,14 @@ export default function ConversationView({ session }: Props) {
         </div>
       </div>
 
-      {STREAM_SPLIT_SURFACE && (
-        <LiveStage
-          live={liveBuffer}
-          stream={streamEntry?.stream ?? agentStream}
-          sessionId={session.id}
-          onPermissionResponse={handlePermissionResponse}
-        />
-      )}
+      <LiveStage
+        live={liveBuffer}
+        stream={streamEntry?.stream ?? agentStream}
+        sessionId={session.id}
+        onPermissionResponse={handlePermissionResponse}
+      />
 
-      {STREAM_SPLIT_SURFACE && scrollMode === 'free' && (
+      {scrollMode === 'free' && (
         <div className="pointer-events-none relative z-10 flex justify-center">
           <button
             type="button"

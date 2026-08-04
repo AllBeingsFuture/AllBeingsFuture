@@ -375,12 +375,12 @@ describe('ConversationView session boot', () => {
     })
   })
 
-  it('renders live streaming messages immediately even when deferred messages lag behind', async () => {
+  it('renders live streaming messages in LiveStage (not in committed transcript)', async () => {
     deferredValueState.enabled = true
     deferredValueState.value = [
       { role: 'assistant', content: 'deferred snapshot' } as ChatMessage,
     ]
-    // partial: open assistant is live (LiveStage) under split surface.
+    // partial: open assistant is live (LiveStage only).
     storeState.messages = [
       { role: 'assistant', content: 'live streaming output', partial: true } as ChatMessage,
     ]
@@ -389,15 +389,14 @@ describe('ConversationView session boot', () => {
     renderWithProviders(<ConversationView session={makeSession('running')} />)
 
     await waitFor(() => {
-      // Split surface: open assistant text is in LiveStage, not deferred transcript.
+      // Open assistant text is in LiveStage, not deferred transcript.
       expect(screen.getByTestId('live-stage-assistant-text')).toHaveTextContent('live streaming output')
     })
     expect(screen.queryByText('deferred snapshot')).not.toBeInTheDocument()
   })
 
-  it('split surface uses committed messages directly (no LIVE_RENDER_HOLD deferred flashback path)', async () => {
-    // STREAM_SPLIT_SURFACE: transcript groups from committed only; preferLiveMessages /
-    // LIVE_RENDER_HOLD_MS are not used. Deferred lag must not replace committed content.
+  it('uses committed messages for transcript (no deferred flashback into transcript)', async () => {
+    // Transcript groups from committed only. Deferred lag must not replace committed content.
     deferredValueState.enabled = true
     deferredValueState.value = [
       { role: 'assistant', content: 'stale deferred snapshot' } as ChatMessage,
@@ -419,7 +418,7 @@ describe('ConversationView session boot', () => {
     expect(screen.queryByText('stale deferred snapshot')).not.toBeInTheDocument()
   })
 
-  it('places LiveStage outside the transcript scroll container when split surface is on', async () => {
+  it('places LiveStage outside the transcript scroll container', async () => {
     const { container } = renderWithProviders(<ConversationView session={makeSession('running')} />)
     const scrollContainer = container.querySelector('[data-scroll-container]') as HTMLDivElement
 
@@ -427,8 +426,7 @@ describe('ConversationView session boot', () => {
       expect(storeState.pollChat).toHaveBeenCalledWith('session-1')
     })
 
-    // LiveStage mounts only when live/stream has content; with empty live it is null.
-    // Structure contract: composer is a sibling under the section, not inside scroll.
+    // LiveStage is a sibling of the scroll container; composer is also outside scroll.
     const composerShell = container.querySelector('[data-message-input-shell]')
     expect(composerShell).toBeInTheDocument()
     expect(scrollContainer.contains(composerShell)).toBe(false)
