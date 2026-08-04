@@ -17,6 +17,22 @@ import { useConversationScroll } from './useConversationScroll'
 import { useVirtualizedList } from './useVirtualizedList'
 import { resolveProviderDisplayInfo } from '../../utils/providerDisplay'
 import AgentActivityPanel from './AgentActivityPanel'
+import LiveStage from './LiveStage'
+import { useSessionViewport } from './useSessionViewport'
+import {
+  STREAM_SPLIT_SURFACE,
+  useSessionStreamStore,
+} from '../../stores/sessionStreamStore'
+import { splitMessagesToCommittedAndLive } from '../../core/chat/turnCommit'
+import type { LiveBuffer, SessionStreamEntry } from '../../types/sessionStreamTypes'
+
+/** True when dual-write / poll has populated the entry (not just pinFollow empty shell). */
+function isStreamEntryHydrated(entry: SessionStreamEntry | undefined): boolean {
+  if (!entry) return false
+  return entry.committed.length > 0
+    || entry.live != null
+    || (entry.stream?.lastSequence ?? -1) >= 0
+}
 
 interface Props {
   session: Session
@@ -80,7 +96,22 @@ const COMPOSER_BOTTOM_GAP = 12
  * bottomOffset still uses composerClearance so height changes re-pin stick-to-bottom.
  */
 const CONTENT_TAIL_PAD_PX = 16
+/** Legacy path only — not used when STREAM_SPLIT_SURFACE is on. */
 const LIVE_RENDER_HOLD_MS = 700
+
+/** Best-effort committed fallback: strip in-flight partial tool rows from transcript. */
+function stripInFlightLiveTools(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter((msg) => {
+    const m = msg as ChatMessage & {
+      role?: string
+      partial?: boolean
+      isDelta?: boolean
+    }
+    if (m.role !== 'tool_use' && m.role !== 'tool_result') return true
+    // In-flight LIVE tool rows belong in LiveStage, not mid-transcript.
+    return !(m.partial || m.isDelta)
+  })
+}
 
 function groupMessages(messages: ChatMessage[], sessionId: string): MessageGroup[] {
   const groups: MessageGroup[] = []
@@ -927,7 +958,10 @@ export default function ConversationView({ session }: Props) {
       || agentStream.phase === 'cancelling'),
   )
   const liveStreaming = streaming || agentStreamLive
-  const [preferLiveMessages, setPreferLiveMessages] = useState(liveStreaming)
+  // Legacy non-split path only — split surface keeps live content in LiveStage.
+  const [preferLiveMessages, setPreferLiveMessages] = useState(
+    STREAM_SPLIT_SURFACE ? false : liveStreaming,
+  )
   const composerRef = useRef<HTMLDivElement | null>(null)
   const isEnded = ['completed', 'terminated', 'error'].includes(session.status)
   const hasComposer = !isEnded || isChildSession
@@ -935,7 +969,17 @@ export default function ConversationView({ session }: Props) {
     ? Math.max(composerHeight, DEFAULT_COMPOSER_HEIGHT) + COMPOSER_BOTTOM_GAP
     : 0
 
+  const streamEntry = useSessionStreamStore(
+    useShallow((state) => state.entries[session.id]),
+  )
+  const { scrollMode, setScrollMode, onTranscriptScroll } = useSessionViewport(session.id)
+
   useEffect(() => {
+    if (STREAM_SPLIT_SURFACE) {
+      // Split path does not use preferLiveMessages / LIVE_RENDER_HOLD.
+      setPreferLiveMessages(false)
+      return
+    }
     if (liveStreaming) {
       setPreferLiveMessages(true)
       return
@@ -949,26 +993,47 @@ export default function ConversationView({ session }: Props) {
 
     return () => window.clearTimeout(timer)
   }, [liveStreaming, session.id])
-  const shouldRenderLiveMessages = liveStreaming || preferLiveMessages
+  const shouldRenderLiveMessages = STREAM_SPLIT_SURFACE
+    ? false
+    : (liveStreaming || preferLiveMessages)
 
-  // Token deltas keep messages.length stable; revision must change so stick-to-bottom
-  // re-pins while attached (matches historical chat:patch upsert_last behavior).
-  // After LIVE hold ends, still include content.length + partial so length-stable
-  // settle jumps (partial flip / late content) re-trigger the layout pin. Detached
-  // users are gated inside useConversationScroll — do not drop content sensitivity.
+  // Split surface: transcript groups from committed only (no in-flight LIVE tools).
+  // pinFollowOnSelect creates an empty entry shell — do not blank transcript until
+  // dual-write / poll has hydrated committed or live.
+  const committedMessages = useMemo(() => {
+    if (!STREAM_SPLIT_SURFACE) return messages
+    if (isStreamEntryHydrated(streamEntry)) return streamEntry!.committed
+    if (liveStreaming) {
+      return splitMessagesToCommittedAndLive(messages, true).committed
+    }
+    return stripInFlightLiveTools(messages)
+  }, [messages, streamEntry, liveStreaming])
+
+  const liveBuffer: LiveBuffer | null = useMemo(() => {
+    if (!STREAM_SPLIT_SURFACE) return null
+    if (isStreamEntryHydrated(streamEntry)) return streamEntry!.live
+    if (!liveStreaming) return null
+    return splitMessagesToCommittedAndLive(messages, true).live
+  }, [messages, streamEntry, liveStreaming])
+
+  // When split is on: stop feeding content-length liveTailRevision churn.
+  // Stick-to-bottom only re-pins on committed length / session select (Phase 3
+  // reworks useConversationScroll fully). Live token/tool growth must not re-pin.
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
   const lastContentLen = lastMessage?.content?.length || 0
   const lastPartial = (lastMessage as { partial?: boolean } | undefined)?.partial ? 1 : 0
-  const liveTailRevision = shouldRenderLiveMessages
-    ? [
-        messages.length,
-        lastMessage?.role || '',
-        lastContentLen,
-        lastPartial,
-        agentStream?.lastSequence ?? -1,
-        agentStream?.lastEventAt ?? 0,
-      ].join(':')
-    : `${messages.length}:${lastContentLen}:${lastPartial}`
+  const liveTailRevision = STREAM_SPLIT_SURFACE
+    ? committedMessages.length
+    : shouldRenderLiveMessages
+      ? [
+          messages.length,
+          lastMessage?.role || '',
+          lastContentLen,
+          lastPartial,
+          agentStream?.lastSequence ?? -1,
+          agentStream?.lastEventAt ?? 0,
+        ].join(':')
+      : `${messages.length}:${lastContentLen}:${lastPartial}`
 
   const {
     bottomRef,
@@ -983,11 +1048,25 @@ export default function ConversationView({ session }: Props) {
     stickToBottomNow,
   } = useConversationScroll({
     sessionId: session.id,
-    messagesLength: messages.length,
-    streaming: shouldRenderLiveMessages,
+    messagesLength: STREAM_SPLIT_SURFACE ? committedMessages.length : messages.length,
+    // Split path: do not treat live streaming as transcript stick churn.
+    streaming: STREAM_SPLIT_SURFACE ? false : shouldRenderLiveMessages,
     bottomOffset: composerClearance,
     liveTailRevision,
   })
+
+  // Pin follow + stick once when selecting a session (split surface).
+  useEffect(() => {
+    if (!STREAM_SPLIT_SURFACE) return
+    stickToBottomNow()
+  }, [session.id, stickToBottomNow])
+
+  // Follow mode: re-pin transcript only when committed grows (settle / user append).
+  useEffect(() => {
+    if (!STREAM_SPLIT_SURFACE) return
+    if (scrollMode !== 'follow') return
+    stickToBottomNow()
+  }, [STREAM_SPLIT_SURFACE, scrollMode, committedMessages.length, stickToBottomNow])
 
   const getScrollElement = useCallback(() => scrollContainerRef.current, [scrollContainerRef])
 
@@ -1036,14 +1115,17 @@ export default function ConversationView({ session }: Props) {
     return () => clearInterval(timer)
   }, [pollChat, session.id])
 
-  const deferredMessages = useDeferredValue(messages)
+  const deferredMessages = useDeferredValue(STREAM_SPLIT_SURFACE ? committedMessages : messages)
   // 流式期间以及刚结束的短暂缓冲期内直接渲染实时消息，
   // 避免 deferred 快照回退到旧内容，造成会话区闪屏。
-  const groupedMessagesSource = shouldRenderLiveMessages
-    ? messages
-    : deferredMessages.length === 0 && messages.length <= 1
+  // Split path: always group committed (live tools live in LiveStage).
+  const groupedMessagesSource = STREAM_SPLIT_SURFACE
+    ? committedMessages
+    : shouldRenderLiveMessages
       ? messages
-      : deferredMessages
+      : deferredMessages.length === 0 && messages.length <= 1
+        ? messages
+        : deferredMessages
   const messageGroups = useMemo(() => groupMessages(groupedMessagesSource, session.id), [groupedMessagesSource, session.id])
   const estimatedConversationHeight = useMemo(
     () => messageGroups.reduce((sum, group) => sum + estimateMessageGroupHeight(group), 0),
@@ -1195,13 +1277,28 @@ export default function ConversationView({ session }: Props) {
     ))
   }, [groupedMessagesSource, session.providerId, shouldRenderLiveMessages])
 
+  const handleTranscriptScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      handleScroll(event)
+      if (STREAM_SPLIT_SURFACE) {
+        onTranscriptScroll(event.currentTarget)
+      }
+    },
+    [handleScroll, onTranscriptScroll],
+  )
+
+  const jumpToLatest = useCallback(() => {
+    setScrollMode('follow')
+    stickToBottomNow()
+  }, [setScrollMode, stickToBottomNow])
+
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="conversation-view">
       <SessionToolbar session={session} />
 
       <div
         ref={scrollContainerRef}
-        onScroll={handleScroll}
+        onScroll={handleTranscriptScroll}
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         data-scroll-container
@@ -1275,16 +1372,20 @@ export default function ConversationView({ session }: Props) {
             )
           )}
 
-          <AgentActivityPanel
-            stream={agentStream}
-            onPermissionResponse={handlePermissionResponse}
-          />
+          {!STREAM_SPLIT_SURFACE && (
+            <AgentActivityPanel
+              stream={agentStream}
+              onPermissionResponse={handlePermissionResponse}
+            />
+          )}
 
-          <AnimatePresence>
-            {(shouldRenderLiveMessages || ['starting', 'running'].includes(session.status)) && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !(messages[messages.length - 1] as any)?.content?.trim())) && (
-              <StreamingIndicator messages={messages} providerId={session.providerId} />
-            )}
-          </AnimatePresence>
+          {!STREAM_SPLIT_SURFACE && (
+            <AnimatePresence>
+              {(shouldRenderLiveMessages || ['starting', 'running'].includes(session.status)) && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !(messages[messages.length - 1] as any)?.content?.trim())) && (
+                <StreamingIndicator messages={messages} providerId={session.providerId} />
+              )}
+            </AnimatePresence>
+          )}
 
           <AnimatePresence>
             {chatError && (
@@ -1301,6 +1402,28 @@ export default function ConversationView({ session }: Props) {
           </AnimatePresence>
         </div>
       </div>
+
+      {STREAM_SPLIT_SURFACE && (
+        <LiveStage
+          live={liveBuffer}
+          stream={streamEntry?.stream ?? agentStream}
+          sessionId={session.id}
+          onPermissionResponse={handlePermissionResponse}
+        />
+      )}
+
+      {STREAM_SPLIT_SURFACE && scrollMode === 'free' && (
+        <div className="pointer-events-none relative z-10 flex justify-center">
+          <button
+            type="button"
+            data-testid="jump-to-latest"
+            onClick={jumpToLatest}
+            className="pointer-events-auto -mt-3 mb-1 rounded-full border border-white/[0.1] bg-zinc-900/95 px-3 py-1 text-[11px] font-medium text-zinc-300 shadow-lg hover:border-sky-400/30 hover:text-sky-100"
+          >
+            回到最新
+          </button>
+        </div>
+      )}
 
       {hasComposer && (
         <div ref={composerRef} data-message-input-shell>
