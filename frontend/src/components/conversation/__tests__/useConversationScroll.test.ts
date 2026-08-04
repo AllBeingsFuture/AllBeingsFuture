@@ -590,6 +590,85 @@ describe('useConversationScroll', () => {
     expect(el.scrollTop).toBe(80)
   })
 
+  it('settled turn: after scroll-up, ResizeObserver / length churn must not yank to bottom', () => {
+    // User report: 输出时、输出结束都一样 — 往上滑经常滑不上去.
+    // After stream ends (streaming=false), markdown remeasure and deferred
+    // snapshots still fire RO; those must not re-stick.
+    const { el, metrics } = createScrollContainer({ scrollHeight: 2000, clientHeight: 400 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 12, streaming: false },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 12, streaming: false })
+    flushAnimationFrames()
+    // Initial pin to bottom (force window).
+    expect(el.scrollTop).toBe(1600)
+
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      result.current.handleWheel({ deltaY: -80 } as WheelEvent)
+      el.scrollTop = 400
+      result.current.handleScroll()
+    })
+    expect(el.scrollTop).toBe(400)
+    expect(result.current.shouldSuppressPositiveScrollCompensation()).toBe(true)
+
+    // Settled remeasure (markdown / font / deferred messages).
+    metrics.scrollHeight = 2600
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(400)
+
+    // liveTailRevision-style length-stable re-render must not re-pin when settled.
+    act(() => {
+      rerender({ sessionId: 's1', length: 12, streaming: false })
+    })
+    flushAnimationFrames()
+    expect(el.scrollTop).toBe(400)
+  })
+
+  it('does not stick on content growth when viewport is mid-history (isNearBottom false)', () => {
+    // Defense: even if detach flag were wrong, mid-history geometry must not follow.
+    const { el, metrics } = createScrollContainer({ scrollHeight: 3000, clientHeight: 400, scrollTop: 1200 })
+
+    const { result, rerender } = renderHook(({ sessionId, length, streaming }) => useConversationScroll({
+      sessionId,
+      messagesLength: length,
+      streaming,
+      bottomOffset: 96,
+    }), {
+      initialProps: { sessionId: 's1', length: 20, streaming: false },
+    })
+
+    attachContainer(result, el, rerender, { sessionId: 's1', length: 20, streaming: false })
+    flushAnimationFrames()
+
+    // Leave the live tail without relying on wheel (scrollbar jump).
+    act(() => {
+      vi.advanceTimersByTime(3100)
+      el.scrollTop = 600
+      result.current.handleScroll()
+    })
+    expect(el.scrollTop).toBe(600)
+
+    metrics.scrollHeight = 3600
+    act(() => {
+      resizeObserverInstances.forEach((observer) => observer.trigger())
+    })
+    flushAnimationFrames()
+
+    // Must not jump to new bottom (3600 - 400 = 3200).
+    expect(el.scrollTop).toBe(600)
+  })
+
   it('stickToBottomNow re-attaches after detach and follows later content growth', () => {
     // Mirrors user-send: had scrolled up to read history, then explicitly sends.
     // Passive message growth must stay detached; stickToBottomNow must re-stick.

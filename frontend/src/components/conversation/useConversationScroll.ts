@@ -41,12 +41,13 @@ const HISTORY_OVERSCAN_BOOST_PX = 800
 /**
  * 统一管理会话视图的滚动行为。
  *
- * 要点：
- * - 切换会话后短暂强制跟随到底部，确保历史记录落在最新位置
- * - 用户一旦上滑（任意速度：滚轮/触控板/拖条）立即 detach，流式增高绝不能抢视口
- * - 阅读历史期间禁止虚拟列表「正补偿」scrollTop，避免 remeasure 与上滑对打
- * - 仅在用户明确向下回到贴底带时 re-attach
- * - 快速大 delta 额外同步 metrics / 加大 overscan（慢滑同样走 detach + 禁正补偿）
+ * 要点（streaming 与 settled 同一纪律）：
+ * - 自动跟底 **仅当** 视口已在贴底带（isNearBottom）且用户未上滑脱离
+ * - 绝不能用「默认 stick=true」在 mid-history 被 RO/remeasure 拉回底部
+ *   （这是「输出中 / 输出结束都滑不上去」的主因之一）
+ * - 用户上滑（wheel/触控板/拖条）立即 detach；阅读历史禁止虚拟列表正补偿
+ * - 仅在用户明确向下回到贴底带且曾真正远离底部后 re-attach
+ * - 切换会话后短暂 pin 一次历史底部；之后同样受贴底带约束
  */
 export function useConversationScroll({
   sessionId,
@@ -176,6 +177,11 @@ export function useConversationScroll({
     // Detach / upward intent always wins — including wheel-up before scroll.
     if (userDetachedRef.current) return false
     if (lastUserScrollIntentRef.current === 'up') return false
+    // Hard gate: only follow when the viewport is already on the live tail.
+    // Without this, any "attached" session mid-history was still stick=true by
+    // default, so ResizeObserver / layout remeasure / composer resize yanked
+    // scrollTop to bottom after stream end and during output alike.
+    if (!isNearBottomRef.current) return false
     if (userInputActiveRef.current && !isNearBottomRef.current) return false
     return true
   }, [])
@@ -249,9 +255,11 @@ export function useConversationScroll({
 
   /**
    * 内容尺寸变化时的滚动策略：
-   * - 贴底跟随：继续 scrollToBottom
-   * - 已脱离：绝不自动滚到底；仅在 scrollHeight 变矮导致超出可滚范围时夹紧
-   * - 视口上方条目重测的精确补偿由虚拟列表负责，且阅读历史时不做正补偿
+   * - 仅当 shouldStickToBottom（已在贴底带且未上滑）：scrollToBottom 跟新输出
+   * - 否则（阅读历史 / settled 中部）：绝不自动滚到底
+   * - 注意：内容增高会使 distanceFromBottom 变大，但 **不能** 据此把 isNearBottom
+   *   打成 false——否则贴底跟随会在 token/markdown 增高时自我拆掉
+   * - 仅在 scrollHeight 变矮导致超出可滚范围时夹紧
    */
   const preserveScrollAnchorOnContentResize = useCallback(() => {
     const el = scrollContainerRef.current
@@ -266,7 +274,7 @@ export function useConversationScroll({
       return
     }
 
-    // Detached: never pull toward bottom. Only clamp if we overflow the max range.
+    // Not sticking: never pull toward bottom. Only clamp if we overflow max range.
     if (previousHeight > 0 && nextHeight < previousHeight) {
       const maxScrollTop = Math.max(nextHeight - el.clientHeight, 0)
       if (el.scrollTop > maxScrollTop) {
@@ -446,6 +454,8 @@ export function useConversationScroll({
 
   // useLayoutEffect so stick happens before paint when token deltas grow the
   // virtual spacer — avoids one-frame "latest text below fold" flashes.
+  // Settled (streaming=false): only re-pin when message count grows AND still
+  // near bottom — never on pure layout thrash after the turn ends.
   useLayoutEffect(() => {
     const previousCount = prevMsgCountRef.current
     prevMsgCountRef.current = messagesLength
@@ -457,8 +467,9 @@ export function useConversationScroll({
       return
     }
 
-    // Streaming often mutates the last bubble in place (length stable). Pin on
-    // content revision as well as RO growth so the latest delta stays visible.
+    // Live token / tool growth only while the turn is still streaming.
+    // After settle, liveTailRevision may still churn (markdown, hold window);
+    // do not treat that as a reason to force the viewport to the tail.
     if (streaming && messagesLength > 0) {
       scrollToBottom(true)
     }

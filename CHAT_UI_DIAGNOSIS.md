@@ -12,9 +12,11 @@
 |------|------|--------|
 | ✅ 已做 | 终态 finalize 清除 `tool_use.isDelta`、收敛 open `toolStatus` | `74df920` |
 | ✅ 已做 | **结构性**：取消 silence fail-open 抢内容权；活跃 turn 只认 `agent:stream` | `8f362cc` |
-| ✅ 已做 | **滚动**：假贴底禁止误 re-attach；虚拟列表 group key 稳定化 | `2fc2d70` |
-| ✅ 已做 | 回归测试：双通道 silence、finalize、假贴底 re-attach、getGroupKey | 同上 |
+| ✅ 已做 | **滚动 v1**：假贴底禁止误 re-attach；虚拟列表 group key 稳定化 | `2fc2d70` |
+| ✅ 已做 | **滚动 v2（用户确认 ended 也坏）**：贴底仅当 `isNearBottom`；settled 不因 revision 强拉；长历史关闭 bottom-align | 见 §F 最新 commit |
+| ✅ 已做 | 回归测试：双通道 silence、finalize、假贴底、getGroupKey、**settled 上滑** | 同上 |
 | ❌ 未做 | 后端停双发 `chat:update`（仍双 emit，前端已忽略 mid-turn） | — |
+| ❌ 未做 | 嵌套 `overflow-y-auto`（工具/思考块）wheel 不冒泡（次要） | — |
 | ❌ 未做 | Conversation 模块整体重写 / 换前端栈 | 不建议，见 §D |
 | ❌ 未做 | push / 开 PR | 按约束禁止 |
 
@@ -67,14 +69,35 @@ detach / suppress 正补偿 / 假贴底 re-attach 补丁串
 - **状态：** `8f362cc` 后：活跃 phase **仅** `agent:stream` 改内容；legacy 只允许 user append 与 `streaming:false` 终态对账。  
 - **残留：** 后端仍双发（噪声/浪费）；若某 provider **不发** `agent:stream` 会静默。
 
-### P0 — 滚动「有时往上滑滑不上去」（本轮修）
+### P0 — 滚动「输出中 + 输出结束都滑不上去」（用户确认）
 
-- **现象：** 流式中上滑被拽回底部；或觉得滚不动。  
-- **根因 1（假贴底 re-attach）：** 虚拟 `totalHeight` 低估 → `distanceFromBottom` 始终很小 → 触控板微下滚被当成「回到底部」→ `userDetached=false` → stick 劫持。  
-- **根因 2（key 漂移）：** `getGroupKey` 用 `group.index`，工具插入后后续组 index 变 → remount / 丢 measured size → spacer 错 → 空白或可滚范围错。  
-- **状态：**  
-  - re-attach 要求 detached 期间曾真正「远离底部」(`>150px`)；  
-  - key 优先 `id|streamItemId|toolUseId|…`。
+用户明确：**不限于 streaming**，结束后一样。
+
+| 子因 | 为何 ended 也坏 | 修复 |
+|------|-----------------|------|
+| **A. stick 默认 true，不要求 isNearBottom** | 只要未 detach，**任意** RO（markdown 终态重排、字体、composer 测高、poll 后 layout）都会 `scrollToBottom`。流式 token 与 settled remeasure 走同一路径。 | `shouldStickToBottom` **必须** `isNearBottom` |
+| **B. settled 仍喂 liveTailRevision 类 pin** | `preferLiveMessages` 结束后仍有 length-stable 重渲染；旧逻辑在 `streaming` 窗口内 revision 强拉。 | 仅 `streaming===true` 时 revision 跟底；settled 只在 **消息条数增加且仍贴底** 时跟 |
+| **C. 假贴底 re-attach** | spacer 低估 → 中部也像 near-bottom → 微下滚 re-stick | 需曾真正远离底部才 re-attach |
+| **D. group key = index** | 工具插入 key 变 → 丢测量 → scroll 范围错（stream/settled 都有） | 稳定 id key |
+| **E. 长历史仍 bottom-align** | `7d39dd0` 为短流加的 `minHeight=viewport + justify-end` 套在长历史上，干扰 scrollHeight 感知 | **仅短会话**启用 bottom-align |
+
+**代码路径（ended 为何会锁滚）：**
+
+```
+stream ends → markdown/partial→settled remount heights
+  → content ResizeObserver → preserveScrollAnchorOnContentResize
+  → 旧: shouldStickToBottom() === true（默认 stick，仅看 detach）
+  → scrollToBottom()  ← 用户若刚上滑未成功 detach，或 RO 在 detach 前开火
+  → 视口被钉在底部（streaming 与 settled 相同）
+```
+
+新纪律：
+
+```
+shouldStick = !detached && intent!=='up' && isNearBottom
+// 用户上滑 → detach + isNearBottom=false → 任何 RO/revision 不得 pin
+// 仅「已在贴底带 + 新内容」才跟底
+```
 
 ### P1 — 终态 live 标记残留（已修）
 
@@ -82,11 +105,10 @@ detach / suppress 正补偿 / 假贴底 re-attach 补丁串
 - **根因：** `finalizeMessages` 保留 `tool_use.isDelta`、不收敛 `toolStatus`。  
 - **状态：** `74df920`。
 
-### P1 — 贴底与 RO / liveTailRevision 对打（已有大量测试，纪律需保持）
+### P1 — 贴底与 RO / liveTailRevision（纪律已收紧）
 
 - **机制：** `useConversationScroll` + 双 ResizeObserver + `liveTailRevision`。  
-- **正确纪律：** detach / upward intent 一律不 `scrollToBottom`；阅读历史禁止虚拟列表正补偿。  
-- **风险：** 再引入「silence 式」自动 re-stick 会立刻回归。
+- **正确纪律：** 上滑优先；**仅贴底带**自动跟；settled 不因 revision 强拉；阅读历史禁止虚拟列表正补偿。
 
 ### P2 — 工具卡 / 折叠语义产品抖动
 
@@ -110,8 +132,8 @@ detach / suppress 正补偿 / 假贴底 re-attach 补丁串
 |------|------|
 | `agentStreamCore.ts` | phase-only 内容所有权；finalize 清 isDelta / toolStatus |
 | `sessionSnapshotStore.ts` | mid-turn 忽略 legacy 内容；poll 仅终态对账 |
-| `useConversationScroll.ts` | `wasFarFromBottomWhileDetached` 门闩 |
-| `ConversationView.tsx` | 稳定 `getGroupKey`；透传 `partial` |
+| `useConversationScroll.ts` | 假贴底 re-attach 门闩；**stick 要求 isNearBottom**；settled 不 revision 强拉 |
+| `ConversationView.tsx` | 稳定 `getGroupKey`；**长历史关闭 bottom-align**；透传 `partial` |
 
 ### C.2 测试锁
 
@@ -120,6 +142,8 @@ detach / suppress 正补偿 / 假贴底 re-attach 补丁串
 - finalize 后无 live tool 标记  
 - 假贴底微下滚不得 re-attach  
 - getGroupKey 在 index 漂移时稳定  
+- **settled + 上滑后 RO/length  churn 不得 yank**  
+- **mid-history 几何下内容增高不得 stick**
 
 ### C.3 验证命令
 
@@ -151,9 +175,11 @@ cd frontend && npm test -- --run
 
 1. 活跃 turn：仅 `agent:stream` 写 transcript。  
 2. Legacy：仅 user append + `streaming:false`。  
-3. 用户上滑：任何自动 scrollTop 写入必须先 `shouldStickToBottom()===false`。  
-4. 虚拟 key：禁止纯数组 index。  
-5. 新补丁必须带复现历史 bug 的测试。
+3. 自动跟底 **仅当** `isNearBottom && !detached && intent!=='up'`。  
+4. 用户上滑：任何自动 scrollTop 写入必须先 `shouldStickToBottom()===false`。  
+5. 虚拟 key：禁止纯数组 index。  
+6. bottom-align（minHeight+justify-end）仅短会话。  
+7. 新补丁必须带复现历史 bug 的测试（含 **settled 上滑**）。
 
 ---
 
@@ -162,17 +188,19 @@ cd frontend && npm test -- --run
 | 用户说法 | 最可能根因 | 本会话 |
 |----------|------------|--------|
 | 输出内容老有问题 | 双通道 + silence 抢内容 | 已收敛前端 |
-| 往上滑滑不上去 | 假贴底 re-attach + key 漂移 + 贴底劫持 | 已修 |
+| **往上滑滑不上去（中+结束）** | stick 不看 isNearBottom；RO 终态重测；假贴底；key；长史 bottom-align | **已修 v2** |
 | 工具一直执行中 | finalize isDelta/toolStatus | 已修 |
-| 空白一大截 | growing estimate / thinking 估高 | 历史已有 lead cap；key 稳定后应减少 |
+| 空白一大截 | growing estimate / thinking 估高 | lead cap + key |
 | 修了很多 commit 仍坏 | 补丁叠在错误架构上 | 诊断见 §A |
 
 ---
 
 ## F. Commit 列表（本 worktree，勿 push）
 
-1. `74df920` — `fix(chat): clear live tool markers on stream terminal events`  
-2. `8f362cc` — `fix(chat): stop silence fail-open from stealing stream content`  
-3. `2fc2d70` — `fix(chat): block false-bottom reattach and stabilize virtual keys`  
+1. `74df920` — clear live tool markers on terminal events  
+2. `8f362cc` — stop silence fail-open from stealing stream content  
+3. `2fc2d70` — false-bottom reattach + stabilize virtual keys  
+4. `2083186` — docs: diagnosis hashes  
+5. （最新）— stick requires near-bottom; settled no revision yank; short-only bottom-align  
 
-（未 push / 未开 PR。）
+以 `git log -6 --oneline` 为准。未 push / 未开 PR。

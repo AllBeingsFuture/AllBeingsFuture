@@ -1048,6 +1048,11 @@ export default function ConversationView({ session }: Props) {
     messageGroups.length >= VIRTUALIZATION_GROUP_THRESHOLD
     || estimatedConversationHeight >= scrollMetrics.viewportHeight * VIRTUALIZATION_HEIGHT_MULTIPLIER
   )
+  // Bottom-align (minHeight + justify-end) is only for short threads. On long
+  // histories it fights scroll range / virtual spacer and contributes to
+  // "can't scroll up" after settle (7d39dd0 short-stream fix over-applied).
+  const useShortConversationAlign = scrollMetrics.viewportHeight > 0
+    && estimatedConversationHeight + CONTENT_TAIL_PAD_PX < scrollMetrics.viewportHeight
   const virtualOverscanPx = Math.max(
     VIRTUALIZATION_OVERSCAN_PX,
     Math.round(scrollMetrics.viewportHeight * VIRTUALIZATION_OVERSCAN_VIEWPORT_MULT),
@@ -1204,13 +1209,17 @@ export default function ConversationView({ session }: Props) {
       >
         <div
           ref={contentRef}
-          // Short sessions: fill the viewport and flex-end so messages/tool cards
-          // sit above the composer instead of top-aligning with a huge hole below.
-          className="mx-auto flex w-full max-w-[42rem] flex-col justify-end gap-6"
+          // Short sessions only: fill viewport + flex-end so cards sit above the
+          // composer. Long threads use natural top flow so scrollHeight tracks
+          // content (virtual spacer) without justify-end side effects.
+          className={[
+            'mx-auto flex w-full max-w-[42rem] flex-col gap-6',
+            useShortConversationAlign ? 'justify-end' : '',
+          ].join(' ')}
           style={{
-            minHeight: scrollMetrics.viewportHeight > 0
+            minHeight: useShortConversationAlign
               ? `${scrollMetrics.viewportHeight}px`
-              : '100%',
+              : undefined,
             paddingBottom: hasComposer ? `${CONTENT_TAIL_PAD_PX}px` : undefined,
           }}
         >
